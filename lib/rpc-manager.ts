@@ -1215,6 +1215,8 @@ export class AgentSessionWrapper {
           if (this.isDuplicatePromptSubmission(message) || this.isQueuedText(message)) {
             return { deduplicated: true };
           }
+          // Scoped SDK settings cannot watch files yet; remove this refresh after #16 (#17).
+          await this.inner.settings.reloadFromDisk();
           // A turn the operator asked for means the next continuation is wanted,
           // and supersedes one already scheduled.
           this.goalMode.onUserPrompt();
