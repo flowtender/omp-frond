@@ -28,6 +28,7 @@ import {
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
+import { NewModelsBadge, useEnabledModels } from "./EnabledModelsSection";
 import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -479,6 +480,9 @@ export function SettingsPanel({
 }: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>(initialSection);
+  // Loaded with the dialog, not the Models section, so its tab can show the new-model count.
+  const enabledModels = useEnabledModels(cwd);
+  const newModelCount = enabledModels.view?.newTotal ?? 0;
   const [mountedSections, setMountedSections] = useState<ReadonlySet<SettingsSection>>(
     () => new Set([section]),
   );
@@ -551,7 +555,7 @@ export function SettingsPanel({
           >
             {sections.map((item) => (
               <option key={item.id} value={item.id} disabled={item.requiresProject && !cwd}>
-                {item.label}
+                {item.label}{item.id === "models" && newModelCount > 0 ? ` (${newModelCount})` : ""}
               </option>
             ))}
           </select>
@@ -571,6 +575,7 @@ export function SettingsPanel({
                 >
                   <SettingsSectionIcon section={item.id} />
                   <span>{item.label}</span>
+                  {item.id === "models" && <NewModelsBadge controller={enabledModels} />}
                 </button>
               );
             })}
@@ -580,7 +585,7 @@ export function SettingsPanel({
 
         <main className="settings-dialog-main">
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
-          {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
+          {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} enabledModels={enabledModels} />)}
           {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
               status and load again in place when trusting from Settings › MCP changes it. */}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} trust={projectTrust} onClose={onClose} />)}

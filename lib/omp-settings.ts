@@ -38,6 +38,11 @@ export function setSetting(settings: Settings, path: SettingPath, value: unknown
   requireSetting(path).set(settings, value);
 }
 
+/** Removes `path` from the global config layer, so lower layers or the default apply. */
+export function unsetSetting(settings: Settings, path: SettingPath): void {
+  requireSetting(path).unset(settings);
+}
+
 export function isSettingConfigured(settings: Settings, path: SettingPath): boolean {
   return lookup(path)?.isConfigured(settings) ?? false;
 }

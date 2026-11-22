@@ -76,13 +76,14 @@ app/api/
   auth/api-key/[provider]/route.ts GET/POST/DELETE provider API key status/storage
   auth/login/[provider]/route.ts  GET OAuth/device-code SSE | POST manual code
   auth/logout/[provider]/route.ts POST OAuth logout
-  auth/providers/route.ts         GET OAuth provider list
+  auth/providers/route.ts         GET OAuth + API-key provider lists for the Models panel
   cwd/validate/route.ts           POST validate/select a cwd
   default-cwd/route.ts            POST create ~/omp-cwd-YYYYMMDD
   files/[...path]/route.ts        GET file contents for viewer | POST uploads
   home/route.ts                   GET user home directory
   model-roles/route.ts            GET/PUT omp's modelRoles record
   models/route.ts                 GET { models, modelList, defaultModel, roles }
+  models/enabled/route.ts         GET/PUT enabledModels switches (minimal pattern edits) + new-model tags
   models-config/route.ts          GET/PUT — read/write ~/.omp/agent/models.yml
   models-config/catalog/route.ts  GET models.dev pricing presets
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
@@ -106,12 +107,15 @@ lib/
   file-paths.ts        client/server path encoding helpers
   file-upload-client.ts browser upload to /api/files, shared by explorer and chat drops
   markdown.ts          shared markdown helpers
+  enabled-models.ts    pure minimal-edit editor for enabledModels patterns
+  enabled-models-runtime.ts  omp SDK adapter for it: per-pattern resolution, config.yml read/write
   model-roles.ts       omp's model roles, read/written for the browser
   model-scope.ts       enabledModels resolution shared by UI and startup
   npx.ts               npx runner used by skill install
   omp-runtime.ts       shared Settings + AuthStorage + ModelRegistry
   omp-types.ts         structural view of omp's AgentSession
   project-trust.ts     gates a project's executable resources
+  seen-models.ts       models already shown, for the "new" tags (omp-web-seen-models.json)
   push-client.ts       browser push subscription helpers
   web-push.ts          VAPID keys + web-push notification sending
   rpc-manager.ts       AgentSessionWrapper + registry + startRpcSession
@@ -136,6 +140,7 @@ components/
   MarkdownBody.tsx    markdown renderer
   ModelsConfig.tsx    modal for providers/auth (opened from sidebar bottom)
   ModelRolesPanel.tsx per-role model assignment inside that modal
+  EnabledModelsSection.tsx per-model enabledModels switches + controller hook + new-model badge
   PluginsConfig.tsx   modal for installed omp plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
   FileExplorer.tsx    file tree inside sidebar
@@ -229,6 +234,12 @@ omp-web and the TUI agree on the visible model list, and falls back to all
 available models when patterns resolve to nothing. Diagnostics are produced by
 re-resolving each pattern alone, because omp's resolver drops unmatched patterns
 silently.
+
+Settings › Models edits it through `/api/models/enabled` only, as a minimal edit
+of the stored patterns (ADR 0004, `docs/agents/models.md`): writes go to the
+global `config.yml` through the shared `Settings`, a project value or a
+path-scoped global entry makes the switches read-only, and models first seen
+since the last look are tagged "new" until switched or prompted with.
 
 ### Project trust is omp-web's own
 omp has no trust store — it runs a repository's extensions because you ran it
@@ -415,3 +426,13 @@ This project is indexed by GitNexus as **omp-web** (2786 symbols, 7305 relations
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

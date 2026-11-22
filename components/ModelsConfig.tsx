@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useId, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { ModelRolesPanel } from "./ModelRolesPanel";
 import { SearchableSelect } from "./SearchableSelect";
@@ -10,10 +10,19 @@ import type { DiscoveredModel } from "@/lib/model-discovery";
 import { ContextWindowError, normalizeContextWindowOverrides, withContextWindowOverride } from "@/lib/model-context";
 import type { ModelContextSettings } from "./ModelContextWindow";
 import {
+  EnabledModelsBanner,
+  EnabledModelsProviderSwitch,
+  EnabledModelsProviderSwitchNote,
+  EnabledModelsSection,
+  type EnabledModelsController,
+} from "./EnabledModelsSection";
+import { providerBadgeLabel } from "./enabled-models-helpers";
+import {
   getLastSettingsSelection,
   setLastSettingsSelection,
 } from "@/lib/settings-navigation";
 import {
+  collectModelRenames,
   hasModelCostDraftValue,
   modelCostToDraft,
   parseCompleteModelCost,
@@ -308,13 +317,14 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, editingName, provider, onChange, onEditingNameChange, onRename, onDelete, onAddModels }: {
+function ProviderDetail({ name, editingName, provider, onChange, onEditingNameChange, onRename, onDelete, onAddModels, enabledModels }: {
   name: string; editingName: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onEditingNameChange: (n: string) => void;
   onRename: (n: string) => void; onDelete: () => void;
-  onAddModels: (models: DiscoveredModel[]) => void;
+  onAddModels: (models: DiscoveredModel[]) => void; enabledModels: EnabledModelsController;
 }) {
   const { t } = useI18n();
+  const switchNoteId = useId();
   const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
   const [discoveryQuery, setDiscoveryQuery] = useState("");
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
@@ -403,9 +413,11 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
             <SectionTitle>{t("i18n.provider")}</SectionTitle>
           </ConfigDetailHeaderInfo>
           <ConfigDetailActions>
+            <EnabledModelsProviderSwitch providerId={name} controller={enabledModels} noteId={switchNoteId} />
             <ConfigButton variant="danger" size="small" onClick={onDelete}>{t("i18n.delete")}</ConfigButton>
           </ConfigDetailActions>
         </ConfigDetailHeader>
+        <EnabledModelsProviderSwitchNote providerId={name} controller={enabledModels} id={switchNoteId} />
       </div>
 
        <Field label={t("i18n.providerName")}>
@@ -1327,8 +1339,8 @@ function ModelDetail({
 
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
-function OAuthDetail({ provider, onRefresh, contextSettings }: {
-  provider: OAuthProvider; onRefresh: () => void;
+function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
+  provider: OAuthProvider; onRefresh: () => void; enabledModels: EnabledModelsController;
   contextSettings: ModelContextSettings;
 }) {
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
@@ -1576,14 +1588,15 @@ function OAuthDetail({ provider, onRefresh, contextSettings }: {
         )}
       </div>
 
+      {provider.loggedIn && <EnabledModelsSection providerId={provider.id} controller={enabledModels} contextSettings={contextSettings} />}
     </div>
   );
 }
 
 // ── API Key detail ────────────────────────────────────────────────────────────
 
-function ApiKeyDetail({ provider, onRefresh, contextSettings }: {
-  provider: ApiKeyProvider; onRefresh: () => void;
+function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
+  provider: ApiKeyProvider; onRefresh: () => void; enabledModels: EnabledModelsController;
   contextSettings: ModelContextSettings;
 }) {
   const [apiKey, setApiKey] = useState("");
@@ -1709,6 +1722,7 @@ function ApiKeyDetail({ provider, onRefresh, contextSettings }: {
 
       {error && <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{error}</p>}
 
+      {provider.configured && <EnabledModelsSection providerId={provider.id} controller={enabledModels} contextSettings={contextSettings} />}
     </div>
   );
 }
@@ -1856,8 +1870,10 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsChanged }: {
+export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsChanged, enabledModels }: {
   onClose: () => void; embedded?: boolean; cwd?: string | null; onModelsChanged?: () => void;
+  /** Owned by the settings dialog, which shows the new-model count on its Models tab. */
+  enabledModels: EnabledModelsController;
 }) {
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
@@ -1889,6 +1905,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
    */
   const [providerNameDraft, setProviderNameDraft] = useState<{ provider: string; name: string } | null>(null);
 
+  const refreshEnabledModels = enabledModels.refresh;
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
@@ -1899,6 +1916,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
       .catch(() => {})
       .finally(() => setAuthListed(true));
   }, []);
+  // A sign-in or a new key changes which models are available to switch.
+  const refreshProviderAccess = useCallback(() => {
+    refreshAuthProviders();
+    refreshEnabledModels();
+  }, [refreshAuthProviders, refreshEnabledModels]);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -2093,18 +2115,22 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
         setSavedOk(true);
         onModelsChanged?.();
         setTimeout(() => setSavedOk(false), 2000);
-        // models.json just changed: providers may have been renamed and models
-        // added, deleted or renamed — re-baseline what the draft now contains.
+        // models.yml just changed under the switches: providers may have been
+        // renamed, models added, deleted or renamed. Re-verify the stored
+        // patterns against the new catalog and re-read.
+        const renames = [...renamesRef.current].map(([from, to]) => ({ from, to }));
+        const modelRenames = collectModelRenames(draft, savedModelIdsRef.current, renamesRef.current);
         savedProvidersRef.current = new Set(Object.keys(draft.providers ?? {}));
         savedModelIdsRef.current = savedModelIds(draft);
         renamesRef.current.clear();
+        enabledModels.resync(renames, modelRenames);
       }
     } catch (e) {
       setSaveError(e instanceof ContextWindowError ? t("models.contextInvalid", { model: e.model }) : String(e));
     } finally {
       setSaving(false);
     }
-  }, [applyProviderRename, config, loadError, onModelsChanged, providerNameDraft, t]);
+  }, [applyProviderRename, config, enabledModels, loadError, onModelsChanged, providerNameDraft, t]);
 
   const providers = Object.entries(config.providers ?? {}).filter(([id, entry]) => {
     if (Object.keys(entry).length !== 1 || !entry.modelOverrides) return true;
@@ -2113,6 +2139,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
   });
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
   const activeApiKey = apiKeyProviders.filter((p) => p.configured);
+  // `12/40` next to a provider makes a narrowed selector visible at a glance.
+  const scopeBadge = (providerId: string) => {
+    const label = providerBadgeLabel(enabledModels.view, providerId);
+    return label ? <span className="models-sidebar-badge">{label}</span> : null;
+  };
 
   // Resolve current detail
   const detailContent = (() => {
@@ -2123,12 +2154,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} contextSettings={contextSettings(p.id)} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshProviderAccess} enabledModels={enabledModels} contextSettings={contextSettings(p.id)} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} contextSettings={contextSettings(p.id)} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshProviderAccess} enabledModels={enabledModels} contextSettings={contextSettings(p.id)} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -2145,6 +2176,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
+          enabledModels={enabledModels}
         />
       );
     }
@@ -2166,6 +2198,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
   return (
     <>
     <ConfigPanelShell embedded={embedded} title={t("common.models")} subtitle="~/.omp/agent/models.json" closeLabel={t("i18n.close")} onClose={onClose}>
+
+        <EnabledModelsBanner controller={enabledModels} />
 
         {/* Body */}
         <ConfigSplitView>
@@ -2196,6 +2230,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <ConfigSidebarText className="is-grow">{p.name}</ConfigSidebarText>
+                    {scopeBadge(p.id)}
                   </ConfigSidebarItem>
                 );
               })}
@@ -2211,6 +2246,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <ConfigSidebarText className="is-grow">{p.displayName}</ConfigSidebarText>
+                    {scopeBadge(p.id)}
                   </ConfigSidebarItem>
                 );
               })}
@@ -2243,6 +2279,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
                       <ConfigSidebarText className="is-grow">
                         {pName}
                       </ConfigSidebarText>
+                      {scopeBadge(pName)}
                     </ConfigSidebarItem>
 
                     {/* Model rows */}

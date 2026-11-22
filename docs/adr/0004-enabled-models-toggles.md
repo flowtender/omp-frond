@@ -3,7 +3,8 @@
 ## Status
 
 Accepted. Amended 2026-10-02: why a switch cannot move is visible text, not a
-tooltip (see "Chrome is a tooltip").
+tooltip (see "Chrome is a tooltip"). Amended 2026-11-21: ported to omp's SDK
+(see "omp port").
 
 ## Context
 
@@ -168,3 +169,26 @@ key and the counts never shrink.
   what they describe. Saving re-reads the view, and the section takes a `custom`
   flag so a models.json provider the runtime does not know yet — unsaved, empty,
   or with a key that does not work — is not reported as a missing sign-in.
+
+## omp port
+
+omp-web carries the same editor against omp's SDK instead of pi's. What
+changed, and why:
+
+- Matching is omp's `resolveModelScope()`: `Bun.Glob` instead of minimatch
+  (`*` still stops at `/`, so provider globs are still verified), and role
+  aliases such as `@smol` resolve through the cwd's `Settings`.
+- The value lives in `~/.omp/agent/config.yml`. Writes go through the
+  process-wide `Settings` and `flush()`, never a second `Settings.init()`.
+  A project value (`getProvenance()` = `project`) still makes the switches
+  read-only. omp's global list may also hold path-scoped entries
+  (`{ path, models }`); the editor cannot reproduce those, so it refuses to
+  write (`readOnlyReason: "path-scoped"`) rather than flatten them.
+- Every signed-in provider gets per-model switches; the view no longer
+  classifies providers as built-in or custom, because nothing read it.
+- pi-web's "Refresh catalog" button is not ported: it drove pi's pi.dev
+  catalog overlay, which omp does not have.
+- An empty scope reads as "every model" in omp-web's selector but as "no
+  model" in omp's TUI, which makes the last-model guard matter more, not less.
+- Models that appeared since omp-web last looked are tagged "new"
+  (`lib/seen-models.ts`, `docs/agents/models.md`).

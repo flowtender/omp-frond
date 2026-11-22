@@ -47,6 +47,8 @@ import { PRESET_FULL } from "./tool-presets";
 import { readSubagentRun } from "./subagents";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "./omp-types";
+import { markModelsSeen } from "./seen-models";
+import { modelRef } from "./enabled-models-runtime";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./omp-types";
 import { GoalModeController } from "./goal-mode";
 import type {
@@ -1311,6 +1313,15 @@ export class AgentSessionWrapper {
           });
 
           await preflight.promise;
+          // A model prompted once is no longer "new" in Settings › Models.
+          const promptedModel = this.inner.model;
+          if (promptedModel) {
+            try {
+              markModelsSeen(getAgentDir(), [modelRef(promptedModel)]);
+            } catch (error) {
+              console.error("[omp-web] could not record a used model:", error instanceof Error ? error.message : error);
+            }
+          }
           return null;
         } finally {
           releaseAdmission();

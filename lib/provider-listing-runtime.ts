@@ -21,17 +21,7 @@ export async function collectProviderListingInputs(): Promise<ProviderListingInp
     modelCounts.set(model.provider, (modelCounts.get(model.provider) ?? 0) + 1);
   }
 
-  // An OAuth login may store its credential under a different provider id
-  // (e.g. `openai-codex-device` ⇒ `openai-codex`); key by the id the model
-  // catalog actually uses so a logged-in provider is not listed twice.
-  const oauthByProvider = new Map<string, { id: string; name: string }>();
-  for (const provider of getOAuthProviders()) {
-    if (!provider.available) continue;
-    oauthByProvider.set(provider.storeCredentialsAs ?? provider.id, {
-      id: provider.id,
-      name: provider.name,
-    });
-  }
+  const oauthByProvider = oauthProvidersByCatalogId();
 
   const descriptorsById = new Map(PROVIDER_DESCRIPTORS.map((descriptor) => [descriptor.providerId, descriptor]));
   const ids = new Set<string>([
@@ -69,6 +59,22 @@ export async function collectProviderListingInputs(): Promise<ProviderListingInp
       modelCount: modelCounts.get(id) ?? 0,
     };
   });
+}
+
+/**
+ * Available OAuth logins keyed by the provider id the model catalog uses.
+ *
+ * An OAuth login may store its credential under a different provider id
+ * (e.g. `openai-codex-device` ⇒ `openai-codex`); keying by the catalog's id
+ * keeps a logged-in provider from being listed twice.
+ */
+export function oauthProvidersByCatalogId(): Map<string, { id: string; name: string }> {
+  const byProvider = new Map<string, { id: string; name: string }>();
+  for (const provider of getOAuthProviders()) {
+    if (!provider.available) continue;
+    byProvider.set(provider.storeCredentialsAs ?? provider.id, { id: provider.id, name: provider.name });
+  }
+  return byProvider;
 }
 
 /** OAuth login ids keyed by the provider whose credentials they store. */

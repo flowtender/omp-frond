@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ModelsConfig } from "./ModelsConfig";
+import { NewModelsBadge, useEnabledModels } from "./EnabledModelsSection";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { AccessConfig } from "./AccessConfig";
@@ -191,6 +192,8 @@ const DISPLAY_SETTING_PATHS = new Set(["hideThinkingBlock"]);
 
 export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, initialSection = "models", onClose, onModelsChanged, onReloaded }: SettingsConfigProps) {
   const [section, setSection] = useState<SettingsSection>(initialSection);
+  // Loaded with the dialog, not the Models section, so its entry can show the new-model count.
+  const enabledModels = useEnabledModels(cwd, onModelsChanged);
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -336,14 +339,14 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
           <div className={styles.searchWrap}><svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input className={styles.search} value={query} placeholder="Search /settings" onChange={(event) => setQuery(event.target.value)} /></div>
           <nav className={styles.nav}>
             <div className={styles.navLabel}>Configuration</div>
-            {CORE_SECTIONS.map((item) => <button key={item.id} type="button" className={styles.navButton} data-active={!query && section === item.id} disabled={item.requiresCwd && !cwd} title={item.requiresCwd && !cwd ? `${item.label} requires a project` : item.label} onClick={() => { setQuery(""); setSection(item.id); }}><SettingsIcon kind={item.icon}/><span>{item.label}</span></button>)}
+            {CORE_SECTIONS.map((item) => <button key={item.id} type="button" className={styles.navButton} data-active={!query && section === item.id} disabled={item.requiresCwd && !cwd} title={item.requiresCwd && !cwd ? `${item.label} requires a project` : item.label} onClick={() => { setQuery(""); setSection(item.id); }}><SettingsIcon kind={item.icon}/><span>{item.label}</span>{item.id === "models" && <NewModelsBadge controller={enabledModels} />}</button>)}
             <div className={styles.navLabel}>OMP settings</div>
             {settings?.tabs.map((tab) => <button key={tab.id} type="button" className={styles.navButton} data-active={!query && activeTab === tab.id} onClick={() => { setQuery(""); setSection(`settings:${tab.id}`); }}><SettingsIcon kind={tab.id}/><span>{tab.label}</span></button>)}
           </nav>
           <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close}><span>Close settings</span><span aria-hidden="true">×</span></button></div>
         </aside>
         <main className={styles.content}>
-          {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} onModelsChanged={onModelsChanged} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} /> : section === "access" ? <AccessConfig /> : renderGenericSettings()}
+          {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} onModelsChanged={onModelsChanged} enabledModels={enabledModels} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} /> : section === "access" ? <AccessConfig /> : renderGenericSettings()}
         </main>
       </div>
     </div>
