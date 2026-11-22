@@ -78,7 +78,9 @@ import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/omp-types";
-import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
+import { formatActiveDuration, formatCompactCount, formatCostShort, usageLevelColor } from "@/lib/session-stats-format";
+import type { ProviderUsageSummary } from "@/lib/provider-usage-types";
+import { ProviderUsageCompact, providerUsageRows, providerUsageTooltipParts } from "./ProviderUsageStats";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 
@@ -377,6 +379,8 @@ export function AppShell() {
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
   }, []);
+  // Subscription usage of the current model's account — populated by ChatWindow; replaces cost when present
+  const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null);
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "tools" | "session" | "language" | null>(null);
@@ -1864,15 +1868,15 @@ export function AppShell() {
     const tokens = sessionStats?.tokens;
     const cost = sessionStats?.cost ?? 0;
     const formatCompact = formatCompactCount;
-    const costText = formatCostShort(cost);
+    const costText = providerUsage ? null : formatCostShort(cost);
+    const now = Date.now();
 
     let contextColor = "var(--text-muted)";
     let desktopContextText: string | null = null;
     let mobileContextText: string | null = null;
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
-      if (percent !== null && percent > 90) contextColor = "#ef4444";
-      else if (percent !== null && percent > 70) contextColor = "rgba(234,179,8,0.95)";
+      contextColor = usageLevelColor(percent);
       desktopContextText = percent !== null
         ? `${percent.toFixed(0)}% / ${formatCompact(contextUsage.contextWindow)}`
         : `? / ${formatCompact(contextUsage.contextWindow)}`;
@@ -1885,18 +1889,20 @@ export function AppShell() {
       tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
       tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
       tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
-      if (cost > 0) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
+      if (cost > 0 && !providerUsage) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
     }
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
       tooltipParts.push(`context: ${percent !== null ? percent.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
     }
+    if (providerUsage) tooltipParts.push(...providerUsageTooltipParts(providerUsage, translate, now));
     const tooltip = tooltipParts.join("  |  ");
     const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
     const hasMobileValues = Boolean(
       (tokens && (tokens.input > 0 || tokens.output > 0))
       || costText
-      || mobileContextText,
+      || mobileContextText
+      || providerUsage,
     );
 
     return (
@@ -1961,6 +1967,7 @@ export function AppShell() {
                 {costText}
               </span>
             )}
+            {providerUsage && <ProviderUsageCompact usage={providerUsage} mobile now={now} />}
             {mobileContextText && (
               <span style={{ color: contextColor, flexShrink: 0 }}>
                 {mobileContextText}
@@ -2003,6 +2010,7 @@ export function AppShell() {
                 {costText}
               </span>
             )}
+            {providerUsage && <ProviderUsageCompact usage={providerUsage} mobile={false} now={now} />}
             {desktopContextText && (
               <span style={{ display: "flex", alignItems: "center", gap: 4, color: contextColor }}>
                 <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2498,7 +2506,7 @@ export function AppShell() {
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const extraTokenRows = [
-                       ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
+                       ...(sessionStats.cost > 0 && !providerUsage ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
                        ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompactCount(ctx.contextWindow)}`]] : []),
                        // Cache hit rate = cache reads / (input + cache writes + cache reads) — the denominator covers all input-class tokens.
                        ...(sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite > 0 && sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input > 0
@@ -2520,8 +2528,8 @@ export function AppShell() {
                             rowGap: 4,
                             justifyContent: compact ? "start" : undefined,
                           }}>
-                            {sectionRows.map(([label, value]) => (
-                              <div key={`${title}:${label}`} style={{ display: "contents" }}>
+                            {sectionRows.map(([label, value], index) => (
+                              <div key={`${title}:${index}`} style={{ display: "contents" }}>
                                 <div style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{label}</div>
                                 <div style={{
                                   color: "var(--text-muted)",
@@ -2646,7 +2654,10 @@ export function AppShell() {
                           {projectInfoSection}
                         </div>
                          {section(translate("session.messages"), messageRows)}
-                         {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
+                         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 16 : 20, minWidth: 0 }}>
+                           {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
+                           {providerUsage && section(translate("providerUsage.usage"), providerUsageRows(providerUsage, translate, locale, Date.now()))}
+                         </div>
                       </div>
                     );
                   })() : (
@@ -2695,6 +2706,7 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onOpenSettings={openSettingsSection}
               onContextUsageChange={handleContextUsageChange}
+              onProviderUsageChange={setProviderUsage}
               onSubagentsChange={setSubagents}
               onOpenFile={handleOpenLinkedFile}
               onFilesUploaded={handleExplorerRefresh}

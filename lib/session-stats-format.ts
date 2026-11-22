@@ -25,3 +25,22 @@ export function formatActiveDuration(ms: number): string {
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 }
+
+/** Time until a quota resets: 45m · 4h 12m · 5d 20h; `compact` keeps the largest unit only (4h · 5d). */
+export function formatResetCountdown(ms: number, compact = false): string {
+  const totalMin = Math.max(0, Math.ceil(ms / 60_000));
+  if (totalMin < 1) return "<1m";
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  if (d > 0) return compact ? `${d}d` : `${d}d ${h}h`;
+  if (h > 0) return compact ? `${h}h` : `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+/** The stats bar's warning colors, shared by context and subscription usage. */
+export function usageLevelColor(percent: number | null): string {
+  if (percent !== null && percent > 90) return "#ef4444";
+  if (percent !== null && percent > 70) return "rgba(234,179,8,0.95)";
+  return "var(--text-muted)";
+}
