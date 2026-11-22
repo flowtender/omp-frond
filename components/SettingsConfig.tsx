@@ -503,11 +503,18 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
               {server ? (
                 <>
                   <div className={styles.editorHeader}>
-                    <input className={styles.textInput} value={name} readOnly={server.editable === false} onChange={(event) => setName(event.target.value)} placeholder="server-name" />
+                    <input className={styles.textInput} aria-label="Server name" value={name} readOnly={server.editable === false} onChange={(event) => setName(event.target.value)} placeholder="server-name" />
                     {server.editable !== false && <button type="button" className={styles.dangerButton} onClick={removeServer}>Delete</button>}
                   </div>
                   {server.editable === false && <div className={styles.readOnlyNotice}>Configuration read-only · managed by {server.source?.provider ?? "an external provider"}. Status can be changed from the server list.</div>}
-                  <textarea className={styles.jsonEditor} value={json} readOnly={server.editable === false} spellCheck={false} onChange={(event) => setJson(event.target.value)} />
+                  <label className={styles.editorLabel} htmlFor="mcp-server-config">Single server configuration</label>
+                  {server.editable !== false && (
+                    <div className={styles.editorHelp} id="mcp-server-config-help">
+                      Enter only this server&apos;s JSON object, without the <code>mcpServers</code> wrapper or server-name key. Set the name above.
+                      <pre>{'{\n  "command": "gitnexus",\n  "args": ["mcp"]\n}'}</pre>
+                    </div>
+                  )}
+                  <textarea id="mcp-server-config" aria-describedby={server.editable !== false ? "mcp-server-config-help" : undefined} className={styles.jsonEditor} value={json} readOnly={server.editable === false} spellCheck={false} onChange={(event) => setJson(event.target.value)} />
                   <div className={styles.editorActions}>
                     <div>
                       {error && <div className={styles.error}>{error}</div>}

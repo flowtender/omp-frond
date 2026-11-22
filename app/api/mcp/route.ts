@@ -183,6 +183,9 @@ function validateServer(entry: McpServerEntry): McpServerEntry {
   if (!SERVER_NAME.test(name)) throw new Error(`Invalid MCP server name: ${name || "(empty)"}`);
   const config = entry.config;
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error(`${name}: config must be an object`);
+  if (Object.hasOwn(config, "mcpServers")) {
+    throw new Error(`${name}: paste only this server's configuration object, not the full mcp.json document. Remove the mcpServers wrapper and server-name key; enter the server name in the name field.`);
+  }
   const unknown = Object.keys(config).find((key) => !SERVER_KEYS[key]);
   if (unknown) throw new Error(`${name}: unknown property ${unknown}`);
   if (config.enabled !== undefined && typeof config.enabled !== "boolean") throw new Error(`${name}: enabled must be boolean`);

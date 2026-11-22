@@ -336,6 +336,9 @@
 .addServer { margin: 8px; height: 31px; border: 1px dashed var(--border); border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font: 11px var(--font-mono); }
 .mcpEditor { min-width: 0; padding: 20px; }
 .editorHeader { display: flex; gap: 8px; margin-bottom: 14px; }
+.editorLabel { display: block; margin-bottom: 8px; color: var(--text); font: 700 11px var(--font-mono); }
+.editorHelp { margin-bottom: 12px; color: var(--text-muted); font: 11px/1.55 var(--font-mono); }
+.editorHelp pre { margin: 8px 0 0; white-space: pre-wrap; }
 .jsonEditor { min-height: 290px; resize: vertical; padding: 12px; line-height: 1.55; }
 .readOnlyNotice { margin: -5px 0 10px; color: var(--text-dim); font: 10px var(--font-mono); }
 .jsonEditor:read-only, .textInput:read-only { background: var(--bg-subtle); color: var(--text-muted); cursor: default; }
