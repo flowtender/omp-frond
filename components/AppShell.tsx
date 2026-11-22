@@ -971,6 +971,7 @@ export function AppShell() {
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
     activeCwd,
+    onUncaughtTyping: rightPanelFullWidth ? undefined : () => chatInputRef.current?.focus(),
   });
 
   // Client-built transient SessionInfo (new session / fork) lacks the

@@ -46,6 +46,8 @@ interface UseGlobalKeyboardShortcutsOptions {
   onNewSession?: (cwd: string) => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;
+  /** Focus the current composer so an unhandled text key is inserted natively. */
+  onUncaughtTyping?: () => void;
 }
 
 /**
@@ -54,6 +56,7 @@ interface UseGlobalKeyboardShortcutsOptions {
  * Shortcuts handled here:
  *   Esc          – stop the running agent (via module-level abort handler)
  *   Ctrl+Alt+N   – create a new session in the active project directory
+ *   Uncaught text – focus the current chat composer when no dialog or control owns it
  *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
  * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping
@@ -64,7 +67,7 @@ interface UseGlobalKeyboardShortcutsOptions {
 export function useGlobalKeyboardShortcuts(
   options: UseGlobalKeyboardShortcutsOptions,
 ): void {
-  const { onNewSession, activeCwd } = options;
+  const { onNewSession, activeCwd, onUncaughtTyping } = options;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -79,10 +82,25 @@ export function useGlobalKeyboardShortcuts(
         if (!activeCwd || !onNewSession) return;
         e.preventDefault();
         onNewSession(activeCwd);
+        return;
       }
+
+      if (!onUncaughtTyping || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+      if (e.key.length !== 1 || e.ctrlKey || e.altKey || e.metaKey) return;
+      const controlSelector = "input, textarea, select, [role='textbox'], [role='combobox'], [role='listbox'], [role='menu'], [role='tree'], [role='grid']";
+      if (e.composedPath().some((target) => target instanceof HTMLElement
+        && (target.isContentEditable || target.matches(controlSelector)))) return;
+      if (e.key === " " && e.composedPath().some((target) => target instanceof HTMLElement
+        && target.matches("button, a[href], [role='button']"))) return;
+      const dialogs = document.querySelectorAll("[role='dialog'], [role='alertdialog'], dialog[open], [aria-modal='true']");
+      if (Array.from(dialogs).some((dialog) => dialog.getClientRects().length > 0)) return;
+
+      // Leave the default action intact: the browser inserts the first character
+      // into the newly focused textarea, including its input event and undo entry.
+      onUncaughtTyping();
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeCwd, onNewSession]);
+  }, [activeCwd, onNewSession, onUncaughtTyping]);
 }
