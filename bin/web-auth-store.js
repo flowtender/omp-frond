@@ -24,7 +24,7 @@ const { homedir } = require("node:os");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { basename, dirname, join, resolve } = require("node:path");
 
-/** Basic Auth username omp-web accepts. The password is the only secret. */
+/** Single-account identifier exposed to password-manager integrations. */
 const WEB_AUTH_USERNAME = "omp";
 
 /** Credential filename, kept next to the agent configuration. */

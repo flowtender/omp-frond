@@ -30,7 +30,7 @@ export interface WebAuthStatus {
   managedByEnvironment: boolean;
   /** The credential file exists but could not be parsed. */
   unreadable: boolean;
-  /** Basic Auth username omp-web accepts. */
+  /** Single-account identifier for password-manager integrations. */
   username: string;
   updatedAt: string | null;
   file: string;

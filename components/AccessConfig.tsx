@@ -26,7 +26,7 @@ function describeState(status: WebAccessStatus): string {
   }
   if (!status.configured) return "No password is set. Anyone who can reach this server can use it.";
   return status.enabled
-    ? "Every request needs the username and password."
+    ? "Sign in with your password to use this server."
     : "A password is stored but the lock is off.";
 }
 
@@ -84,19 +84,15 @@ export function AccessConfig() {
     if (!updated) return;
     setPassword("");
     setConfirmation("");
-    setNotice(
-      `Password saved and password access turned on. The browser will ask for the username "${updated.username}"`
-      + " and this password on the next request.",
-    );
+    window.location.replace("/login");
   }, [confirmation, password, send]);
 
   const toggleEnabled = useCallback(async () => {
     if (!status) return;
     const updated = await send(status.enabled ? "disable" : "enable");
     if (!updated) return;
-    setNotice(updated.enabled
-      ? `Password access is on. The browser will ask for the username "${updated.username}" and your password on the next request.`
-      : "Password access is off. The stored password is kept and can be switched back on here.");
+    if (updated.enabled) window.location.replace("/login");
+    else setNotice("Password access is off. The stored password is kept and can be switched back on here.");
   }, [send, status]);
 
   const clearPassword = useCallback(async () => {
@@ -117,8 +113,8 @@ export function AccessConfig() {
       <header className={styles.contentHeader}>
         <h2 className={styles.contentTitle}>Access</h2>
         <p className={styles.contentDescription}>
-          A password locks the web interface and every API endpoint behind HTTP Basic Auth, with the fixed
-          username <code>{status.username}</code>. It is stored as a scrypt hash in <code>{status.file}</code> —
+          A password locks the web interface and every API endpoint behind a sign-in page.
+          It is stored as a scrypt hash in <code>{status.file}</code> —
           omp-web never keeps the password itself, which is why forgetting it means recovering rather than reading it back.
         </p>
         {readOnly && (
@@ -156,6 +152,22 @@ export function AccessConfig() {
               />
             </div>
           </div>
+          {status.enabled && (
+            <button type="button" className={styles.dangerButton} disabled={busy} onClick={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                const response = await fetch("/api/web-access/logout", { method: "POST" });
+                if (!response.ok) throw new Error("Unable to sign out.");
+                window.location.replace("/login");
+              } catch (caught) {
+                setError(caught instanceof Error ? caught.message : String(caught));
+                setBusy(false);
+              }
+            }}>
+              Sign out of this device
+            </button>
+          )}
         </section>
 
         <section className={styles.group}>
@@ -233,10 +245,10 @@ export function AccessConfig() {
           </div>
           <div className={styles.settingRow}>
             <div>
-              <div className={styles.settingLabel}>Basic Auth is not encryption</div>
+              <div className={styles.settingLabel}>Use HTTPS or a trusted VPN</div>
               <div className={styles.settingDescription}>
-                The password crosses the network in a reversible encoding. Over plain HTTP on an untrusted network it can be
-                read in transit, so put omp-web behind HTTPS or a trusted VPN before exposing it beyond loopback.
+                The password is sent only when you sign in. The session cookie also grants access, so both need
+                HTTPS or a trusted VPN to protect them on an untrusted network.
               </div>
             </div>
             <div className={styles.settingControl} />

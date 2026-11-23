@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { PwaRegistration } from "@/components/PwaRegistration";
+import { AuthSessionGuard } from "@/components/AuthSessionGuard";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -69,6 +70,7 @@ export default function RootLayout({
       <body translate="no" className="notranslate" suppressHydrationWarning>
         {children}
         <PwaRegistration />
+        <AuthSessionGuard />
       </body>
     </html>
   );

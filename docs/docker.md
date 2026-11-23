@@ -23,8 +23,7 @@ OMP_WEB_PASSWORD='a-long-random-password' \
 OMP_UID=$(id -u) OMP_GID=$(id -g) docker compose up --build
 ```
 
-Then open <http://127.0.0.1:30141> and log in with the username `omp` and that
-password.
+Then open <http://127.0.0.1:30141> and enter that password on the sign-in page.
 
 `docker-compose.yml` mounts `$HOME/.omp` and the current directory, publishes
 the port on loopback only, and builds the image for the UID/GID you pass.
@@ -96,9 +95,9 @@ password once in **Settings → Access** and let it persist in the mounted
 host — the `-p 127.0.0.1:30141:30141` above keeps it local. Before widening
 that:
 
-- Turn the password on. Basic Auth does not encrypt the password in transit, so
-  terminate HTTPS at a trusted reverse proxy and set `OMP_WEB_ALLOWED_HOSTS` to
-  the hostname that proxy uses.
+- Turn the password on. Protect the login password and session cookie with
+  HTTPS at a trusted reverse proxy. Set `OMP_WEB_SECURE_COOKIES=1` in the
+  container and `OMP_WEB_ALLOWED_HOSTS` to the hostname that proxy uses.
 - Remember that the agent runs with the container's access to the mounts you
   gave it. Mount the narrowest project tree that is useful.
 

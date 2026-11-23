@@ -107,8 +107,8 @@ async function setPasswordInteractively(intro) {
   console.log(intro);
   console.log(`It is stored as a scrypt hash in ${webAuthFile} — omp-web never keeps the password itself.`);
   const password = await readNewPassword();
-  const status = setWebPassword(password, { file: webAuthFile });
-  console.log(`Password saved. omp-web now asks for the username "${status.username}" and this password.`);
+  setWebPassword(password, { file: webAuthFile });
+  console.log("Password saved. Sign in with this password on the omp-web login page.");
 }
 
 /**
@@ -153,7 +153,7 @@ function warnAboutExposure() {
   if (loopbackHostnames.has(hostname)) return;
   if (getWebAuthStatus({ file: webAuthFile }).enabled) {
     console.warn(
-      `Warning: omp-web is listening on ${hostname} with Basic Auth over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
+      `Warning: omp-web is listening on ${hostname} with password access over HTTP. Use HTTPS or a trusted VPN to protect the password and session cookie.`,
     );
   } else {
     console.warn(

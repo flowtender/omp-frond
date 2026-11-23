@@ -13,10 +13,9 @@ import type { WebAccessStatus } from "@/lib/api-types";
  * The password lock, as the settings panel drives it.
  *
  * Every request here has already passed `proxy.ts` — the host allow-list, the
- * cross-site rejection, and (once the lock is on) Basic Auth — so the route
- * itself only has to police the payload. Recovery is deliberately *not* here:
- * it is the one endpoint that answers without credentials, and it lives in
- * `./recovery`.
+ * cross-site rejection, and (once the lock is on) session authentication — so
+ * the route itself only has to police the payload. Login and recovery live in
+ * their own unauthenticated routes.
  */
 
 export const dynamic = "force-dynamic";

@@ -8,7 +8,7 @@ import {
 import { hasJsonContentType } from "@/lib/request-security";
 
 /**
- * Password recovery, and the only endpoint `proxy.ts` lets through unauthenticated.
+ * Password recovery, reachable without a login session.
  *
  * It hands out nothing: `request` mints a one-time code and prints it on the
  * server's own console — the terminal running omp-web — so completing the flow

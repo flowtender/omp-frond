@@ -48,7 +48,7 @@ Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
   -H, --hostname <host>      Bind hostname (default: 127.0.0.1, or OMP_WEB_HOSTNAME)
       --no-open              Do not open a browser automatically
-      --authenticated        Require password access (HTTP Basic, username omp)
+      --authenticated        Require password access through the login page
       --reset-password       Set a new password without knowing the old one
   -h, --help                 Show this help message and exit
 
@@ -59,6 +59,7 @@ Environment:
   OMP_WEB_APP_NAME           PWA manifest name (trimmed; default omp-web)
   OMP_WEB_PASSWORD           Override the stored password access credential
   OMP_WEB_AUTHENTICATED      Set to 1/true/yes/on to enable password access
+  OMP_WEB_SECURE_COOKIES     Set to 1 when a reverse proxy serves HTTPS
   OMP_WEB_AUTH_FILE          Password store location (default ~/.omp/agent/omp-web-auth.json)
   OMP_WEB_DISABLE_SELF_UPDATE  Set to 1 to disable omp-web update checks
 `;

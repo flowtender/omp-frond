@@ -1,92 +1,68 @@
-import { createHash, timingSafeEqual } from "node:crypto";
-import {
-  resolveWebAuthPolicy,
-  verifyWebPassword,
-  type WebAuthStoreOptions,
-} from "../bin/web-auth-store.js";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { resolveWebAuthPolicy, verifyWebPassword, type WebAuthStoreOptions } from "../bin/web-auth-store.js";
 
-export const OMP_WEB_AUTH_USERNAME = "omp";
-
-/**
- * Outcome of checking one request's credentials.
- *
- * `unavailable` is not a failed login: it means the lock is on but its
- * credential cannot be read, so the request is refused rather than waved
- * through. See `resolveWebAuthPolicy` in `bin/web-auth-store.js`.
- */
+export const WEB_SESSION_COOKIE = "omp-web-session";
+export const WEB_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 export type WebAuthDecision = "allow" | "unauthorized" | "unavailable";
 
-function hashSecret(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
+type Session = { credential: string; expiresAt: number };
+
+function credentialIdentity(options: WebAuthStoreOptions): string | null {
+  const policy = resolveWebAuthPolicy(options);
+  if (policy.mode !== "stored" && policy.mode !== "environment") return null;
+  return createHash("sha256").update(JSON.stringify(policy)).digest("hex");
 }
 
-function secretsEqual(actual: string, expected: string): boolean {
-  return timingSafeEqual(hashSecret(actual), hashSecret(expected));
+function sessionPath(token: string, options: WebAuthStoreOptions): string | null {
+  if (!/^[a-f0-9]{64}$/.test(token)) return null;
+  const policy = resolveWebAuthPolicy(options);
+  return join(`${policy.file}.sessions`, createHash("sha256").update(token).digest("hex"));
 }
 
-export function isWebPasswordEnabled(
-  password: string | undefined = process.env.OMP_WEB_PASSWORD,
-): password is string {
-  return typeof password === "string" && password.length > 0;
+export function createWebSession(password: string, options: WebAuthStoreOptions = {}, now = Date.now()): string | null {
+  const credential = credentialIdentity(options);
+  if (!credential || !verifyWebPassword(password, options)) return null;
+  const token = randomBytes(32).toString("hex");
+  const path = sessionPath(token, options)!;
+  mkdirSync(`${resolveWebAuthPolicy(options).file}.sessions`, { recursive: true, mode: 0o700 });
+  writeFileSync(path, JSON.stringify({ credential, expiresAt: now + WEB_SESSION_TTL_SECONDS * 1000 }), { mode: 0o600, flag: "wx" });
+  return token;
 }
 
-/** Decode a `Basic` header, rejecting anything that is not exactly one canonical encoding. */
-export function parseBasicCredentials(
-  authorization: string | null,
-): { username: string; password: string } | null {
-  if (!authorization) return null;
-
-  const match = /^Basic\s+(\S+)$/i.exec(authorization);
-  if (!match) return null;
-
-  let credentials: string;
-  try {
-    const decoded = Buffer.from(match[1], "base64");
-    if (decoded.toString("base64") !== match[1]) return null;
-    credentials = new TextDecoder("utf-8", { fatal: true }).decode(decoded);
-  } catch {
-    return null;
+export function revokeWebSession(token: string | undefined, options: WebAuthStoreOptions = {}): void {
+  const path = token ? sessionPath(token, options) : null;
+  if (!path) return;
+  try { unlinkSync(path); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-
-  const separator = credentials.indexOf(":");
-  if (separator === -1) return null;
-
-  return {
-    username: credentials.slice(0, separator),
-    password: credentials.slice(separator + 1),
-  };
 }
 
-export function isValidBasicAuthorization(
-  authorization: string | null,
-  password = process.env.OMP_WEB_PASSWORD,
-): boolean {
-  if (!isWebPasswordEnabled(password)) return false;
-
-  const credentials = parseBasicCredentials(authorization);
-  if (!credentials) return false;
-
-  const usernameMatches = secretsEqual(credentials.username, OMP_WEB_AUTH_USERNAME);
-  const passwordMatches = secretsEqual(credentials.password, password);
-  return usernameMatches && passwordMatches;
-}
-
-/**
- * Authorize one request against whichever credential is in force — the
- * `OMP_WEB_PASSWORD` environment variable, or the hashed credential written by
- * the settings panel and `omp-web --authenticated`.
- */
-export function authorizeWebRequest(
-  authorization: string | null,
-  options: WebAuthStoreOptions = {},
-): WebAuthDecision {
+export function authorizeWebRequest(token: string | null, options: WebAuthStoreOptions = {}, now = Date.now()): WebAuthDecision {
   const policy = resolveWebAuthPolicy(options);
   if (policy.mode === "open") return "allow";
   if (policy.mode === "unavailable") return "unavailable";
-
-  const credentials = parseBasicCredentials(authorization);
-  if (!credentials || !secretsEqual(credentials.username, OMP_WEB_AUTH_USERNAME)) {
+  const path = token ? sessionPath(token, options) : null;
+  if (!path) return "unauthorized";
+  try {
+    const session = JSON.parse(readFileSync(path, "utf8")) as Session;
+    if (typeof session.expiresAt !== "number" || session.expiresAt <= now || session.credential !== credentialIdentity(options)) {
+      revokeWebSession(token!, options);
+      return "unauthorized";
+    }
+    return "allow";
+  } catch {
     return "unauthorized";
   }
-  return verifyWebPassword(credentials.password, { ...options, policy }) ? "allow" : "unauthorized";
+}
+
+export function webSessionCookieOptions(request: Request) {
+  return {
+    httpOnly: true,
+    sameSite: "strict" as const,
+    secure: process.env.OMP_WEB_SECURE_COOKIES === "1" || new URL(request.url).protocol === "https:",
+    path: "/",
+    maxAge: WEB_SESSION_TTL_SECONDS,
+  };
 }

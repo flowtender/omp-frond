@@ -85,10 +85,9 @@ export default function RecoverPage() {
         {stage === "done" ? (
           <>
             <p className={styles.lead}>
-              The password was changed and password access is on. Open omp-web and sign in with the
-              username <code>omp</code> and your new password.
+              The password was changed and password access is on. Sign in with your new password.
             </p>
-            <Link className={styles.primary} href="/">Back to omp-web</Link>
+            <Link className={styles.primary} href="/login">Sign in</Link>
           </>
         ) : (
           <>

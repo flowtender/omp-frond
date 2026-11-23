@@ -5,8 +5,9 @@ and spends provider credits. Anything that can reach the port can do all of
 that. On loopback that is exactly the intent; the moment omp-web listens on a
 LAN address or sits behind a tunnel, it needs a lock.
 
-The lock is HTTP Basic Auth over every page and every API route. The username is
-always `omp`; the password is the only secret.
+The lock uses a password sign-in page and server-validated session cookies, not
+browser-managed HTTP Basic authentication. It works in installed PWAs without
+a native browser credentials dialog.
 
 ## Turning it on
 
@@ -58,10 +59,40 @@ state to XDG directories, or if you want the credential somewhere else entirely;
 `bin/omp-web.js` resolves the path once and passes it to the server, so the two
 halves can never disagree.
 
-Verification is timing-safe. Because `proxy.ts` checks credentials on every
-request and scrypt is deliberately slow, successful verifications are cached in
-memory for five minutes, keyed by the digest that accepted them — changing or
-clearing the password invalidates the cache immediately.
+Password verification is timing-safe. Successful password verifications are
+cached for five minutes, keyed by the credential digest. Authenticated API
+requests validate the session instead of resending or rehashing the password.
+
+## Login sessions
+
+Open `/login` and enter the password. A successful login sets an HttpOnly,
+SameSite=Strict cookie with a 30-day lifetime. The cookie is persistent, so
+closing and reopening the PWA does not require another login.
+
+The server stores each session in `<credential-file>.sessions/` (directory mode
+`0700`, session files `0600`). Filenames hash the random bearer token; file
+contents contain only a credential fingerprint and expiration time. Neither
+the bearer token nor the plaintext password is stored there. Sessions survive
+server restarts; missing, expired, malformed, or revoked sessions grant no access.
+
+**Settings → Access → Sign out of this device** deletes the server-side session
+and clears its cookie. A copied cookie cannot be replayed after logout.
+Replacing or recovering the password invalidates all existing sessions,
+including sessions on other devices. Changing `OMP_WEB_PASSWORD` does the same.
+
+Unauthenticated page loads redirect to `/login`; API calls return `401` without
+a Basic challenge. Open app windows also check their session on visibility,
+reconnection, and every minute while visible, returning to login when access
+expires. Offline windows keep their screen until connectivity returns.
+
+Password guesses at the login endpoint use the shared exponential backoff:
+`429` responses include `Retry-After`. Successful logins do not reset the
+failure counter. Host and cross-site checks run before login and logout.
+
+Session cookies are marked Secure when the server receives HTTPS requests.
+When a trusted reverse proxy terminates HTTPS, set `OMP_WEB_SECURE_COOKIES=1`;
+forwarded headers alone are not trusted for that decision. HTTP without Secure
+cookies is retained for loopback and trusted-network deployments.
 
 If the credential file exists but cannot be parsed while the lock is on, omp-web
 answers `503` to everything rather than assuming it should unlock. Use
@@ -83,8 +114,8 @@ Asks for a new password, stores it, and starts the server.
 **From a browser**, when you have a terminal but not a shell prompt on the
 server — a tmux pane, a service log, a Docker `logs` stream:
 
-1. Open `/recover`. The page is reachable without credentials; it is the only
-   thing that is.
+1. Open `/recover`. The recovery page and API are reachable without credentials,
+   as are the login page and API.
 2. Ask for a recovery code. omp-web prints it **on its own console** — the
    terminal running the server — and never returns it over HTTP.
 3. Type the code and a new password into the page.
@@ -99,13 +130,11 @@ what they gain.
 
 ## What this does not protect
 
-Basic Auth authenticates; it does not encrypt. The password crosses the network
-in a reversible encoding, so on plain HTTP over an untrusted path it can be read
-in transit — and a password read in transit is a password lost.
+Password login authenticates; it does not encrypt. Both the login password and
+session cookie are readable over plain HTTP on an untrusted network.
 
-Put omp-web behind HTTPS through a trusted reverse proxy, or inside a trusted
-VPN, before exposing it beyond loopback. The password stops a port scanner. It
-does not stop someone reading the wire.
+Use a trusted HTTPS reverse proxy or a trusted VPN before exposing omp-web
+beyond loopback.
 
 Separately from the password, API requests are accepted only for loopback names,
 IP literals, the bind hostname, and the exact names listed in

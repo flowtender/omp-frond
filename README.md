@@ -98,7 +98,7 @@ Volume layout, UID/GID matching and reverse-proxy notes: [docs/docker.md](./docs
 
 ## Password access
 
-A password locks the web interface and every API endpoint behind HTTP Basic Auth, with the fixed username `omp`. Turn it on wherever suits you:
+A password locks the web interface and every API endpoint behind a sign-in page that works in browsers and installed PWAs. Turn it on wherever suits you:
 
 - **Settings → Access** in the browser, to set the password and switch the lock on or off.
 - **`omp-web --authenticated`**, which turns it on for this run and every later one, and asks for a password on the terminal if none has been set yet.
@@ -106,7 +106,9 @@ A password locks the web interface and every API endpoint behind HTTP Basic Auth
 
 The password is stored as a `scrypt` hash in `~/.omp/agent/omp-web-auth.json` (mode `0600`) — never in plaintext, and never recoverable from the file. Forgotten it? Run `omp-web --reset-password` on the server, or open `/recover` and enter the one-time code omp-web prints on its own console.
 
-omp-web can invoke a high-privilege agent. Basic Auth does not encrypt the password in transit, so do not expose plain HTTP to the internet. Use HTTPS through a trusted reverse proxy or a trusted VPN for remote access.
+Sign in at `/login`; the device stays signed in for 30 days using an HttpOnly session cookie. **Settings → Access → Sign out of this device** revokes that session. Changing or recovering the password invalidates existing sessions.
+
+omp-web can invoke a high-privilege agent. Protect the login password and session cookie with a trusted HTTPS reverse proxy or a trusted VPN. For an HTTPS reverse proxy, set `OMP_WEB_SECURE_COOKIES=1` on omp-web. Plain HTTP remains supported for loopback and trusted networks.
 API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `OMP_WEB_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
 
 Full details, including the recovery threat model: [docs/authentication.md](./docs/authentication.md).
