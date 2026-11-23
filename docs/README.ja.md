@@ -1,148 +1,133 @@
-# Pi Web
+# omp-web
 
 [English](../README.md) | [简体中文](./README.zh-CN.md) | [Русский](./README.ru.md)
 
-[pi コーディングエージェント](https://github.com/earendil-works/pi) のローカルブラウザー UI です。Pi Web は pi と同じローカル設定とセッションファイルを使用し、ブラウザーから会話の検索と再開、エージェントの実行、モデルやリソースの設定、プロジェクトファイルの確認を行えます。
+[oh-my-pi（omp）](https://github.com/can1357/oh-my-pi) コーディングエージェントのブラウザー UI です。omp-web は `omp` CLI がすでに書き込んでいるセッションを読み込み、会話の閲覧、リアルタイムのチャット、モデルロール、Provider 設定、スキル管理、プロジェクトファイルのプレビューをブラウザーで提供します。
 
-**[インタラクティブデモを試す →](https://agegr.github.io/pi-web/)**：実際の Pi Web UI がブラウザー内だけで動作し、サンプルのセッション、ファイル、モデルを確認できます。インストールは不要です。返信はあらかじめ用意された内容で、モデルは呼び出しません。
-
-![構造化された Markdown、ツール呼び出し、プロジェクトナビゲーションとともに pi セッションを表示する Pi Web](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
-
-## 機能
-
-- **セッションワークスペース**：プロジェクトごとに会話を閲覧、再開、名前変更、エクスポート、削除し、実行状態、コンテキスト使用量、コスト、コンパクション情報を確認できます。
-- **2 種類の分岐**：**New session** は以前のメッセージから独立したセッションファイルを作成し、**Edit from here** は現在のセッション内にブランチを作成します。
-- **プロジェクトファイルツール**：ファイルの閲覧とアップロード、Git Diff の確認、ソース、Markdown、画像、音声、PDF、DOCX のプレビューに対応し、変更時は自動更新されます。
-- **Git worktree**：同じリポジトリのセッションをまとめたまま、サイドバーからチェックアウトを切り替えられます。
-- **Web での設定**：Pi Web を離れずに、Provider のログインと API Key、モデル、モデルテスト、プラグインパッケージ、スキルを管理できます。
-- **英語、簡体字中国語、繁体字中国語の UI**：初回はブラウザーの言語に従い、トップバーから言語を切り替えられます。
+このリポジトリ `flowtender/omp-web` は omp-web のフォークです。UI は [pi-web](https://github.com/agegr/pi-web)（作者 [@agegr](https://github.com/agegr)）に由来し、[ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) と [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) の OMP 適応を取り込んでいます。OMP SDK（[can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)）は正確なバージョンに固定された依存関係です。ブランチ構成と更新手順は英語のガイド [docs/upstream-maintenance.md](./upstream-maintenance.md) を参照してください。
 
 ## クイックスタート
 
-Pi Web には Node.js 22.19.0 以降が必要です。`node --version` でバージョンを確認してから、次を実行します：
+omp SDK は TypeScript のソースとして配布され、`bun:` の組み込みモジュールを import するため、omp-web の API は **Bun** で動作します。必要な環境は **Bun 1.4.4 以降**と **Node.js 22.19.0 以降**です（`package.json` の `engines` を参照。インストール時の `postinstall` は Node で実行されます）。
+
+### ソースから実行（このフォーク）
+
+このリポジトリのソースチェックアウトが、このフォークのビルドです：
 
 ```bash
-npx @agegr/pi-web@latest
+git clone https://github.com/flowtender/omp-web.git
+cd omp-web
+bun install
+bun run dev                      # 開発サーバー：http://127.0.0.1:30141
 ```
 
-サーバーの準備が整うと、CLI はブラウザーを自動的に開こうとします。開かない場合は [http://127.0.0.1:30141](http://127.0.0.1:30141) にアクセスしてください。Pi Web はデフォルトで `127.0.0.1` のみをリッスンします。
+同じチェックアウトで本番版を実行する場合は、先にビルドしてから起動します：`bun run build` の後に `bun run start`（`127.0.0.1:30141` で待ち受け。`bun run start:lan` は `0.0.0.0` にバインドします）。同じチェックアウトで `bun run dev` を実行中にビルドしないでください。どちらも `.next/` を使用します。
 
-モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。
+### 上流の npm パッケージ
 
-`pi-web` コマンドをグローバルにインストールする場合：
+npm の `omp-web` パッケージは上流の [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) から公開されており、その `package.json` もそのリポジトリを指しています。このフォークが npm に公開されていることを示すものではなく、このフォークの変更も含みません。上流のディストリビューションを使いたい場合にのみ利用してください：
 
 ```bash
-npm install -g @agegr/pi-web@latest
-pi-web
+bunx omp-web@latest
 ```
 
-コマンド：
+グローバルにインストールする場合：
 
 ```bash
-pi-web version          # インストール済みのバージョンを表示
-pi-web status           # 実行中のサーバーを一覧表示
-pi-web stop [--port N]  # 実行中のサーバーを停止
-pi-web open [--port N]  # 実行中のサーバーをブラウザーで開く
-pi-web update [--check] # グローバル npm インストールを更新
+bun add -g omp-web    # または：npm install -g omp-web
+omp-web
 ```
 
-更新時は `pi-web stop` を実行してから `pi-web update` を実行します（同じインストールコマンドの再実行でも構いません）。アンインストールするには `npm uninstall -g @agegr/pi-web` を実行します。
+サーバーの準備が整うと、CLI は自動的にブラウザーを開こうとします。開かない場合は [http://127.0.0.1:30141](http://127.0.0.1:30141) にアクセスしてください。CLI はデフォルトで `127.0.0.1` のみをリッスンします。モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。`omp-web` のエントリポイントは Node または Bun で動作し、Bun を見つけてその中でサーバーを再実行します。特定の Bun を使う場合は `OMP_WEB_BUN=/path/to/bun` を設定します。
 
-## 設定
+Windows で `bunx` が起動前に `EPERM: Operation not permitted (NtSetInformationFile())` で失敗する場合、原因は omp-web ではなく Bun の Windows キャッシュの名前変更です。Bun を更新し、キャッシュを消去してから再試行してください。
 
-ポートとホスト名では、コマンドラインオプションが対応する環境変数より優先されます。`--no-open` と `PI_WEB_NO_OPEN=1` は、どちらを指定してもブラウザーの自動起動が無効になります。`pi-web --help`（または `-h`）で起動オプションを表示して終了します。未知のオプションはエラーで終了します。
+## 主なオプション
+
+コマンドラインオプションは、対応する環境変数より優先されます。
+
+```bash
+omp-web --port 8080              # ポートを変更
+omp-web --hostname 0.0.0.0       # 信頼できるネットワークに公開
+omp-web --no-open                # ブラウザーを自動的に開かない
+omp-web --authenticated          # パスワードを有効化（未設定なら端末で入力を求める）
+omp-web --reset-password         # パスワードを忘れた場合に新しく設定
+```
 
 | オプションまたは環境変数 | 用途 | デフォルト |
 | --- | --- | --- |
-| `--help`、`-h` | 起動オプションを表示して終了 | — |
-| `--port <port>`、`-p <port>`、または `PORT` | サーバーポート | `30141` |
-| `--hostname <host>`、`-H <host>`、または `PI_WEB_HOSTNAME` | バインドするホスト名 | `127.0.0.1` |
-| `--no-open` または `PI_WEB_NO_OPEN=1` | ブラウザーを自動的に開かない | 自動的に開く |
-| `PI_WEB_ALLOWED_HOSTS` | 追加で許可するプロキシまたはカスタムホスト名。複数指定はカンマ区切りで完全一致 | 未設定 |
-| `PI_WEB_PASSWORD` | ブラウザーのパスワードログインを有効化。API はユーザー名 `pi` の Basic Auth も利用可能 | 認証なし |
+| `--port <port>`、`-p`、または `PORT` | サーバーポート | `30141` |
+| `--hostname <host>`、`-H`、または `OMP_WEB_HOSTNAME` | バインドするホスト名 | `127.0.0.1` |
+| `--no-open`、または `OMP_WEB_NO_OPEN=1` | ブラウザーを自動的に開かない | 自動的に開く |
+| `--authenticated`、または `OMP_WEB_AUTHENTICATED=1` | パスワードロックを有効化 | 無効 |
+| `OMP_WEB_PASSWORD` | 保存されたパスワードを上書き | 未設定 |
+| `OMP_WEB_ALLOWED_HOSTS` | リバースプロキシ用の追加の完全一致ホスト名（カンマ区切り） | 未設定 |
 
-例：
+ネイティブ HTTPS は `--tls-cert cert.pem --tls-key key.pem` で有効になります。詳細は [HTTPS](./https.md) を参照してください。
 
-```bash
-pi-web --help
-pi-web -p 8080 -H 0.0.0.0 --no-open
-```
+## パスワードとアクセス
 
-### リモートアクセス
+**Settings → Access** でパスワードを設定し、ロックのオン／オフを切り替えられます。`--authenticated` または `OMP_WEB_PASSWORD` を使うこともできます。パスワードは `scrypt` ハッシュとして `~/.omp/agent/omp-web-auth.json`（モード `0600`）に保存されます。パスワードを忘れた場合は、サーバーで `omp-web --reset-password` を実行するか、`/recover` を開いてサーバーのコンソールに表示された一度限りのコードを入力してください。
 
-ループバック以外のアドレスにバインドすると、高い権限の操作を実行できるエージェントがネットワークに公開されます。信頼できる LAN で使用する場合も、十分に長いランダムなパスワードを設定してください：
+omp-web は高い権限を持つエージェントを呼び出せるため、ログインパスワードとセッション Cookie は[ネイティブ HTTPS](./https.md)、信頼できる HTTPS リバースプロキシ、または信頼できる VPN で保護してください。脅威モデルの詳細は [authentication.md](./authentication.md) にあります。
 
-```bash
-PI_WEB_PASSWORD='十分に長いランダムなパスワード' pi-web --hostname 0.0.0.0
-```
+## モデルロール
 
-パスワード認証は接続を暗号化しません。平文 HTTP で Pi Web をインターネットに公開せず、信頼できるリバースプロキシによる HTTPS または信頼できる VPN を使用してください。リバースプロキシが外部ホスト名を転送する場合は、その名前を完全一致で `PI_WEB_ALLOWED_HOSTS` に追加します。この許可リストは Pi Web のバインド先を変更しません。
+omp は作業範囲ごとにモデルを割り当てます。omp-web は TUI の `/model` セレクターと `Ctrl+P` のサイクルで使われるロールと同じものを表示します：`default`、`smol`、`slow`、`plan`、`commit`、`task`、`advisor`、`vision`、`designer`、`tiny`。
 
-### HTTP プロキシ
+ロールの割り当ては `~/.omp/agent/config.yml` の `modelRoles` に保存されます（**This project** を選ぶと `.omp/config.yml`）。ブラウザーで行った割り当ては、次にターミナルのセッションを起動したときにも使われます。
 
-サーバー側のモデルリクエストと API リクエストは、標準の `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 環境変数を使用します。
+## HTTP プロキシ
 
-macOS または Linux：
+サーバー側のモデルと API のリクエストは、標準の `HTTP_PROXY` と `HTTPS_PROXY` 環境変数を使用します。Bun はプロセス起動時に一度だけこれらを読むため、起動前に設定してください：
 
 ```bash
-HTTP_PROXY=http://127.0.0.1:7890 \
-HTTPS_PROXY=http://127.0.0.1:7890 \
-NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-web@latest
+HTTP_PROXY=http://127.0.0.1:7890 HTTPS_PROXY=http://127.0.0.1:7890 bunx omp-web@latest
 ```
 
-Windows PowerShell：
-
-```powershell
-$env:HTTP_PROXY = "http://127.0.0.1:7890"
-$env:HTTPS_PROXY = "http://127.0.0.1:7890"
-$env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
-```
+ループバックアドレスへのリクエストはプロキシされないため、プロキシを設定してもローカルの Provider（Ollama、LM Studio、llama.cpp）は動作します。Bun は現時点では他のホストに対する `NO_PROXY` を尊重しない点に注意してください。
 
 ## 注意事項
 
-- **エージェントデータ**：Pi Web はデフォルトで `~/.pi/agent` の pi データを読み込みます。セッションファイルは `sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl` にあります。別の pi エージェントディレクトリを使用するには `PI_CODING_AGENT_DIR` を設定してください。
-- **ファイルシステムへのアクセス**：Pi Web はエージェントデータディレクトリと、セッションに記録された作業ディレクトリを読み取れる必要があります。既存の pi セッションを共有する場合は、pi と同じファイルシステム環境で Pi Web を実行してください。
-- **共有設定**：Models パネルは pi のモデル、設定、認証情報ストレージを使用するため、変更は両方のインターフェースに反映されます。
-- **ファイルアクセスの範囲**：ファイルブラウザーは、Pi Web で選択した作業ディレクトリと、既知のプロジェクトまたはセッションルートに限定されます。汎用のファイルシステムブラウザーではありません。
-- **Git worktree**：スイッチャーの表示条件、worktree の作成、削除時の動作については [Worktrees in Pi Web](./worktrees.md) を参照してください。
+- **データディレクトリ**：デフォルトでは `~/.omp/agent/sessions` を読み込みます。別の omp エージェントディレクトリを使う場合は `PI_CODING_AGENT_DIR` を設定してください（変数名は omp のものを踏襲しています）。
+- **セッションファイル**：`~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`。
+- **Provider 設定**：Models パネルはエージェントディレクトリの `models.yml` を読み書きします。認証情報は omp の `agent.db` にあり、CLI と共有されます。
+- **プロジェクトの信頼**：`.omp/extensions`、`.omp/hooks`、`.omp/tools`、`.mcp.json` は明示的に信頼されるまで実行されません。詳細は [Project trust](./project-trust.md) を参照してください。
+- **ファイルアクセスの範囲**：ファイルの閲覧とプレビューは、選択したプロジェクトディレクトリとセッションに現れる作業ディレクトリに限定されます。
+- **Git worktree**：スイッチャーの表示条件、作成、削除については [worktree の説明](./worktrees.zh-CN.md) を参照してください。
+- **国際化**：翻訳の利用と追加については [Internationalization](./i18n.md) を参照してください。
+
+## 機能
+
+- **会話の再開**：プロジェクトごとに以前の omp の会話を閲覧できます。
+- **ロールごとのモデル選択**：作業範囲ごとにモデルを割り当てて切り替えられます。
+- **安全な分岐**：以前のメッセージから続けたり、セッションを別のルートに分岐したりできます。
+- **ブランチをまたいだ作業**：サイドバーから Git worktree を切り替えられます。
+- **プロジェクトと並べてチャット**：ファイルを閲覧・アップロードし、ソース、Markdown、画像、音声、PDF をプレビューできます。
+- **チャットの横にターミナル**：Explorer から選択したディレクトリでシェルを開けます。
 
 ## 開発
 
+このリポジトリのソースチェックアウトで開発してください。Bun 1.4.4 以降と Node.js 22.19.0 以降が必要です。
+
 ```bash
-npm install
-npm run dev
+git clone https://github.com/flowtender/omp-web.git
+cd omp-web
+bun install
+bun run dev
 ```
 
 開発サーバーは [http://127.0.0.1:30141](http://127.0.0.1:30141) で動作します。一般的なチェックは次のコマンドで実行します：
 
 ```bash
-npm test
-node_modules/.bin/tsc --noEmit
-npm run lint
+bun run typecheck
+bun run lint
+bun test
 ```
 
-通常の開発中は `next build` または `npm run build` を実行しないでください。`.next/` に書き込まれ、開発サーバーに影響する可能性があります。ビルドはリリース作業時にのみ実行してください。
+通常の開発中は `bun run build` や `next build` を実行しないでください。`.next/` に書き込まれ、開発サーバーに影響するおそれがあります。ビルドはリリース作業の際にのみ行ってください。
 
-新機能に取りかかる前に、[Contributing](../CONTRIBUTING.md) で対象範囲とプルリクエスト前のチェック項目を確認してください。
-
-コントリビューター向けガイド：[Internationalization](./i18n.md) と [Release process](./release.md)。
-
-## リポジトリ構成
-
-```text
-app/             Next.js UI と API ルート
-components/      React UI コンポーネント
-hooks/           クライアントの状態と操作に関する hooks
-lib/             セッション、エージェント、モデル、ファイル、Git、セキュリティのロジック
-public/          静的アセットと PWA ファイル
-bin/             npm CLI エントリポイントと起動オプションの解析
-docs/            ユーザーおよびコントリビューター向けの個別ガイド
-demo/            GitHub Pages で公開する静的デモ（demo/README.md を参照）
-```
-
-アーキテクチャの説明と詳細なファイルマップについては [AGENTS.md](../AGENTS.md) を参照してください。
+新機能に取りかかる前に、[Contributing](../CONTRIBUTING.md) で変更の提出先と PR 前のチェック項目を確認してください。リモート、上流の同期、提出の流れ、SDK のアップグレードについては、英語の正式ガイド [docs/upstream-maintenance.md](./upstream-maintenance.md) を参照してください。
 
 ## ライセンス
 

@@ -1,31 +1,20 @@
 # Release Checklist
 
-This repo publishes two artifacts for each release:
-
-- npm package: `omp-web`
-- GitHub Release: `ddallabenetta/omp-web`
+This fork (`flowtender/omp-web`) publishes its own GitHub Releases and tags. The npm package `omp-web` is the upstream distribution, not automatically this fork: publish it only if you own that package and have configured trusted publishing (see below). Source install of this fork is authoritative (see README).
 
 Use this checklist from a clean `main` checkout.
 
 ## Automated npm publishing
 
-Pushing a version tag matching `v*` starts
-`.github/workflows/publish-npm.yml`. The workflow:
+`.github/workflows/publish-npm.yml` is inherited from upstream. It runs on a pushed `v*` tag or manual dispatch and publishes `omp-web` to npm with provenance. Pushing a release tag to `flowtender/omp-web` therefore starts a publish attempt. Do not push `v*` tags here unless you own the `omp-web` npm package and intend to publish it.
 
-1. Checks that the tag version matches `package.json`.
-2. Installs dependencies with Bun and runs the production build.
-3. Publishes `omp-web` to npm with provenance.
-
-Before the first release, configure npm trusted publishing for
-`ddallabenetta/omp-web`:
+If you own it, the npm trusted publisher must match the repository and workflow that will run:
 
 - workflow file: `.github/workflows/publish-npm.yml`
 - GitHub environment: `npm`
-- publisher: GitHub Actions
+- publisher: GitHub Actions, for the repository that actually publishes the package
 
-The npm package must be configured to trust this repository and workflow, and
-the repository's `npm` environment must permit the release job to run. No npm
-token is stored in GitHub Actions.
+The npm package must trust that repository and workflow, and the repository's `npm` environment must permit the release job to run. No npm token is stored in GitHub Actions. Activation state is tracked in [upstream maintenance](upstream-maintenance.md#github-automation-first-time-setup).
 
 
 ## Automated omp compatibility proposals
@@ -66,7 +55,7 @@ Expected:
 - `git status` is clean, or only contains changes you intentionally plan to release.
 - `main` and `origin/main` are aligned (`0	0`).
 - GitHub is authenticated as an account that can push and create releases.
-- npm is authenticated as an account that can publish `omp-web`.
+- npm is authenticated as an owner of `omp-web`, only if you intend to publish it.
 - No dev server is listening on 30141: the production build rewrites `.next/` and breaks a running `bun run dev`. Stop it first.
 - `.next/server/route-cache/` does not exist. `next start` writes it (the build does not), and it would be published. Delete it if present.
 
@@ -78,6 +67,8 @@ git ls-remote --tags origin v<version>                                          
 ```
 
 ## 2. Publish to npm
+
+Run this section only if you own the npm package `omp-web` and intend to publish it. Otherwise stop after the GitHub release steps: the npm package is the upstream distribution.
 
 Patch release:
 
@@ -136,7 +127,7 @@ Confirm the tag does not already exist before creating it when unsure:
 
 ```bash
 git ls-remote --tags origin v<version>
-gh release view v<version> --repo ddallabenetta/omp-web
+gh release view v<version> --repo flowtender/omp-web
 ```
 
 ## 5. Generate Release Notes from Commits
@@ -153,7 +144,7 @@ Write the release notes from those commits, not from memory. Include both Chines
 
 - Check commands, flags and setting names against `README.md` and the code before writing them down.
 - Thank outside contributors by name: `git log --format='%h %an | %s' v<previous>..v<version>` lists authors, and the previous release's notes show the style.
-- Open with the install/upgrade command (`npm install -g omp-web@latest`), as earlier releases did.
+- Open with the install or upgrade instructions for this fork's source checkout (see README), not `npm install -g omp-web@latest`, unless this release is also published to npm.
 - Write the notes to a file outside the repo (for example `NOTES=$(mktemp)`), or pass them through stdin as shown below. A `release-notes.md` in the repo root is an untracked file in the next release's `git status`.
 
 Suggested structure:
@@ -177,7 +168,7 @@ Suggested structure:
 
 ### 内部调整
 
-- 发布 npm 包 `omp-web@<version>`。
+- 发布 GitHub Release `v<version>`。
 
 ## English
 
@@ -197,7 +188,7 @@ Prepared from commits in `v<previous>..v<version>`.
 
 ### Internal
 
-- Published npm package `omp-web@<version>`.
+- Published GitHub Release `v<version>`.
 ```
 
 ## 6. Create or Update the GitHub Release
@@ -206,7 +197,7 @@ Create a new release:
 
 ```bash
 gh release create v<version> \
-  --repo ddallabenetta/omp-web \
+  --repo flowtender/omp-web \
   --verify-tag \
   --title "v<version>" \
   --notes-file "$NOTES"
@@ -216,14 +207,14 @@ If the release already exists and only the notes need updating:
 
 ```bash
 gh release edit v<version> \
-  --repo ddallabenetta/omp-web \
+  --repo flowtender/omp-web \
   --notes-file "$NOTES"
 ```
 
 You can avoid a temporary file by passing notes through stdin:
 
 ```bash
-gh release edit v<version> --repo ddallabenetta/omp-web --notes-file - <<'EOF'
+gh release edit v<version> --repo flowtender/omp-web --notes-file - <<'EOF'
 ## 中文
 
 ...
@@ -237,7 +228,8 @@ EOF
 ## 7. Final Verification
 
 ```bash
-gh release view v<version> --repo ddallabenetta/omp-web
+gh release view v<version> --repo flowtender/omp-web
+# only if this release was published to npm by an owner of omp-web
 npm view omp-web@<version> version --registry https://registry.npmjs.org/
 npm view omp-web dist-tags --registry https://registry.npmjs.org/
 git status --short --branch
@@ -248,7 +240,7 @@ git ls-remote --tags origin
 Expected:
 
 - GitHub Release exists and is not a draft unless intentionally published as one.
-- npm exact version resolves and `latest` points at it (allow a few minutes, see step 2).
+- If published to npm: the exact version resolves and `latest` points at it (allow a few minutes, see step 2).
 - `git ls-remote --tags origin` shows no tag you did not mean to publish.
 - `main` is aligned with `origin/main`.
 - `HEAD` points at the release commit and `v<version>` tag.

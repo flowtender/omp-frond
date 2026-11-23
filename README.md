@@ -2,15 +2,13 @@
   <img src="./docs/hero.png" alt="omp-web — Browser workspace for omp" width="100%">
 </p>
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/omp-web"><img src="https://img.shields.io/npm/v/omp-web?style=flat&colorA=222222&colorB=CB3837" alt="npm version"></a>
-  <a href="https://github.com/ddallabenetta/omp-web/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ddallabenetta/omp-web?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://github.com/flowtender/omp-web/blob/main/LICENSE"><img src="https://img.shields.io/github/license/flowtender/omp-web?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&colorA=222222&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat&colorA=222222" alt="Bun"></a>
 </p>
 
 <p align="center">
-  Fork of <a href="https://github.com/agegr/pi-web">pi-web</a> by <a href="https://github.com/agegr">@agegr</a> 
+  flowtender's fork of <a href="https://github.com/ddallabenetta/omp-web">omp-web</a>, which builds on <a href="https://github.com/agegr/pi-web">pi-web</a> by <a href="https://github.com/agegr">@agegr</a>
 </p>
 
 
@@ -18,17 +16,29 @@ The web view for [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi). omp-web 
 
 It is not a separate agent: omp-web runs omp's own SDK in-process, against the same `~/.omp/agent` directory, so a session started in the terminal continues in the browser and back again.
 
+This fork, `flowtender/omp-web`, tracks three UI upstreams: [agegr/pi-web](https://github.com/agegr/pi-web) (the original UI), [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) (the OMP adaptation), and [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) (an OMP fork with a newer pi-web integration). The OMP SDK ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) is an exact pinned package dependency, not a branch to merge. Branch roles and update workflows are documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
+
 
 ## Quick Start
 
-omp-web serves its API on **Bun**, because that is what the omp SDK requires (it is published as TypeScript sources and imports `bun:` builtins). Install Bun 1.4.4 or newer:
+omp-web serves its API on **Bun**, because the omp SDK is published as TypeScript sources and imports `bun:` builtins. Requirements: **Bun 1.4.4 or newer** and **Node.js 22.19.0 or newer** (see `engines` in `package.json`; the install-time `postinstall` step runs under Node).
+
+### From source (this fork)
+
+The source checkout of this repository is the build of this fork:
 
 ```bash
-curl -fsSL https://bun.sh/install | bash        # macOS / Linux
-powershell -c "irm bun.sh/install.ps1 | iex"    # Windows
+git clone https://github.com/flowtender/omp-web.git
+cd omp-web
+bun install
+bun run dev                      # development server at http://127.0.0.1:30141
 ```
 
-**Run without installing:**
+For a production run from this checkout, build first and then start: `bun run build` followed by `bun run start` (listens on `127.0.0.1:30141`; `bun run start:lan` binds `0.0.0.0`). Do not build while `bun run dev` is running in the same checkout, because both use `.next/`.
+
+### The upstream npm package
+
+The `omp-web` package on npm is published from the upstream [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) repository, and its `package.json` points there. It does not prove that this fork has been published to npm, and it does not contain this fork's changes. Use it only if you want the upstream distribution:
 
 ```bash
 bunx omp-web@latest
@@ -53,7 +63,7 @@ omp-web
 
 If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
-**Or install globally:**
+To install the upstream package globally:
 
 ```bash
 bun add -g omp-web    # or: npm install -g omp-web
@@ -188,7 +198,7 @@ Requests to loopback addresses are never proxied, so a local provider (Ollama, L
 
 ![Chat pane next to a rendered Markdown file preview](./docs/screenshots/03-file-preview.png)
 
-**Model roles, configured once, used everywhere** — assign a model per role (`default`, `smol`, `plan`, `commit`, …); both omp-web and the omp CLI read the same `models.yml`.
+**Model roles, configured once, used everywhere** — assign a model per role (`default`, `smol`, `plan`, `commit`, …); both omp-web and the omp CLI read the same `config.yml` (`modelRoles`).
 
 ![Settings panel showing model role assignments](./docs/screenshots/04-settings.png)
 
@@ -259,7 +269,11 @@ still take precedence.
 
 ## Development
 
+Develop from a source checkout of this fork. You need Bun 1.4.4 or newer and Node.js 22.19.0 or newer.
+
 ```bash
+git clone https://github.com/flowtender/omp-web.git
+cd omp-web
 bun install
 bun run dev
 ```
@@ -272,7 +286,9 @@ bun run lint
 bun test
 ```
 
-Avoid running `bun run build` during local development. It writes to `.next/` and can interfere with the dev server; leave builds for release work.
+Avoid running `bun run build` (or `next build`) during local development. It writes to `.next/` and can interfere with the dev server; leave builds for release work.
+
+For the fork's remotes, upstream sync, submission routing, and SDK upgrades, see the canonical guide: [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
 
 ## Desktop (Tauri)
 
@@ -317,7 +333,7 @@ To enable that, configure two repository secrets — `TAURI_SIGNING_PRIVATE_KEY`
 macOS builds are unsigned: the first launch needs right-click → Open (Gatekeeper),
 subsequent auto-updates are written by the app itself.
 
-Before starting on a feature, read [Contributing](./CONTRIBUTING.md) for what is in scope and the pull request checklist.
+Before starting on a feature, read [Contributing](./CONTRIBUTING.md) to choose the repository that should receive it and for the pull request checklist. Maintenance of the upstream streams is documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
 
 Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/release.md).
 

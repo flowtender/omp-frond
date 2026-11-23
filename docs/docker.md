@@ -1,6 +1,6 @@
 # Running omp-web in Docker
 
-The image builds omp-web from source and runs the published `omp-web` launcher
+The image builds omp-web from source and runs that checkout's `bin/omp-web.js` launcher
 inside the container, so every flag and environment variable from the
 [Quick Start](../README.md#quick-start) works the same way.
 

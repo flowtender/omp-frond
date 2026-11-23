@@ -1,5 +1,10 @@
 # Maintaining the upstream streams
 
+This is the maintenance policy for [flowtender/omp-web](https://github.com/flowtender/omp-web),
+not a claim that either OMP UI upstream has stopped maintaining its fork.
+See the [documentation index](README.md) for installation, runtime guides,
+translations, and the scope of inherited Pi Web implementation notes.
+
 ## Remotes
 
 | Remote | Repository | Role |
@@ -145,8 +150,9 @@ bump as proof of compatibility.
 
 ## Publication and cutover
 
-The setup creates local refs only; it does not push branches, change GitHub's
-default branch, replace published main, or change the running checkout.
+The initial branch setup preserved existing history without changing the running
+checkout or rewriting published main. The `integration` branch and automation
+files have since been published; see the activation record below.
 The historical topic refs are a provenance catalog, not completed extraction of
 independent feature branches. Use the recipient-based workflow above to extract
 and validate each submission without rewriting the preserved history.
@@ -189,6 +195,23 @@ In <https://github.com/flowtender/omp-web/settings/actions>:
    A newer published SDK opens a draft PR into `integration`; if the SDK is
    already current, no PR is expected. An existing open PR for that version is
    left untouched so human source adaptations are not overwritten.
+
+### Activation record
+
+Verified 2026-11-23 through GitHub's API:
+
+- `integration` exists on `flowtender/omp-web` at
+  `76839bc584f19ddf38551ff2b0cd02606a8921d9`.
+- **Monitor UI upstreams** and **Update omp dependency** are both `active`.
+- The latest manual [monitor run](https://github.com/flowtender/omp-web/actions/runs/45243564233)
+  and [SDK updater run](https://github.com/flowtender/omp-web/actions/runs/45243763169)
+  completed successfully.
+
+These are dated observations, not a guarantee about future run outcomes or
+repository settings. A successful SDK check may correctly make no PR when the
+dependency is current. Workflow status alone does not prove every repository
+permission or a future breaking SDK upgrade has been exercised.
+
 
 The SDK workflow runs daily at 08:17 UTC. UI upstream monitoring runs Mondays
 at 08:43 UTC. GitHub schedules can be delayed; these are not exact-time alarms.
@@ -246,5 +269,38 @@ GitHub's short-lived built-in `GITHUB_TOKEN`, provided automatically for each
 run. The monitor reads upstream commit metadata; it does not execute upstream
 code, change checkpoints, create sync commits, or merge anything.
 
+### GitHub installation-token format
+
+The format change applies to Actions' built-in `GITHUB_TOKEN`, as well as
+custom GitHub App installation tokens. GitHub reports that the stateless
+`ghs_APPID_JWT` rollout [completed on 2026-10-02][stateless-tokens]. Tokens are
+approximately 520 characters rather than the legacy short opaque format.
+Permissions and expiry are unchanged.
+
+Our workflow YAML passes the token directly to actions or environment variables.
+The upstream monitor uses the authenticated `github-script` client and does
+not parse, store, truncate, or validate the token's length or contents.
+The desktop updater script delegates GitHub authentication to `gh` and inherits
+its environment unchanged. The MCP display masker has no maximum token length;
+masking is separate from GitHub authentication.
+
+There is no repository-side fixed-length token validation to change. Keep
+tokens opaque and retain support for dots, underscores, and hyphens if adding
+any future credential-handling code. Never log tokens to inspect their format.
+Third-party actions and GitHub CLI remain part of the compatibility boundary;
+successful workflow runs do not expose the secret or establish its exact format.
+
+The temporary `X-GitHub-Stateless-S2S-Token: enabled` override belongs only on
+`POST /app/installations/:installation_id/access_tokens` when minting a token
+for a custom GitHub App. It does not change the already-issued `GITHUB_TOKEN`
+by being added to ordinary API requests, and these workflows do not mint
+custom installation tokens. GitHub says the override stops working on
+2026-11-30. Do not add it to these workflows or create a new App merely to use it.
+
+The format assessment is based on repository inspection and an isolated
+synthetic-token masking check, not a live custom-App token-issuance test.
+
+
 [enable-workflows]: https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows
 [actions-billing]: https://docs.github.com/en/billing/concepts/product-billing/github-actions
+[stateless-tokens]: https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/
