@@ -15,9 +15,8 @@ import { createHash } from "node:crypto";
 // named binding is captured once when jiti loads this module under bun, so a
 // test's mock of the fs object would miss it; the property lookup stays live.
 import fsDefault, { existsSync, readFileSync } from "node:fs";
-import { open, readdir, stat } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
-import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
@@ -551,29 +550,18 @@ export async function scanSessionFileInfo(
 	return (await scanSessionFile(filePath))?.info ?? null;
 }
 
-// Mirrors the SDK's listing scope: `readdir` Dirents, with symlinks (of either
-// kind) skipped exactly like the SDK's isFile()/isDirectory() checks skip them.
-// Following one would make the sidebar show sessions pi itself never lists.
+// Mirrors the SDK's listing scope (`listAllSessions`): the same glob, following
+// symlinks, so linked project dirs and linked transcripts list as the CLI lists
+// them (SDK 18.11.3 started following them).
 async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
-	let dirs: Dirent[];
 	try {
-		dirs = (await readdir(sessionsDir, { withFileTypes: true })).filter((entry) => entry.isDirectory());
+		return await Array.fromAsync(
+			new Bun.Glob("*/*.jsonl").scan({ cwd: sessionsDir, followSymlinks: true }),
+			(name) => join(sessionsDir, name),
+		);
 	} catch {
 		return [];
 	}
-
-	const files: string[] = [];
-	for (const dir of dirs) {
-		const dirPath = join(sessionsDir, dir.name);
-		try {
-			for (const f of await readdir(dirPath, { withFileTypes: true })) {
-				if (f.isFile() && f.name.endsWith(".jsonl")) files.push(join(dirPath, f.name));
-			}
-		} catch {
-			// unreadable project dir: same skip-as-absent semantics as the SDK
-		}
-	}
-	return files;
 }
 
 const MAX_CONCURRENT_SCANS = 10;
