@@ -275,7 +275,7 @@ implements `formDialog` and `components/FormDialog.tsx` draws the form.
   shape (`lib/form-dialog-types.ts`): no raw HTML reaches the browser, so nothing the
   model writes can run there. `<svg>` and `<img>` become numbered `media` blocks.
 - Pictures come from `GET /api/agent/[id]/form-media/[token]/[index]`: the server loads
-  them with the SDK's `loadFormImage`/`svgMedia` (URL, data URI or path from the
+  them with the SDK's `loadMedia`/`svgMedia` (`@oh-my-pi/pi-tui/media`; URL, data URI or path from the
   session cwd, 10 MB cap) and serves bytes with a sandboxing CSP. The browser never
   contacts a host the model chose. The token exists only while the dialog is open.
 - The browser answers with its raw control state (`FormDialogState`); the server turns

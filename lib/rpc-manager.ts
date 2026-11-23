@@ -17,6 +17,7 @@ import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-comm
 import { executeAcpBuiltinSlashCommand, type AcpBuiltinSlashCommandResult } from "@oh-my-pi/pi-coding-agent/slash-commands/acp-builtins";
 import { discoverCustomToolPaths } from "@oh-my-pi/pi-coding-agent/extensibility/custom-tools";
 import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
+import { toWireEvent } from "@oh-my-pi/pi-coding-agent/session/loop-end-wire";
 import { readPlanFile } from "@oh-my-pi/pi-coding-agent/plan-mode/plan-files";
 import {
   readRpcSubagentTranscript,
@@ -656,7 +657,10 @@ export class AgentSessionWrapper {
     this.unsubscribe = this.inner.subscribe((sessionEvent) => {
       // SDK event members are closed interfaces; the browser stream treats them
       // as open records (omp 18.10's cache_warming_* events made that explicit).
-      let event = sessionEvent as unknown as AgentEvent;
+      // Since omp 18.21 the session reports a loop that stops inside a run as
+      // `agent_pause`; `toWireEvent` folds it back into the per-loop `agent_end`
+      // with `isTerminal: false` that `omp --mode rpc` sends and this host reads.
+      let event = toWireEvent(sessionEvent) as unknown as AgentEvent;
       if (event.type === "agent_start") {
         this.agentRunNeedsCompletion = true;
         this.lastRunAborted = false;

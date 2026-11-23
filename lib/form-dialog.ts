@@ -1,5 +1,5 @@
 import { choiceValue, fieldQuestions, textValue, type HtmlFormData } from "@oh-my-pi/pi-tui/html-form/data";
-import { loadFormImage, svgMedia, type FormMedia } from "@oh-my-pi/pi-tui/html-form/media";
+import { loadMedia, svgMedia, type Media } from "@oh-my-pi/pi-tui/media";
 import { parseHtmlForm, type FormBlock as SdkFormBlock, type HtmlForm } from "@oh-my-pi/pi-tui/html-form/parse";
 import { isRecord } from "@oh-my-pi/pi-utils";
 import type { FormBlock, FormDialogForm, FormDialogState } from "./form-dialog-types";
@@ -110,6 +110,6 @@ export function parseFormDialogState(json: string): FormDialogState | undefined 
 }
 
 /** A form picture's bytes: loaded with the SDK's loader (URL, data URI or path from the session cwd, size-capped). */
-export function loadFormMedia(source: FormMediaSource, cwd: string, signal?: AbortSignal): Promise<FormMedia> {
-  return source.kind === "svg" ? Promise.resolve(svgMedia(source.markup)) : loadFormImage(source.src, { cwd, signal });
+export function loadFormMedia(source: FormMediaSource, cwd: string, signal?: AbortSignal): Promise<Media> {
+  return source.kind === "svg" ? Promise.resolve(svgMedia(source.markup)) : loadMedia(source.src, { cwd, signal });
 }
