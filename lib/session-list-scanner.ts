@@ -15,9 +15,9 @@ import { createHash } from "node:crypto";
 // named binding is captured once when jiti loads this module under bun, so a
 // test's mock of the fs object would miss it; the property lookup stays live.
 import fsDefault, { existsSync, readFileSync } from "node:fs";
-import { open, stat } from "node:fs/promises";
+import { open, readdir, realpath, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 
@@ -550,18 +550,40 @@ export async function scanSessionFileInfo(
 	return (await scanSessionFile(filePath))?.info ?? null;
 }
 
-// Mirrors the SDK's listing scope (`listAllSessions`): the same glob, following
-// symlinks, so linked project dirs and linked transcripts list as the CLI lists
-// them (SDK 18.11.3 started following them).
+// Mirrors the SDK's listing scope (`listAllSessions`, 18.12.x): a project bucket
+// that is itself a symlink is skipped (it could leave the sessions root or list
+// a bucket twice), transcripts inside a real bucket may be symlinks, and each
+// physical file is listed once, by its first-seen name.
 async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
+	let buckets;
 	try {
-		return await Array.fromAsync(
-			new Bun.Glob("*/*.jsonl").scan({ cwd: sessionsDir, followSymlinks: true }),
-			(name) => join(sessionsDir, name),
-		);
+		buckets = await readdir(sessionsDir, { withFileTypes: true });
 	} catch {
 		return [];
 	}
+
+	const files: string[] = [];
+	for (const bucket of buckets) {
+		if (bucket.isSymbolicLink() || !bucket.isDirectory()) continue;
+		const bucketPath = join(sessionsDir, bucket.name);
+		try {
+			for await (const name of new Bun.Glob("*.jsonl").scan({ cwd: bucketPath, followSymlinks: true })) {
+				files.push(join(bucketPath, name));
+			}
+		} catch {
+			// unreadable bucket: same skip-as-absent semantics as the SDK
+		}
+	}
+
+	const seenPhysicalFiles = new Set<string>();
+	const unique: string[] = [];
+	for (const file of files) {
+		const physicalPath = await realpath(file).catch(() => resolve(file));
+		if (seenPhysicalFiles.has(physicalPath)) continue;
+		seenPhysicalFiles.add(physicalPath);
+		unique.push(file);
+	}
+	return unique;
 }
 
 const MAX_CONCURRENT_SCANS = 10;
