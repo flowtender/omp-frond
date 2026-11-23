@@ -146,7 +146,6 @@ type ExtensionBindingOptions = {
 const RUNNING_STATE_EVENT_TYPES = new Set([
   "agent_start",
   "agent_end",
-  "agent_settled",
   "auto_compaction_start",
   "auto_compaction_end",
   "compaction_start",
@@ -155,7 +154,6 @@ const RUNNING_STATE_EVENT_TYPES = new Set([
 
 const IDLE_RESET_EVENT_TYPES = new Set([
   "agent_end",
-  "agent_settled",
   "auto_compaction_end",
   "compaction_end",
 ]);
@@ -414,7 +412,7 @@ export class AgentSessionWrapper {
   // The tail of the prompt-admission queue: each prompt waits for the
   // preceding one's preflight to pass or fail before entering the SDK.
   private promptAdmissionTail: Promise<void> = Promise.resolve();
-  // An accepted run awaits its agent_settled before completion is announced.
+  // An accepted run announces completion once its terminal end and prompt are idle.
   private agentRunNeedsCompletion = false;
   // The last settled run was stopped, not finished: nothing to announce.
   private lastRunAborted = false;
@@ -641,13 +639,19 @@ export class AgentSessionWrapper {
     this.unsubscribe = this.inner.subscribe((sessionEvent) => {
       // SDK event members are closed interfaces; the browser stream treats them
       // as open records (omp 18.10's cache_warming_* events made that explicit).
-      const event = sessionEvent as unknown as AgentEvent;
+      let event = sessionEvent as unknown as AgentEvent;
       if (event.type === "agent_start") {
         this.agentRunNeedsCompletion = true;
         this.lastRunAborted = false;
       }
-      if (event.type === "agent_settled") this.lastRunAborted = event.aborted === true;
       if (event.type === "agent_end") {
+        if (event.isTerminal !== false) {
+          const lastAssistant = Array.isArray(event.messages)
+            ? event.messages.findLast((message) => message.role === "assistant")
+            : undefined;
+          this.lastRunAborted = event.aborted === true || lastAssistant?.stopReason === "aborted";
+          if (this.lastRunAborted) event = { ...event, aborted: true };
+        }
         invalidateSessionListCache();
         // Every tool call of the run has finished; nothing is left to replay.
         this.activeToolEvents.clear();
@@ -655,7 +659,7 @@ export class AgentSessionWrapper {
       this.trackActiveToolEvent(event);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
-      if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
+      if (event.type === "agent_end" && event.isTerminal !== false) this.notifyAgentRunCompleteIfIdle();
       if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
       void this.goalMode.handleSessionEvent(event).catch((error) => {
         console.error(
