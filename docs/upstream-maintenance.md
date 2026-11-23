@@ -28,6 +28,27 @@ git config --local push.default current
 git config --local pull.ff only
 ```
 
+## Runtime direction and backlog
+
+Use the stock upstream OMP SDK, pinned to an exact version. Adapt the web
+application to SDK changes rather than distributing a customized OMP build
+or depending on a private runner protocol.
+
+Two local-runtime improvements are on the backlog:
+
+- **Separate session ownership from the web server.** A local session service
+  should own the SDK sessions so restarting or redeploying the web UI/API does
+  not end active runs. This does not require remote workers or clustering.
+- **Durable message delivery and queueing.** Preserve pending submissions across
+  disconnects and web-server restarts, assign stable submission identities,
+  and reconcile delivery acknowledgements with session state. Distinguish
+  unsent input from input whose acceptance is uncertain; do not blindly replay
+  possibly accepted messages. Exactly-once execution and individual native
+  queue mutations must not be promised without support from the stock SDK.
+
+These are planned capabilities, not descriptions of the current implementation.
+
+
 ## Branch roles
 
 - `main`: existing published development history; retained without rewriting.
