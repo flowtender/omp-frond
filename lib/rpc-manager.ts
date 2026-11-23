@@ -1651,10 +1651,12 @@ export class AgentSessionWrapper {
 
       case "get_tools": {
         const active = new Set<string>(this.inner.getActiveToolNames());
+        const enabled = new Set<string>(this.inner.getEnabledToolNames());
         return listTools(this.inner).map((t) => ({
           name: t.name,
           description: t.description,
-          active: active.has(t.name),
+          active: enabled.has(t.name),
+          ...(enabled.has(t.name) && !active.has(t.name) ? { declarationHidden: true } : {}),
         }));
       }
 
