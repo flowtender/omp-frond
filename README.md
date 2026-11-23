@@ -73,6 +73,7 @@ omp-web -p 8080 -H 0.0.0.0       # combine options
 omp-web --no-open                # do not open the browser automatically
 omp-web --authenticated          # require a password (asks for one if none is set)
 omp-web --reset-password         # set a new password when the old one is lost
+omp-web --tls-cert cert.pem --tls-key key.pem --authenticated  # native HTTPS
 
 PORT=8080 omp-web                 # environment variable is also supported
 OMP_WEB_HOSTNAME=0.0.0.0 omp-web  # explicit network exposure
@@ -108,7 +109,7 @@ The password is stored as a `scrypt` hash in `~/.omp/agent/omp-web-auth.json` (m
 
 Sign in at `/login`; the device stays signed in for 30 days using an HttpOnly session cookie. **Settings → Access → Sign out of this device** revokes that session. Changing or recovering the password invalidates existing sessions.
 
-omp-web can invoke a high-privilege agent. Protect the login password and session cookie with a trusted HTTPS reverse proxy or a trusted VPN. For an HTTPS reverse proxy, set `OMP_WEB_SECURE_COOKIES=1` on omp-web. Plain HTTP remains supported for loopback and trusted networks.
+omp-web can invoke a high-privilege agent. Protect the login password and session cookie with [native HTTPS](./docs/https.md), a trusted HTTPS reverse proxy, or a trusted VPN. For an HTTPS reverse proxy, set `OMP_WEB_SECURE_COOKIES=1` on omp-web. Plain HTTP remains supported for loopback and trusted networks.
 API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `OMP_WEB_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
 
 Full details, including the recovery threat model: [docs/authentication.md](./docs/authentication.md).

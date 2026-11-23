@@ -61,7 +61,7 @@ export function webSessionCookieOptions(request: Request) {
   return {
     httpOnly: true,
     sameSite: "strict" as const,
-    secure: process.env.OMP_WEB_SECURE_COOKIES === "1" || new URL(request.url).protocol === "https:",
+    secure: process.env.OMP_WEB_SECURE_COOKIES === "1" || Boolean(process.env.OMP_WEB_TLS_CERT) || new URL(request.url).protocol === "https:",
     path: "/",
     maxAge: WEB_SESSION_TTL_SECONDS,
   };

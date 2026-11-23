@@ -15,6 +15,8 @@ const CLI_OPTIONS = {
   // Recovery from the machine itself: replaces the stored password without
   // needing the old one.
   "reset-password": { type: "boolean" },
+  "tls-cert": { type: "string" },
+  "tls-key": { type: "string" },
   help: { type: "boolean", short: "h" },
 };
 
@@ -35,6 +37,24 @@ function normalizePort(value) {
   return String(port);
 }
 
+function nonEmpty(value) {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+// HTTPS needs both halves of the pair; a lone certificate or key is an error,
+// never a silent fall back to plain HTTP.
+function resolveTls(values, env) {
+  const cert = values["tls-cert"] ?? nonEmpty(env.OMP_WEB_TLS_CERT);
+  const key = values["tls-key"] ?? nonEmpty(env.OMP_WEB_TLS_KEY);
+  if (cert === undefined && key === undefined) return null;
+  if (!cert || !key) {
+    throw new Error(
+      "HTTPS needs both a certificate and a private key: pass --tls-cert and --tls-key, or set OMP_WEB_TLS_CERT and OMP_WEB_TLS_KEY.",
+    );
+  }
+  return { cert, key };
+}
+
 function getHelpText() {
   return `Usage: omp-web [command] [options]
 
@@ -50,6 +70,8 @@ Options:
       --no-open              Do not open a browser automatically
       --authenticated        Require password access through the login page
       --reset-password       Set a new password without knowing the old one
+      --tls-cert <file>      PEM certificate for HTTPS (requires --tls-key)
+      --tls-key <file>       PEM private key for HTTPS (requires --tls-cert)
   -h, --help                 Show this help message and exit
 
 Environment:
@@ -59,6 +81,8 @@ Environment:
   OMP_WEB_APP_NAME           PWA manifest name (trimmed; default omp-web)
   OMP_WEB_PASSWORD           Override the stored password access credential
   OMP_WEB_AUTHENTICATED      Set to 1/true/yes/on to enable password access
+  OMP_WEB_TLS_CERT           PEM certificate for HTTPS (same as --tls-cert)
+  OMP_WEB_TLS_KEY            PEM private key for HTTPS (same as --tls-key)
   OMP_WEB_SECURE_COOKIES     Set to 1 when a reverse proxy serves HTTPS
   OMP_WEB_AUTH_FILE          Password store location (default ~/.omp/agent/omp-web-auth.json)
   OMP_WEB_DISABLE_SELF_UPDATE  Set to 1 to disable omp-web update checks
@@ -114,6 +138,7 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
     openBrowser: !values["no-open"] && !isEnabled(env.OMP_WEB_NO_OPEN),
     authenticated: Boolean(values.authenticated) || isEnabled(env.OMP_WEB_AUTHENTICATED),
     resetPassword: Boolean(values["reset-password"]),
+    tls: resolveTls(values, env),
   };
 }
 

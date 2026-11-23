@@ -30,6 +30,15 @@ const path = require("path");
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseCommandLine, getHelpText } = require("./omp-web-options");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { once } = require("events");
+const {
+  UPSTREAM_HOST,
+  createTlsForwarder,
+  loadTlsCredentials,
+  reserveLoopbackPort,
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+} = require("./tls-forwarder");
 const {
   getWebAuthStatus,
   resolveWebAuthFile,
@@ -94,6 +103,20 @@ if (!bunPath) {
   process.exit(1);
 }
 
+// Certificate files are checked before any password prompt, so a bad pair
+// stops the run before anything is written.
+let tlsPaths = null;
+let tlsCredentials = null;
+if (launch.tls) {
+  tlsPaths = { cert: path.resolve(launch.tls.cert), key: path.resolve(launch.tls.key) };
+  try {
+    tlsCredentials = loadTlsCredentials(tlsPaths);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+}
+
 /** Refuse to hang on a password prompt nobody is there to answer. */
 function requireTerminal(flag) {
   if (isInteractive()) return;
@@ -152,9 +175,12 @@ async function configurePasswordAccess() {
 function warnAboutExposure() {
   if (loopbackHostnames.has(hostname)) return;
   if (getWebAuthStatus({ file: webAuthFile }).enabled) {
-    console.warn(
-      `Warning: omp-web is listening on ${hostname} with password access over HTTP. Use HTTPS or a trusted VPN to protect the password and session cookie.`,
-    );
+    // TLS protects both the login password and session cookie in transit.
+    if (!tlsCredentials) {
+      console.warn(
+        `Warning: omp-web is listening on ${hostname} with password access over HTTP. Use HTTPS or a trusted VPN to protect the password and session cookie.`,
+      );
+    }
   } else {
     console.warn(
       `Warning: omp-web is listening on ${hostname} without authentication. Only use this on a trusted network, or start it with --authenticated.`,
@@ -162,17 +188,39 @@ function warnAboutExposure() {
   }
 }
 
-function startServer() {
+async function startServer() {
   warnAboutExposure();
+
+  // With HTTPS the launcher owns the public listener and binds it first, so a
+  // port clash fails before `next start` is spawned. Next then serves only on
+  // loopback, on a port reserved here.
+  const nextPort = tlsCredentials ? await reserveLoopbackPort() : port;
+  let forwarder = null;
+  if (tlsCredentials) {
+    forwarder = createTlsForwarder({ credentials: tlsCredentials, upstreamPort: nextPort });
+    forwarder.listen(Number(port), hostname);
+    await once(forwarder, "listening");
+  }
+
+  // The TLS pair is the signal the server reads for secure cookies. It is set
+  // only when this run serves HTTPS, so an ambient value cannot claim HTTPS.
+  const childEnv = { ...withLoopbackNoProxy(process.env) };
+  delete childEnv.OMP_WEB_TLS_CERT;
+  delete childEnv.OMP_WEB_TLS_KEY;
+  if (tlsPaths) {
+    childEnv.OMP_WEB_TLS_CERT = tlsPaths.cert;
+    childEnv.OMP_WEB_TLS_KEY = tlsPaths.key;
+  }
 
   // `--bun` forces Bun's own runtime for next's CLI entry (it would otherwise
   // hand shebang'd scripts to node). The omp SDK ships TypeScript sources and
   // `bun:` builtins, so the API routes only resolve under Bun.
-  const child = spawn(bunPath, ["--bun", nextBin, "start", "-p", port, "-H", hostname], {
+  const nextHost = forwarder ? UPSTREAM_HOST : hostname;
+  const child = spawn(bunPath, ["--bun", nextBin, "start", "-p", String(nextPort), "-H", nextHost], {
     cwd: pkgDir,
     stdio: ["inherit", "pipe", "inherit"],
     env: {
-      ...withLoopbackNoProxy(process.env),
+      ...childEnv,
       OMP_WEB_HOSTNAME: hostname,
       OMP_WEB_AUTH_FILE: webAuthFile,
       // Preserve the directory from which `omp-web` was launched so relative
@@ -187,13 +235,15 @@ function startServer() {
   });
 
   let browserOpened = false;
-  const url = `http://${hostname}:${port}`;
+  const url = tlsCredentials ? `https://${hostname}:${port}` : `http://${hostname}:${port}`;
 
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString();
     process.stdout.write(text);
-    if (openBrowser && !browserOpened && text.includes("Ready")) {
+    if (!browserOpened && text.includes("Ready")) {
       browserOpened = true;
+      if (tlsCredentials) console.log(`omp-web HTTPS: ${url}`);
+      if (!openBrowser) return;
       const isWindows = process.platform === "win32";
       const isMac = process.platform === "darwin";
       const openCmd = isWindows ? "start" : isMac ? "open" : "xdg-open";
@@ -214,7 +264,7 @@ function startServer() {
   child.on("exit", (code) => process.exit(code ?? 0));
 }
 
-configurePasswordAccess().then(startServer, (error) => {
+configurePasswordAccess().then(startServer).catch((error) => {
   if (error instanceof PromptAbortedError) process.exit(130);
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

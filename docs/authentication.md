@@ -89,10 +89,10 @@ Password guesses at the login endpoint use the shared exponential backoff:
 `429` responses include `Retry-After`. Successful logins do not reset the
 failure counter. Host and cross-site checks run before login and logout.
 
-Session cookies are marked Secure when the server receives HTTPS requests.
-When a trusted reverse proxy terminates HTTPS, set `OMP_WEB_SECURE_COOKIES=1`;
-forwarded headers alone are not trusted for that decision. HTTP without Secure
-cookies is retained for loopback and trusted-network deployments.
+Native HTTPS marks session cookies Secure automatically. When a trusted reverse
+proxy terminates HTTPS, set `OMP_WEB_SECURE_COOKIES=1`; forwarded headers alone
+are not trusted for that decision. HTTP without Secure cookies is retained for
+loopback and trusted-network deployments. See [HTTPS](./https.md) for certificates.
 
 If the credential file exists but cannot be parsed while the lock is on, omp-web
 answers `503` to everything rather than assuming it should unlock. Use
@@ -133,8 +133,8 @@ what they gain.
 Password login authenticates; it does not encrypt. Both the login password and
 session cookie are readable over plain HTTP on an untrusted network.
 
-Use a trusted HTTPS reverse proxy or a trusted VPN before exposing omp-web
-beyond loopback.
+Use [native HTTPS](./https.md), a trusted HTTPS reverse proxy, or a trusted VPN
+before exposing omp-web beyond loopback.
 
 Separately from the password, API requests are accepted only for loopback names,
 IP literals, the bind hostname, and the exact names listed in
