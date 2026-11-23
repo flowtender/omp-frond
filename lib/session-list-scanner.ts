@@ -36,6 +36,8 @@ export interface ScannedSessionInfo {
 	firstMessage: string;
 	status?: SessionRowStatus;
 	parentSessionPath?: string;
+	/** Id of the session whose conversation this one continues (header `continuationOf`). */
+	continuationOf?: string;
 	/** True when only header/stat metadata was available for this listing. */
 	detailsPending?: boolean;
 }
@@ -87,7 +89,7 @@ function isRecord(value: unknown): value is RawEntry {
 
 // Bump on any change to what foldEntry() counts: a resumed scan adds to totals
 // counted under the rules its prefix was scanned with.
-const INDEX_FORMAT_VERSION = 3;
+const INDEX_FORMAT_VERSION = 4;
 /** A trailing throttle: a run's rescans rewrite the index once per window. */
 const INDEX_PERSIST_DELAY_MS = 5_000;
 const RESUME_SAMPLE_BYTES = 512;
@@ -195,6 +197,7 @@ async function deferredSessionInfo(
 		messageCount: 0,
 		firstMessage: "",
 		...(typeof header.parentSession === "string" ? { parentSessionPath: header.parentSession } : {}),
+		...(typeof header.continuationOf === "string" ? { continuationOf: header.continuationOf } : {}),
 		detailsPending: true,
 	};
 }
@@ -220,6 +223,7 @@ interface SessionHeader {
 	cwd: string;
 	created: Date;
 	parentSessionPath?: string;
+	continuationOf?: string;
 	/** NaN unless the header's timestamp is a string. */
 	time: number;
 	/** The header line and its newline, kept when a later scan may resume. */
@@ -243,6 +247,7 @@ function readHeader(entry: RawEntry, head: Buffer | undefined): SessionHeader {
 		cwd: typeof entry.cwd === "string" ? entry.cwd : "",
 		created: new Date(entry.timestamp as string),
 		parentSessionPath: typeof entry.parentSession === "string" ? entry.parentSession : undefined,
+		continuationOf: typeof entry.continuationOf === "string" ? entry.continuationOf : undefined,
 		time: typeof entry.timestamp === "string" ? new Date(entry.timestamp).getTime() : NaN,
 		// A resumed scan rebuilds the header from the row, which holds it
 		// faithfully only for a string id and timestamp.
@@ -454,6 +459,7 @@ async function scanSessionFile(
 				cwd: info.cwd,
 				created: new Date(info.created.getTime()),
 				parentSessionPath: info.parentSessionPath,
+				continuationOf: info.continuationOf,
 				time: info.created.getTime(),
 				head: resumed.head,
 			};
@@ -508,7 +514,7 @@ async function scanSessionFile(
 			if (!parseLines(scan.rest, null)) return null;
 		}
 		if (!header) return null;
-		const { id, cwd, created, parentSessionPath, head } = header;
+		const { id, cwd, created, parentSessionPath, continuationOf, head } = header;
 
 		return {
 			info: {
@@ -517,6 +523,7 @@ async function scanSessionFile(
 				cwd,
 				title: resolveScanTitle(totals),
 				parentSessionPath,
+				continuationOf,
 				created,
 				modified: stats.mtime,
 				messageCount: totals.messageCount,
@@ -650,6 +657,7 @@ function loadPersistedIndex(): void {
 				typeof info.firstMessage !== "string" ||
 				(info.title !== undefined && typeof info.title !== "string") ||
 				(info.parentSessionPath !== undefined && typeof info.parentSessionPath !== "string") ||
+				(info.continuationOf !== undefined && typeof info.continuationOf !== "string") ||
 				(info.assistantTurns !== undefined && (typeof info.assistantTurns !== "number" || !Number.isSafeInteger(info.assistantTurns) || info.assistantTurns < 0)) ||
 				(info.size !== undefined && (typeof info.size !== "number" || !Number.isSafeInteger(info.size) || info.size < 0)) ||
 				(info.status !== undefined && info.status !== "complete" && info.status !== "interrupted" && info.status !== "aborted" && info.status !== "error" && info.status !== "pending" && info.status !== "unknown") ||
@@ -667,6 +675,7 @@ function loadPersistedIndex(): void {
 					cwd: info.cwd,
 					title: info.title,
 					parentSessionPath: info.parentSessionPath,
+					continuationOf: info.continuationOf,
 					firstMessage: info.firstMessage,
 					messageCount: info.messageCount,
 					...(info.assistantTurns !== undefined ? { assistantTurns: info.assistantTurns } : {}),
