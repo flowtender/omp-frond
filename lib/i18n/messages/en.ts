@@ -73,6 +73,8 @@ export const enLocale: LocalePlugin = {
     "settings.enterSendMode": "Send key",
     "settings.enterSendModeEnter": "Enter",
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
+    "settings.chatScrollAnchor": "Keep latest prompt at top",
+    "settings.chatScrollAnchorDescription": "Applies to the next message you send. Off follows the latest reply.",
     "settings.quoteSelection": "Show actions for selected text",
     "settings.sidebar": "Sidebar",
     "settings.filesPlacement": "File browser",

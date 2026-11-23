@@ -35,6 +35,7 @@ import type { ContextUsage, GoalStatusInfo, SessionStatsInfo, SlashCommandInfo }
 import type { ModelRoleAssignment } from "@/lib/api-types";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
 import type { SettingsSection } from "@/lib/settings-navigation";
+import { useChatScrollMode } from "@/hooks/useChatScrollMode";
 
 export interface SessionData {
   runtimeId?: string;
@@ -499,6 +500,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onSessionStatsPanelOpen, onOpenSettings,
   } = opts;
   const deferInitialScroll = opts.deferInitialScroll ?? false;
+  const chatScrollMode = useChatScrollMode();
 
   const isNew = session === null && newSessionCwd !== null;
 
@@ -573,8 +575,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [compactError, setCompactError] = useState<string | null>(null);
   const [compactResult, setCompactResult] = useState<CompactResultInfo | null>(null);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
-  // True while a freshly sent prompt is waiting to be anchored to the top;
-  // held across the blanking gap so the anchor effect is not cancelled.
+  // Captured on submission; retained after completion until the next prompt.
   const [promptAnchorActive, setPromptAnchorActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([]);
@@ -2129,8 +2130,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
     setAutoFollowRef.current(true);
-    pendingScrollToUserRef.current = true;
-    setPromptAnchorActive(true);
+    pendingScrollToUserRef.current = chatScrollMode === "anchor";
+    setPromptAnchorActive(chatScrollMode === "anchor");
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     let sentSessionId: string | null = null;
@@ -2220,7 +2221,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, dispatch, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, dispatch, restoreSubmission, editEntryId, setEdit, chatScrollMode]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -2881,7 +2882,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!container) return;
     initialScrollDoneRef.current = true;
     pendingScrollToUserRef.current = false;
-    setPromptAnchorActive(false);
     setAutoFollowRef.current(false);
     ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
     container.scrollTo({
@@ -3053,7 +3053,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages.length, loading, handleScrollPositionChange, markUserScrollIntent]);
 
   useEffect(() => {
-    if ((!agentRunning && !bashRunning) || !completionScrollAllowedRef.current) return;
+    if (promptAnchorActive || (!agentRunning && !bashRunning) || !completionScrollAllowedRef.current) return;
     const container = scrollContainerRef.current;
     if (!container) return;
     const frame = requestAnimationFrame(() => {
@@ -3061,7 +3061,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       container.scrollTo({ top: container.scrollHeight, behavior: "instant" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [agentRunning, bashRunning, messages.length, streamState.streamingMessage, agentPhase, pendingBash]);
+  }, [agentRunning, bashRunning, messages.length, streamState.streamingMessage, agentPhase, pendingBash, promptAnchorActive]);
 
   useLayoutEffect(() => {
     if (messages.length === 0) return;
@@ -3076,16 +3076,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       scrollToBottom("instant");
       return;
     }
-    if (completionScrollAllowedRef.current) {
+    if (!promptAnchorActive && completionScrollAllowedRef.current) {
       scrollToBottom(agentRunningRef.current || bashRunningRef.current ? "instant" : "smooth");
     }
-  }, [messages.length, agentRunning, bashRunning, scrollToBottom, scrollUserMsgToTop]);
-
-  // The prompt anchor waits for the first streamed content; once the run is
-  // over (or aborted while nothing arrived) it must not hold the layout.
-  useEffect(() => {
-    if (!agentRunning) setPromptAnchorActive(false);
-  }, [agentRunning]);
+  }, [messages.length, agentRunning, bashRunning, scrollToBottom, scrollUserMsgToTop, promptAnchorActive]);
 
   // Load the model list with bounded retries; loadModels exposes each failure.
   useEffect(() => {

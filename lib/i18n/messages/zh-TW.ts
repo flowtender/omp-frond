@@ -59,6 +59,8 @@ export const zhTWLocale: LocalePlugin = {
     "settings.enterSendMode": "傳送按鍵",
     "settings.enterSendModeEnter": "Enter",
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
+    "settings.chatScrollAnchor": "保持最新提問在頂部",
+    "settings.chatScrollAnchorDescription": "套用於下一則送出的訊息。關閉時跟隨最新回覆。",
     "settings.quoteSelection": "選取文字時顯示提問浮窗",
     "settings.sidebar": "側邊欄",
     "settings.filesPlacement": "檔案瀏覽器",

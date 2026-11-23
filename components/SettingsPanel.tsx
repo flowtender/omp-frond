@@ -14,6 +14,7 @@ import {
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
+import { useChatScrollMode, setChatScrollMode } from "@/hooks/useChatScrollMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
@@ -76,6 +77,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
+  const chatScrollMode = useChatScrollMode();
   const filesPlacement = useFilesPlacement();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
@@ -343,6 +345,15 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             </div>
           </div>
           <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.chatScrollAnchor")}</span>
+            <ConfigSwitch
+              checked={chatScrollMode === "anchor"}
+              label={t("settings.chatScrollAnchor")}
+              describedBy="settings-chat-scroll-anchor-description"
+              onChange={(enabled) => setChatScrollMode(enabled ? "anchor" : "follow")}
+            />
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.cacheMissNotices")}</span>
             <ConfigSwitch
               checked={cacheMissNotices === true}
@@ -353,6 +364,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             />
           </div>
         </div>
+        <p id="settings-chat-scroll-anchor-description" className="settings-general-description">{t("settings.chatScrollAnchorDescription")}</p>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
       </section>

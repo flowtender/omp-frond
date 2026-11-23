@@ -924,7 +924,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   useLayoutEffect(() => {
     const spacer = promptAnchorSpacerRef.current;
-    if (!agentRunning || !promptAnchorActive) {
+    if (!promptAnchorActive) {
       promptAnchorUpdateRef.current = null;
       promptAnchorSpacerHeightRef.current = 0;
       promptAnchorAdjustmentDoneRef.current = false;
@@ -965,13 +965,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       const needsInitialAdjustment = isInitialMeasurement
         && nextPromptAnchorSpacerHeight > 0;
       if (isInitialMeasurement) promptAnchorAdjustmentDoneRef.current = true;
-      if (nextPromptAnchorSpacerHeight === promptAnchorSpacerHeightRef.current) return;
-
-      promptAnchorSpacerHeightRef.current = nextPromptAnchorSpacerHeight;
-      spacer.style.height = nextPromptAnchorSpacerHeight > 0
-        ? `${nextPromptAnchorSpacerHeight}px`
-        : "";
-      if (needsInitialAdjustment) scrollUserMsgToTop();
+      if (nextPromptAnchorSpacerHeight !== promptAnchorSpacerHeightRef.current) {
+        promptAnchorSpacerHeightRef.current = nextPromptAnchorSpacerHeight;
+        spacer.style.height = nextPromptAnchorSpacerHeight > 0
+          ? `${nextPromptAnchorSpacerHeight}px`
+          : "";
+      }
+      if (needsInitialAdjustment && !autoFollowPaused) scrollUserMsgToTop();
+      if (agentRunning && !autoFollowPaused && !pendingScrollRestore) scrollToBottom("instant");
     };
 
     promptAnchorUpdateRef.current = updatePromptAnchorSpacer;
@@ -1008,12 +1009,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     promptAnchorActive,
     scrollContainerRef,
     scrollUserMsgToTop,
+    autoFollowPaused,
+    pendingScrollRestore,
+    scrollToBottom,
   ]);
 
   // Each streamed chunk StreamingReply commits, and the bubble coming and going.
   const updatePromptAnchor = useCallback(() => {
     promptAnchorUpdateRef.current?.();
-  }, []);
+    if (!promptAnchorActive && !autoFollowPaused && !pendingScrollRestore && (agentRunning || bashRunning)) {
+      scrollToBottom("instant");
+    }
+  }, [promptAnchorActive, autoFollowPaused, pendingScrollRestore, agentRunning, bashRunning, scrollToBottom]);
   useLayoutEffect(updatePromptAnchor, [isStreaming, hasStreamingContent, updatePromptAnchor]);
 
   const availableThinkingLevels = displayModelValue

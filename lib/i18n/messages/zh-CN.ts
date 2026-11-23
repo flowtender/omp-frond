@@ -73,6 +73,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.enterSendMode": "发送按键",
     "settings.enterSendModeEnter": "Enter",
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
+    "settings.chatScrollAnchor": "保持最新提问在顶部",
+    "settings.chatScrollAnchorDescription": "对下一条发送的消息生效。关闭时跟随最新回复。",
     "settings.quoteSelection": "选中文字时显示提问浮窗",
     "settings.sidebar": "侧边栏",
     "settings.filesPlacement": "文件浏览器",
