@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { getSetting } from "@/lib/omp-settings";
 import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
+import { CompactionCancelledError } from "@oh-my-pi/pi-agent-core/compaction";
 import {
   applyResolvedSystemPromptInputs,
   createAgentSession,
@@ -178,6 +179,7 @@ const MAX_SUBAGENT_HISTORY = 128;
 
 const HANDOFF_ALLOWED_COMMAND_TYPES: Record<string, true> = {
   abort: true,
+  abort_compaction: true,
   extension_ui_input: true,
   extension_ui_response: true,
   get_commands: true,
@@ -1537,11 +1539,8 @@ export class AgentSessionWrapper {
       }
 
       case "handoff": {
-        // omp 18 made handoff in-place: it summarizes the conversation into a
-        // handoff document and commits that as this session's compaction entry
-        // instead of minting a replacement session. It still rewrites history
-        // behind a oneshot model call, so it must not run while a prompt is
-        // streaming or any other work owns the session.
+        // Keep the browser's blocking handoff contract while the SDK prepares
+        // and commits the summary through background compaction.
         if (this.handoffRunning || this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
           throw new Error("Cannot hand off while the session is busy");
         }
@@ -1549,13 +1548,14 @@ export class AgentSessionWrapper {
         this.handoffRunning = true;
         notifyRunningChange();
         try {
-          // No result means the handoff was cancelled; the session is untouched.
-          const result = await this.inner.handoff(customInstructions);
-          if (!result) return { cancelled: true };
+          await this.inner.compact(customInstructions, { mode: "handoff" });
           // The session id and file are unchanged, so only the cached listing
           // (modified time, token counts) has gone stale.
           invalidateSessionListCache();
           return { cancelled: false };
+        } catch (error) {
+          if (error instanceof CompactionCancelledError) return { cancelled: true };
+          throw error;
         } finally {
           this.handoffRunning = false;
           notifyRunningChange();
