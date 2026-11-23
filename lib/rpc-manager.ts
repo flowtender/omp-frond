@@ -453,6 +453,9 @@ export class AgentSessionWrapper {
   // The latest start/update of each running tool call, replayed to new
   // listeners; cleared when the run ends.
   private activeToolEvents = new Map<string, AgentEvent>();
+  // The latest update of the assistant reply in progress, replayed to new
+  // listeners so a client that joins mid-reply catches up at once.
+  private activeMessageEvent: AgentEvent | null = null;
   // Stop could not unwind the run: the idle timer must still reap it.
   private forceShutdownOnIdle = false;
   // The armed idle timer is the forced cleanup Stop scheduled.
@@ -643,6 +646,16 @@ export class AgentSessionWrapper {
       || this.subagents.getSubagents().length > 0
     );
   }
+
+  /**
+   * Ids of the extension UI requests this session still holds open. A client
+   * reads them in the same synchronous step as its onEvent() subscription, so
+   * its connected event and the replay that follows describe the same moment.
+   */
+  pendingExtensionUiIds(): string[] {
+    return [...this.pendingUiRequests.keys()];
+  }
+
   bindToolUiContext(setter: (uiContext: ExtensionUiContextLike, hasUI: boolean) => void): void {
     setter(this.createExtensionUiContext(), true);
   }
@@ -678,8 +691,10 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
         // Every tool call of the run has finished; nothing is left to replay.
         this.activeToolEvents.clear();
+        this.activeMessageEvent = null;
       }
       this.trackActiveToolEvent(event);
+      this.trackStreamingMessageEvent(event);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
       if (event.type === "agent_end" && event.isTerminal !== false) this.notifyAgentRunCompleteIfIdle();
@@ -1043,6 +1058,16 @@ export class AgentSessionWrapper {
     }
   }
 
+  /**
+   * Keep the latest update of the assistant reply in progress. A message_update
+   * carries the whole message so far, so a client that joins mid-reply needs only
+   * this one event to show what it missed. Cleared when a message ends or the run does.
+   */
+  private trackStreamingMessageEvent(event: AgentEvent): void {
+    if (event.type === "message_update") this.activeMessageEvent = event;
+    else if (event.type === "message_end" || event.type === "agent_end") this.activeMessageEvent = null;
+  }
+
   private notifyAgentRunCompleteIfIdle(): void {
     if (!this.agentRunNeedsCompletion || this.isRunning()) return;
     this.agentRunNeedsCompletion = false;
@@ -1124,6 +1149,7 @@ export class AgentSessionWrapper {
     this.listeners.push(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
     for (const event of this.activeToolEvents.values()) listener(event);
+    if (this.activeMessageEvent) listener(this.activeMessageEvent);
     return () => {
       const i = this.listeners.indexOf(listener);
       if (i !== -1) this.listeners.splice(i, 1);
@@ -1821,6 +1847,7 @@ export class AgentSessionWrapper {
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
     this.activeToolEvents.clear();
+    this.activeMessageEvent = null;
     this.clearExtensionWidgets(false);
 
     const finishDispose = () => {

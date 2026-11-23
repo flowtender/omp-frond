@@ -72,8 +72,17 @@ export async function GET(
         controller.enqueue(encoder.encode(text));
       };
 
-      // Send initial connected event
-      encode({ type: "connected", sessionId: session.sessionId, runtimeId: session.runtimeId });
+      // Read the run state and the open UI requests in the same synchronous step
+      // as the subscription below, so the replay that follows matches this snapshot.
+      // A client that was away uses pendingExtensionUiIds to drop requests that
+      // were answered on another device.
+      encode({
+        type: "connected",
+        sessionId: session.sessionId,
+        runtimeId: session.runtimeId,
+        isStreaming: session.isRunning(),
+        pendingExtensionUiIds: session.pendingExtensionUiIds(),
+      });
 
       unsubscribe = session.onEvent((event) => {
         const clientEvent = toClientEvent(event);

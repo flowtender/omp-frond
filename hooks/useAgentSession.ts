@@ -35,6 +35,8 @@ import type { ContextUsage, GoalStatusInfo, SessionStatsInfo, SlashCommandInfo }
 import type { ModelRoleAssignment } from "@/lib/api-types";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
 import type { SettingsSection } from "@/lib/settings-navigation";
+import type { RunHint } from "@/lib/session-run-hint";
+import { runHintAction } from "@/lib/session-run-hint";
 import { useChatScrollMode } from "@/hooks/useChatScrollMode";
 
 export interface SessionData {
@@ -309,6 +311,8 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const CONTEXT_USAGE_REFRESH_MS = 1000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
+// A failed connect for a run still reported as running is retried this often.
+const FOLLOW_RETRY_MS = 2_500;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -500,6 +504,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onSessionStatsPanelOpen, onOpenSettings,
   } = opts;
   const deferInitialScroll = opts.deferInitialScroll ?? false;
+  const sessionRunning = opts.sessionRunning === true;
   const chatScrollMode = useChatScrollMode();
 
   const isNew = session === null && newSessionCwd !== null;
@@ -1305,6 +1310,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     throw new EventStreamConnectionError(result.status);
   }, [connectEvents, followRuntimeState]);
 
+  // The retry counter re-runs the discovery effect after a failed attempt, so a
+  // run still reported as running is followed again.
+  const [followRetry, setFollowRetry] = useState(0);
+  const runHintRef = useRef<RunHint | null>(null);
+  // Opens the stream for a run in progress; ensureEventsConnected dedups concurrent callers.
+  const followRun = useCallback((sid: string) => {
+    ensureEventsConnected(sid).catch(() => {
+      if (!mountedRef.current) return;
+      window.setTimeout(() => {
+        if (mountedRef.current) setFollowRetry((count) => count + 1);
+      }, FOLLOW_RETRY_MS);
+    });
+  }, [ensureEventsConnected]);
+
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
     response: { value: string } | { confirmed: boolean } | { cancelled: true },
@@ -1712,7 +1731,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
-  useEffect(() => () => { sessionHookMountedRef.current = false; }, []);
+  // Strict Mode runs effects, cleans them up, then runs them again. The flag
+  // must be restored on that second run, or every gated path (the prompt's
+  // stream attach, tool and context loads, usage updates) drops its result.
+  useEffect(() => {
+    sessionHookMountedRef.current = true;
+    return () => { sessionHookMountedRef.current = false; };
+  }, []);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
@@ -2965,7 +2990,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
             dispatch({ type: "start" });
-            void connectEvents(sid);
+            followRun(sid);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
               void waitForPromptSettlement(sid);
             }
@@ -2976,7 +3001,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             void waitForBashSettlement(sid);
           }
           if ((agentState.state?.subagents?.length ?? 0) > 0) {
-            void connectEvents(sid);
+            followRun(sid);
           }
         }
         const state = agentState?.state;
@@ -3003,6 +3028,37 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A run another device started appears only in the sidebar's running poll
+  // (`sessionRunning`). An idle view opens no stream, because that would start a
+  // wrapper; the poll reports only sessions that already have one, so following
+  // them is safe. A run that starts and ends between two polls leaves no running
+  // state, but it changes the selected row's modified time and message count,
+  // which the sidebar's refresh merges into `session`. The decision lives in runHintAction.
+  useEffect(() => {
+    if (!session) return;
+    const sid = session.id;
+    const previous = runHintRef.current;
+    const current: RunHint = {
+      sessionId: sid,
+      running: sessionRunning,
+      activity: session.detailsPending ? null : `${session.modified}|${session.messageCount}`,
+    };
+    runHintRef.current = current;
+    const action = runHintAction(previous, current, {
+      attached: eventSourceRef.current !== null && eventSourceSessionIdRef.current === sid,
+      localRunning: agentRunningRef.current,
+      promptPending: rpcPromptPendingRef.current,
+    });
+    if (action === "none") return;
+    const reload = action === "reload" || action === "reload-and-follow";
+    const follow = action === "follow" || action === "reload-and-follow";
+    void (async () => {
+      if (reload) await loadSession(sid);
+      if (follow && mountedRef.current && sessionIdRef.current === sid) followRun(sid);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, session?.modified, session?.messageCount, session?.detailsPending, sessionRunning, followRetry]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);

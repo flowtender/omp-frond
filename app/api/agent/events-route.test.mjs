@@ -12,13 +12,15 @@ const { outputText } = ts.transpileModule(body, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
 });
 
-function harness({ cold = false } = {}) {
+function harness({ cold = false, running = false, pendingExtensionUiIds = [] } = {}) {
   const timers = new Map();
   const state = { subscriptions: 0, unsubscriptions: 0, listener: null };
   const session = {
     sessionId: "session-a",
     runtimeId: "runtime:a",
     isAlive: () => true,
+    isRunning: () => running,
+    pendingExtensionUiIds: () => [...pendingExtensionUiIds],
     onEvent(listener) {
       state.subscriptions += 1;
       state.listener = listener;
@@ -75,3 +77,27 @@ for (const disconnect of ["abort", "cancel"]) {
     assert.deepEqual(await reader.read(), { value: undefined, done: true });
   });
 }
+
+test("connected tells a joining client the run state and the requests still open", async () => {
+  const h = harness({ running: true, pendingExtensionUiIds: ["ask-1"] });
+  const reader = (await h.response).body.getReader();
+  const text = new TextDecoder().decode((await reader.read()).value);
+  assert.deepEqual(JSON.parse(text.slice("data: ".length)), {
+    type: "connected",
+    sessionId: "session-a",
+    runtimeId: "runtime:a",
+    isStreaming: true,
+    pendingExtensionUiIds: ["ask-1"],
+  });
+  h.controller.abort();
+});
+
+test("connected reports an idle session with no open requests", async () => {
+  const h = harness();
+  const reader = (await h.response).body.getReader();
+  const text = new TextDecoder().decode((await reader.read()).value);
+  const connected = JSON.parse(text.slice("data: ".length));
+  assert.equal(connected.isStreaming, false);
+  assert.deepEqual(connected.pendingExtensionUiIds, []);
+  h.controller.abort();
+});

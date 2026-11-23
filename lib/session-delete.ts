@@ -6,7 +6,7 @@
  * is re-pointed at the nearest ancestor still there (`parentSession` is
  * display metadata only, so the rewrite is safe). Open wrappers are shut down,
  * subagents before their parents, before the files go; then the pins and
- * archive times of every deleted id are forgotten.
+ * archive times and unsent drafts of every deleted id are forgotten.
  *
  * One call lists the catalogue and reads each folder once, however many
  * sessions it deletes: a project's hundreds of sessions deleted one request
@@ -25,6 +25,7 @@ import {
   readSessionHeader,
   resolveSessionPath,
 } from "./session-reader";
+import { forgetSessionDrafts } from "./session-draft-store";
 import { sessionPathKey } from "./session-path";
 import { forgetSessionUiState } from "./session-ui-state";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
@@ -243,6 +244,12 @@ export async function deleteSessions(
     await forgetSessionUiState(deletedSessionIds);
   } catch (error) {
     console.warn(`[pi-web] could not clear the sidebar state of deleted sessions: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // The unsent drafts of those sessions go too; best effort like the sidebar state.
+  try {
+    forgetSessionDrafts(deletedSessionIds);
+  } catch (error) {
+    console.warn(`[pi-web] could not clear the unsent drafts of deleted sessions: ${error instanceof Error ? error.message : String(error)}`);
   }
   invalidateSessionListCache();
   return { deleted: [...deletedSessionIds], missing, running };

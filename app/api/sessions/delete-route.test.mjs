@@ -27,6 +27,7 @@ const {
   resetSessionUiStateCacheForTests,
   updateSessionUiState,
 } = await jiti.import("../../../lib/session-ui-state.ts");
+const { writeSessionDraft } = await jiti.import("../../../lib/session-draft-store.ts");
 
 test.after(async () => {
   if (previousAgentDir0 === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -94,7 +95,7 @@ async function scratchAgentDir(t) {
 }
 
 test("deletes a project's sessions in one request, with their subagents, keeping a run and re-pointing what stays", async (t) => {
-  const { sessionsDir, ids } = await scratchAgentDir(t);
+  const { dir, sessionsDir, ids } = await scratchAgentDir(t);
   const cwd = "/work/alpha";
   const keepRoot = await writeSession(sessionsDir, "keep-root", { id: "keep-root", cwd });
   const a = await writeSession(sessionsDir, "a", { id: "del-a", cwd, parentSession: keepRoot });
@@ -135,6 +136,10 @@ test("deletes a project's sessions in one request, with their subagents, keeping
   await updateSessionUiState({ action: "set", ids: ["del-a", "keep-root"], pinned: true });
   await updateSessionUiState({ action: "set", ids: ["del-b"], archived: true });
 
+  // Unsent drafts of the deleted sessions (subagents included) go with them; a kept session keeps its draft.
+  for (const id of ["del-a", "del-a-sub", "del-b"]) writeSessionDraft(id, { value: "unsent", images: [] }, dir);
+  writeSessionDraft("keep-root", { value: "kept", images: [] }, dir);
+
   const response = await post({ ids: ["del-a", "del-b", "run-x", "gone-elsewhere"] });
 
   assert.equal(response.status, 200);
@@ -145,6 +150,8 @@ test("deletes a project's sessions in one request, with their subagents, keeping
   assert.deepEqual(result.missing, ["gone-elsewhere"]);
   for (const path of [a, b, aSub]) assert.equal(existsSync(path), false, path);
   for (const path of [keepRoot, keepFork, running]) assert.equal(existsSync(path), true, path);
+  for (const id of ["del-a", "del-a-sub", "del-b"]) assert.equal(existsSync(join(dir, "pi-web-drafts", `${id}.json`)), false, `${id} draft`);
+  assert.equal(existsSync(join(dir, "pi-web-drafts", "keep-root.json")), true);
   // The running session was left alone; the idle one was shut down before its file went.
   assert.deepEqual(shutdowns, ["del-b"]);
   assert.ok(globalThis.__ompSessions.has("run-x"));

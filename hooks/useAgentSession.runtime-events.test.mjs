@@ -710,3 +710,19 @@ test("a stopped prompt returns to send without announcing a successful completio
     ["completion", { aborted: true, sessionId: "a" }],
   ]);
 });
+
+test("connected reconciles a device that was away: answered asks leave, open runs show running", () => {
+  const h = harness();
+  const ask = { type: "extension_ui_request", method: "confirm", title: "Continue?", message: "Approve this step" };
+  h.handleAgentEvent({ ...ask, id: "ask-1" });
+  assert.equal(h.state.ExtensionDialog?.id, "ask-1");
+  // The other device answered ask-1 while this one was disconnected; the server
+  // now holds only ask-2, and replays it right after this event.
+  h.handleAgentEvent({
+    type: "connected", sessionId: "a", runtimeId: "runtime:r1", isStreaming: true, pendingExtensionUiIds: ["ask-2"],
+  });
+  assert.equal(h.state.ExtensionDialog, null, "an ask answered elsewhere must leave this screen");
+  assert.equal(h.state.AgentRunning, true, "a run in progress must show as running on connect");
+  h.handleAgentEvent({ ...ask, id: "ask-2" });
+  assert.equal(h.state.ExtensionDialog?.id, "ask-2");
+});

@@ -104,6 +104,9 @@ app/api/
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
   draft-store.ts       local draft persistence helpers
+  session-draft-shared.ts  client-safe rules of a saved session's shared composer draft
+  session-draft-sync.ts    keeps the composer draft in step with other devices (client)
+  session-draft-store.ts   server store of each saved session's shared draft
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   form-dialog.ts       ask form: SDK parse -> browser shape, browser state -> form data, picture loading
@@ -300,6 +303,7 @@ Newer omp emits `compaction_start` / `compaction_end`; older versions emitted `a
 
 ### Running state polling + reconciliation
 - The sidebar polls `/api/agent/running` every 2.5 seconds while the tab is visible and pauses polling in background tabs. The session-list response remains the initial fallback.
+- An open chat follows a run another device started through the same running poll (`sessionRunning` → `runHintAction()` in `lib/session-run-hint.ts`): it reloads history, then `ensureEventsConnected()`. Opening an idle chat opens no stream. A fast run that starts and ends between two polls is caught through the selected row's `modified`/`messageCount`, which the running poll's list reload merges into the open chat; that reloads an idle chat's history. The first observation after mount does nothing, because the mount's own load already handles a run in progress.
 - `useAgentSession` treats per-session SSE as primary for chat events and opens it before each prompt. `prompt_done` completes the current UI stage and notification immediately, but the idle SSE stays open for a 30-second grace window and is reused by the next prompt. `agent_start` cancels that close timer; `agent_settled` finishes extension-injected runs that have no wrapper-level `prompt_done` and starts a fresh grace window. Do not close on the first `agent_end`: retries, compaction, and extension-queued messages can continue the same logical prompt.
 - While a run is active, `useAgentSession` periodically calls `GET /api/agent/[id]` and also reconciles on `visibilitychange`/`online`. This fixes missed terminal events from background tabs or half-open connections.
 - Prompt runs use a monotonic run id; late SSE or slow reconciliation responses from an old run must be ignored so they cannot resurrect stale streaming bubbles.

@@ -20,6 +20,11 @@ import {
   isBase64ImageWithinLimits,
 } from "@/lib/image-attachments";
 import {
+  EMPTY_SHARED_SESSION_DRAFT,
+  sharedSessionDraftId,
+  type SharedSessionDraft,
+} from "@/lib/session-draft-shared";
+import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
@@ -35,6 +40,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import { usePopupPlacement } from "@/hooks/usePopupPlacement";
+import { useSharedSessionDraft } from "@/hooks/useSharedSessionDraft";
 import { POPUP_GAP_PX, type PopupSide } from "@/lib/popup-placement";
 import { SelectorRow } from "./SelectorRow";
 import type { ToolPreset } from "@/lib/tool-presets";
@@ -1002,13 +1008,39 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     }
   }, [clearImages, draftKey]);
 
+  const sharedSessionId = sharedSessionDraftId(draftKey);
+
+  const readSharedDraft = useCallback((): SharedSessionDraft => {
+    if (draftKeyRef.current === draftKey) {
+      return { value: valueRef.current, images: attachedImagesRef.current.map(imageToDraftImage) };
+    }
+    return (draftKey ? getDraft(draftKey) : undefined) ?? EMPTY_SHARED_SESSION_DRAFT;
+  }, [draftKey]);
+
+  const applyRemoteDraft = useCallback((draft: SharedSessionDraft) => {
+    if (!draftKey) return;
+    setDraft(draftKey, draft);
+    if (draftKeyRef.current !== draftKey) return;
+    const nextImages = draftImagesToAttachedImages(draft.images);
+    valueRef.current = draft.value;
+    attachedImagesRef.current = nextImages;
+    setValue(draft.value);
+    setAttachedImages((prev) => {
+      prev.forEach(revokeImagePreview);
+      return nextImages;
+    });
+  }, [draftKey]);
+
+  const saveSharedDraftSoon = useSharedSessionDraft({ sessionId: sharedSessionId, readDraft: readSharedDraft, applyRemoteDraft });
+
   useEffect(() => {
     if (!draftKey || draftKeyRef.current !== draftKey) return;
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
     });
-  }, [attachedImages, draftKey, value]);
+    saveSharedDraftSoon();
+  }, [attachedImages, draftKey, saveSharedDraftSoon, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;

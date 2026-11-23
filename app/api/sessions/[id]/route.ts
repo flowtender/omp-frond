@@ -14,6 +14,7 @@ import {
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { setSessionArchived } from "@/lib/session-archive";
+import { forgetSessionDrafts } from "@/lib/session-draft-store";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { projectTreeForResponse } from "@/lib/project-tree";
@@ -185,6 +186,12 @@ export async function DELETE(
 
     await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);
+    // The unsent draft goes with the session; the file is already gone, so a failure here only logs.
+    try {
+      forgetSessionDrafts([id]);
+    } catch (error) {
+      console.warn(`[pi-web] could not clear the unsent draft of ${id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
