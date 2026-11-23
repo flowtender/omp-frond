@@ -153,3 +153,98 @@ and validate each submission without rewriting the preserved history.
 
 A future replacement for published main should be reviewed as a deliberate
 history/default-branch migration. Do not force-push it as part of a routine sync.
+
+## GitHub automation: first-time setup
+
+The workflow files must be published on the repository's default branch (`main`)
+before GitHub will schedule them. The SDK target `integration` must also exist
+on GitHub. Local files and branches alone do not activate Actions.
+
+After reviewing the automation commit, publish these two branches:
+
+```bash
+git push origin integration
+git push origin main
+```
+
+No force push is required. Do not push all branches or tags. If either push is
+rejected, inspect the remote changes rather than forcing it.
+
+In <https://github.com/flowtender/omp-web/settings/actions>:
+
+1. Under **Actions permissions**, allow the actions used by the workflows:
+   `actions/checkout`, `actions/github-script`, `oven-sh/setup-bun`, and
+   `peter-evans/create-pull-request`. An existing allow-all policy also works.
+2. Under **Workflow permissions**, enable **Allow GitHub Actions to create and
+   approve pull requests**, then save. The workflow YAML requests its own
+   minimal token permissions; no personal access token or repository secret
+   needs to be added. Nothing in these workflows approves or merges PRs.
+3. Open the repository's **Actions** tab. If GitHub says workflows are disabled
+   because this is a fork, enable them. Select each of the following workflows
+   and enable it if necessary.
+4. Select **Monitor UI upstreams → Run workflow**, use branch `main`, and check
+   `dry_run` for the first run. Inspect the comparisons in the job summary.
+   Run again without `dry_run` to create the three review issues.
+5. Select **Update omp dependency → Run workflow**, using branch `main`.
+   A newer published SDK opens a draft PR into `integration`; if the SDK is
+   already current, no PR is expected. An existing open PR for that version is
+   left untouched so human source adaptations are not overwritten.
+
+The SDK workflow runs daily at 08:17 UTC. UI upstream monitoring runs Mondays
+at 08:43 UTC. GitHub schedules can be delayed; these are not exact-time alarms.
+Scheduled workflows run from the default branch and may be disabled after 60
+days without repository activity. See [enabling workflows][enable-workflows].
+
+### What to do with the results
+
+**SDK draft PR:** inspect the linked release notes and job logs. Failed lockfile,
+installation, typechecking, or tests mean source adaptations are needed, not
+that the updater silently skipped the release. Even successful checks leave
+the PR in draft until the affected runtime behavior has been exercised.
+Installation failures before the package bump (for example unavailable npm
+packages) appear in the workflow logs and are checked again the next day.
+
+The built-in GitHub token can leave PR CI awaiting approval: select
+**Approve workflows to run** if the PR shows that banner. Compatibility checks
+also run inside the updater itself. Subsequent human-pushed source changes
+trigger normal PR CI. Neither merging this SDK PR nor running this updater
+bumps the application version, creates a release, or starts npm publishing.
+Existing independent release workflows are unchanged.
+
+**Upstream tracking issues:** subscribe to each issue to receive notifications
+when the monitor comments about a changed upstream head. Reports are refreshed
+without duplicate comments when the head is unchanged. Keep your sync PR links
+and decisions in **Review notes**, outside the report marker comments; that
+text is preserved. Closing an issue with unreviewed changes is temporary: the
+next run reopens it.
+
+The durable review checkpoints live in `.github/upstreams.json` on `main`.
+Initial checkpoints are the pi-web merge base of integration and the existing
+ddallabenetta/kd-mm2 upstream tips. This intentionally exposes the pi-web
+backlog instead of treating today's latest pi-web as already reviewed.
+After reviewing a batch, update that stream's `reviewed` field to the full
+40-character upstream commit SHA and commit/push the configuration change.
+Advance only past changes you incorporated or explicitly decided to skip;
+record those decisions in the issue. Do not advance checkpoints merely because
+the monitor observed a newer head.
+
+The next run compares the new checkpoint and refreshes the same issue. A
+rewritten upstream history is reported as `behind` or `diverged`, not silently
+treated as reviewed. A damaged report marker fails the run rather than
+overwriting human notes. Fix the markers and rerun.
+
+### Cost and permissions
+
+This fork is public. [Standard GitHub-hosted runners are free for public
+repositories][actions-billing]; these workflows use `ubuntu-latest`, no paid
+larger runners, and no artifact uploads. Private repositories and paid storage
+have different allowances.
+
+The SDK updater requests repository contents and pull-request write access.
+The UI monitor requests contents read and issues write access. Both use
+GitHub's short-lived built-in `GITHUB_TOKEN`, provided automatically for each
+run. The monitor reads upstream commit metadata; it does not execute upstream
+code, change checkpoints, create sync commits, or merge anything.
+
+[enable-workflows]: https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows
+[actions-billing]: https://docs.github.com/en/billing/concepts/product-billing/github-actions

@@ -28,23 +28,23 @@ the repository's `npm` environment must permit the release job to run. No npm
 token is stored in GitHub Actions.
 
 
-## Automated omp dependency releases
+## Automated omp compatibility proposals
 
 `.github/workflows/update-omp.yml` checks the latest stable `oh-my-pi` release
-and opens a dependency PR when the runtime packages change. The PR also bumps
-the `omp-web` version: a patch for a refresh within the same `oh-my-pi` major,
-a minor when the major changes (omp-web serves omp's own SDK in-process, so a
-new major moves that surface under its users too). After that PR is merged, the
-workflow creates the matching `v<version>` GitHub tag and release, with the
-updated `oh-my-pi` version in the release notes, then dispatches the npm publish
-workflow for that tag.
+daily and opens a **draft** PR against `integration` with exact SDK package
+pins. It refreshes the lockfile and runs installation, typechecking, and tests;
+failures remain visible in the PR and linked workflow logs. Existing open
+update PRs are left untouched so source adaptations are preserved.
 
-The workflow verifies the bump with `bun run typecheck` and `bun test` before
-opening the PR, but a failure there does not fail the run: a breaking upstream
-release is exactly when the update most needs to be seen, so the PR is opened as
-a **draft** carrying the failure instead. Take the draft, make omp-web compatible
-on that branch, then mark it ready. A release tagged upstream but not yet on npm
-is likewise not a failure — the hourly schedule retries it.
+Passing checks do not establish runtime compatibility. Review breaking changes,
+adapt omp-web, exercise affected runtime paths, and mark the draft ready only
+after verification. If the release is not yet available on npm, the next daily
+run checks again.
+
+The updater does not bump omp-web's version, tag, create a release, publish npm
+packages, or merge anything. Publishing remains a separate deliberate action
+using the release procedures below. See [upstream maintenance](upstream-maintenance.md#github-automation-first-time-setup)
+for initial GitHub setup and upstream review tracking.
 
 ## 1. Preflight
 
