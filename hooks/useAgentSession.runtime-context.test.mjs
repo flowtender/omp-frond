@@ -120,6 +120,7 @@ function harness() {
   // Use an indirection only for fetch so responses can be scheduled per test.
   const callbackBindings = { ...bindings, fetch: (...args) => bindings.fetch(...args) };
   bindings.loadContext = callback("loadContext", callbackBindings);
+  bindings.loadSession = async (sid) => effects.push(["reload", sid]);
   bindings.handleNavigate = callback("handleNavigate", bindings);
   return { bindings, commands, effects, memory, storage, ui };
 }
@@ -155,11 +156,13 @@ for (const [label, identity] of [
     };
 
     const navigating = h.bindings.handleNavigate("old-leaf");
+    const reading = h.bindings.loadContext("b", "old-leaf");
     await contextRequested.promise;
     expiredCommand.resolve(response({
       error: "Runtime session expired", code: "runtime_expired", accepted: false, sessionId: "b",
     }, 404));
-    await Promise.all(h.commands);
+    assert.equal(await navigating, true);
+    assert.deepEqual(h.effects.filter(([kind]) => kind === "reload"), [["reload", "b"]]);
     assert.equal(h.bindings.runtimeIdRef.current, "runtime:r2");
     assert.equal(h.memory.getSessionContinuation("b"), "runtime:r2");
     assert.equal(h.bindings.contextRequestRef.current, 1, "same-transcript reopening keeps the context request number");
@@ -174,11 +177,18 @@ for (const [label, identity] of [
     // The response body completes only after the production expiry retry has
     // rebound the same transcript to R2 and persisted that continuation.
     oldContext.resolve(context("obsolete branch", identity));
-    await navigating;
+    await reading;
     assert.deepEqual(snapshot(h), reopened, "stale context must not clear R2 or replace its UI/storage");
     assert.deepEqual(h.effects, [], "stale context must not notify the parent or invoke any setter");
   });
 }
+
+test("a cancelled edit cannot submit a replacement on the current branch", async () => {
+  const h = harness();
+  h.bindings.fetch = async () => response({ success: true, data: { cancelled: true } });
+  assert.equal(await h.bindings.handleNavigate("earlier-user-turn"), false);
+  assert.equal(h.effects.some(([kind]) => kind === "reload"), false);
+});
 
 test("an owned expired runtime still clears its continuation and applies historical context", async () => {
   const h = harness();

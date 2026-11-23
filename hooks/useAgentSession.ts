@@ -2294,25 +2294,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [onSessionForked]);
 
-  const handleNavigate = useCallback(async (entryId: string) => {
-    if (bashRunningRef.current) return;
+  const handleNavigate = useCallback(async (entryId: string): Promise<boolean> => {
     const sid = sessionIdRef.current;
-    if (!sid) return;
-    sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId }, runtimeIdRef).catch(() => {});
-    setActiveLeafId(entryId);
-    await loadContext(sid, entryId);
-  }, [loadContext]);
-
-  // handleSend replays a pending history edit through this ref so its own
-  // identity does not churn with every branch change.
-  handleNavigateRef.current = async (leafId: string) => {
+    if (!sid || bashRunningRef.current) return false;
     try {
-      await handleNavigate(leafId);
-      return true;
-    } catch {
+      const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, { type: "navigate_tree", targetId: entryId }, runtimeIdRef);
+      if (result?.cancelled || !mountedRef.current || sessionIdRef.current !== sid) return false;
+      // For a user turn, omp moves the leaf to its parent, not to entryId.
+      await loadSession(sid);
+      return mountedRef.current && sessionIdRef.current === sid;
+    } catch (error) {
+      console.error("Failed to navigate:", error);
       return false;
     }
-  };
+  }, [loadSession]);
+  handleNavigateRef.current = handleNavigate;
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;
