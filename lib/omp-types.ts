@@ -7,6 +7,7 @@ import type {
   Theme,
 } from "@oh-my-pi/pi-coding-agent";
 import type { GoalModeState } from "@oh-my-pi/pi-coding-agent/goals/state";
+import type { FormDialogAnswer } from "./form-dialog";
 import type { Goal } from "@oh-my-pi/pi-tui/tools/goal";
 import type { ExtensionAskDialogQuestion, ExtensionAskDialogResult } from "./types";
 
@@ -117,6 +118,7 @@ type WidgetOptionsLike = {
 export interface ExtensionUiContextLike {
   readonly timeoutStartsOnPresentation?: boolean;
   askDialog?(questions: ExtensionAskDialogQuestion[], opts?: DialogOptionsLike): Promise<ExtensionAskDialogResult | undefined>;
+  formDialog?(html: string, opts?: DialogOptionsLike): Promise<FormDialogAnswer | undefined>;
   select(title: string, options: ExtensionUISelectItem[], opts?: DialogOptionsLike): Promise<string | undefined>;
   confirm(title: string, message: string, opts?: DialogOptionsLike): Promise<boolean>;
   input(title: string, placeholder?: string, opts?: DialogOptionsLike): Promise<string | undefined>;

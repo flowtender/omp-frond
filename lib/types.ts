@@ -1,3 +1,5 @@
+import type { FormDialogForm } from "./form-dialog-types";
+
 // Types mirrored from pi-mono coding-agent session-manager
 
 export interface SessionHeader {
@@ -245,6 +247,16 @@ export type ExtensionUiRequest =
   | {
       type: "extension_ui_request";
       id: string;
+      method: "form";
+      form: FormDialogForm;
+      /** Pictures of the form load from `${mediaPath}/${index}`. */
+      mediaPath?: string;
+      timeout?: number;
+      expiresAt?: number;
+    }
+  | {
+      type: "extension_ui_request";
+      id: string;
       method: "plan_review";
       title: string;
       planFilePath: string;
@@ -323,7 +335,7 @@ export type ExtensionUiRequest =
 
 export type BlockingExtensionUiRequest = Extract<
   ExtensionUiRequest,
-  { method: "select" | "confirm" | "input" | "editor" | "custom" }
+  { method: "select" | "confirm" | "input" | "editor" | "form" | "custom" }
 >;
 
 export type ExtensionUiResponse =

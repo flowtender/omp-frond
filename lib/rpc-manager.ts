@@ -52,6 +52,7 @@ import { markModelsSeen } from "./seen-models";
 import { modelRef } from "./enabled-models-runtime";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./omp-types";
 import { GoalModeController } from "./goal-mode";
+import { formDataFromState, loadFormMedia, parseFormDialogState, prepareFormDialog, type FormDialogAnswer, type FormMediaSource } from "./form-dialog";
 import type {
   ExtensionAskDialogResult,
   ExtensionUiRequest,
@@ -140,6 +141,10 @@ type ExtensionUiRequestBody = Record<string, unknown> & {
   timeout?: number;
   expiresAt?: number;
 };
+
+// After a form's ask timeout the browser submits what is typed; the server only
+// steps in with the defaults once this much later, when no browser answered.
+const FORM_TIMEOUT_GRACE_MS = 3_000;
 
 /** Mirrors omp's RPC `select` wire: labels stay strings, descriptions travel positionally. */
 function toSelectRequestOptions(options: ExtensionUISelectItem[]): { options: string[]; optionDetails?: ExtensionUiSelectOptionDetail[] } {
@@ -410,6 +415,8 @@ export class AgentSessionWrapper {
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
   private activeCustomUis = new Map<string, ActiveCustomUi>();
+  // Pictures of open form dialogs, by the token their request carries.
+  private formMedia = new Map<string, FormMediaSource[]>();
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
   private activeExtensionWidgets = new Map<string, ActiveExtensionWidget>();
@@ -1921,6 +1928,12 @@ export class AgentSessionWrapper {
     pending.resolve(response);
   }
 
+  /** A picture of an open form dialog, or null once the form is answered or the picture is unknown. */
+  async loadFormMedia(token: string, index: number, signal?: AbortSignal) {
+    const source = this.formMedia.get(token)?.[index];
+    return source ? loadFormMedia(source, this.cwd, signal) : null;
+  }
+
   private getExtensionStatuses(): Array<{ key: string; text: string }> {
     return Array.from(this.extensionStatuses, ([key, text]) => ({ key, text }));
   }
@@ -2359,6 +2372,8 @@ export class AgentSessionWrapper {
     parseResponse: (response: ExtensionUiResponse) => T,
     timeout?: number,
     signal?: AbortSignal,
+    // What stands in once `timeout` plus `graceMs` has passed, instead of `defaultValue`.
+    timeoutFallback?: { graceMs: number; value: T },
   ): Promise<T> {
     if (signal?.aborted) return Promise.resolve(defaultValue);
     const stopSignal = this.extensionUiAbortController.signal;
@@ -2392,7 +2407,12 @@ export class AgentSessionWrapper {
     };
     const onAbort = () => settle(defaultValue);
 
-    if (timeout) timeoutId = setTimeout(() => settle(defaultValue), timeout);
+    if (timeout) {
+      timeoutId = setTimeout(
+        () => settle(timeoutFallback ? timeoutFallback.value : defaultValue),
+        timeout + (timeoutFallback?.graceMs ?? 0),
+      );
+    }
     abortSignal.addEventListener("abort", onAbort, { once: true });
 
     this.pendingUiRequests.set(id, fullRequest as AgentEvent);
@@ -2421,6 +2441,37 @@ export class AgentSessionWrapper {
         opts?.timeout,
         opts?.signal,
       ),
+      formDialog: async (html, opts) => {
+        const { form, client, media } = prepareFormDialog(html);
+        const mediaToken = media.length > 0 ? randomUUID() : undefined;
+        if (mediaToken) this.formMedia.set(mediaToken, media);
+        try {
+          return await this.requestExtensionUi<FormDialogAnswer | undefined>(
+            {
+              method: "form",
+              form: client,
+              ...(mediaToken
+                ? { mediaPath: `/api/agent/${encodeURIComponent(this.runtimeId)}/form-media/${mediaToken}` }
+                : {}),
+            },
+            undefined,
+            (response) => {
+              if (!("value" in response)) return undefined;
+              const state = parseFormDialogState(response.value);
+              if (!state) return undefined;
+              return { data: formDataFromState(form, state), ...(state.timedOut ? { timedOut: true } : {}) };
+            },
+            opts?.timeout,
+            opts?.signal,
+            {
+              graceMs: FORM_TIMEOUT_GRACE_MS,
+              value: { data: formDataFromState(form, { choices: {}, texts: {} }), timedOut: true },
+            },
+          );
+        } finally {
+          if (mediaToken) this.formMedia.delete(mediaToken);
+        }
+      },
       select: (title, options, opts) => this.requestExtensionUi(
         { method: "select", title, ...toSelectRequestOptions(options), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
