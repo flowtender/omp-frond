@@ -42,10 +42,32 @@ export async function GET(
     }
   }
 
+  let cancelStream = () => {};
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
+      let closed = false;
+      let unsubscribe: (() => void) | undefined;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      const cleanup = (closeController: boolean) => {
+        if (closed) return;
+        closed = true;
+        clearInterval(heartbeat);
+        unsubscribe?.();
+        req.signal.removeEventListener("abort", onAbort);
+        if (closeController) controller.close();
+      };
+      const onAbort = () => cleanup(true);
+      cancelStream = () => cleanup(false);
+      req.signal.addEventListener("abort", onAbort, { once: true });
+      // The client can disconnect while startRpcSession is still pending.
+      if (req.signal.aborted) {
+        cleanup(true);
+        return;
+      }
+
       const encode = (data: unknown) => {
+        if (closed) return;
         const text = `data: ${JSON.stringify(data)}\n\n`;
         controller.enqueue(encoder.encode(text));
       };
@@ -53,13 +75,17 @@ export async function GET(
       // Send initial connected event
       encode({ type: "connected", sessionId: session.sessionId, runtimeId: session.runtimeId });
 
-      const unsubscribe = session.onEvent((event) => {
+      unsubscribe = session.onEvent((event) => {
         const clientEvent = toClientEvent(event);
         if (clientEvent) encode(clientEvent);
       });
+      if (closed) {
+        unsubscribe();
+        return;
+      }
 
       // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(":\n\n"));
         } catch {
@@ -67,15 +93,9 @@ export async function GET(
         }
       }, 30_000);
 
-      // Cleanup when client disconnects
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        unsubscribe();
-        controller.close();
-      };
-
-      // Detect client disconnect via abort signal
-      req.signal?.addEventListener("abort", cleanup);
+    },
+    cancel() {
+      cancelStream();
     },
   });
 
