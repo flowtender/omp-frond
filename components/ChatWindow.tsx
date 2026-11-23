@@ -174,14 +174,14 @@ function NewSessionUpdateLink({
 }
 
 function hasFinalAssistantAnswer(message: AgentMessage, options: DisplayOptions): boolean {
-  if (message.role !== "assistant") return false;
+  if (message.role !== "assistant" || message.stopReason === "toolUse") return false;
   return splitFinalAssistantBlocks(message as AssistantMessage, options).answerBlocks.some((block) => (
     block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
   ));
 }
 
 function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endIdx: number, options: DisplayOptions): number {
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
+  for (let candidateIdx = userIdx + 1; candidateIdx < endIdx; candidateIdx++) {
     if (hasFinalAssistantAnswer(messages[candidateIdx], options)) return candidateIdx;
   }
   for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
@@ -1184,13 +1184,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (messages[i].role === "user") { lastUserIdx = i; break; }
               }
-              // Anchor for live-tail detection. A compaction summary or subagent
-              // completion can sit after the last user message and own the
-              // still-streaming segment. lastUserIdx stays the scroll target.
-              let lastAnchorIdx = -1;
-              for (let i = messages.length - 1; i >= 0; i--) {
-                if (isMessageGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
-              }
 
               const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
@@ -1271,21 +1264,21 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
                 const hasAnchor = isMessageGroupAnchor(msg);
-                if (!hasAnchor && idx !== 0) {
-                  rendered.push(renderMessage(idx));
-                  idx += 1;
-                  continue;
-                }
-
-                // The first history page starts at a fixed entry count, so a turn
-                // longer than that page begins without its anchor. Group the
-                // leading segment anyway instead of flattening the whole turn.
-                const userIdx = hasAnchor ? idx : -1;
-                const groupStartIdx = hasAnchor ? idx : 0;
+                // A continuation after a reply, or a partial history page, has
+                // no anchor of its own. Its process starts at this entry.
+                const userIdx = hasAnchor ? idx : idx - 1;
+                const groupStartIdx = idx;
                 let endIdx = idx + 1;
-                while (endIdx < messages.length && !isMessageGroupAnchor(messages[endIdx])) endIdx += 1;
+                // Stop at the next anchor or just after the first committed
+                // reply, without rescanning the rest of a long continuation chain.
+                while (
+                  endIdx < messages.length
+                  && !isMessageGroupAnchor(messages[endIdx])
+                  && !hasFinalAssistantAnswer(messages[endIdx - 1], displayOptions)
+                ) endIdx += 1;
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx, displayOptions);
+                const hasReply = finalAssistantIdx !== -1 && hasFinalAssistantAnswer(messages[finalAssistantIdx], displayOptions);
 
                 if (finalAssistantIdx === -1) {
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
@@ -1295,7 +1288,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
+                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && !hasReply;
                 if (isLiveTail) {
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
@@ -1390,6 +1383,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const writtenFiles = keepWrittenFiles(finalViews, extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd));
                   rendered.push(renderMessage(finalAssistantIdx, {
                     messageOverride: finalAnswerMessage,
+                    showTimestamp: true,
                     writtenFiles,
                     // Without process details the turn's time goes under the answer.
                     turnDurationMs: processViews.length === 0 ? turnDurationMs : undefined,
