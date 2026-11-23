@@ -1,5 +1,6 @@
 import type {
   AgentSessionEvent,
+  ExtensionUISelectItem,
   SessionManager,
   Settings,
   SlashCommandInfo as OmpSlashCommandInfo,
@@ -116,7 +117,7 @@ type WidgetOptionsLike = {
 export interface ExtensionUiContextLike {
   readonly timeoutStartsOnPresentation?: boolean;
   askDialog?(questions: ExtensionAskDialogQuestion[], opts?: DialogOptionsLike): Promise<ExtensionAskDialogResult | undefined>;
-  select(title: string, options: string[], opts?: DialogOptionsLike): Promise<string | undefined>;
+  select(title: string, options: ExtensionUISelectItem[], opts?: DialogOptionsLike): Promise<string | undefined>;
   confirm(title: string, message: string, opts?: DialogOptionsLike): Promise<boolean>;
   input(title: string, placeholder?: string, opts?: DialogOptionsLike): Promise<string | undefined>;
   editor(title: string, prefill?: string, opts?: DialogOptionsLike): Promise<string | undefined>;

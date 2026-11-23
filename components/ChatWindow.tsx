@@ -2449,6 +2449,11 @@ function ExtensionDialog({
                 >
                   <div inert>
                     <MarkdownBody>{option}</MarkdownBody>
+                    {request.optionDetails?.[index]?.description && (
+                      <span style={{ display: "block", marginTop: 3, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>
+                        {request.optionDetails[index].description}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

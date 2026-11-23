@@ -218,6 +218,10 @@ export interface SystemMessage {
 /** Any message a `message` entry can store, including transcript system messages. */
 export type SessionMessage = AgentMessage | SystemMessage;
 
+export interface ExtensionUiSelectOptionDetail {
+  description?: string;
+}
+
 export type ExtensionUiRequest =
   | {
       type: "extension_ui_request";
@@ -225,6 +229,8 @@ export type ExtensionUiRequest =
       method: "select";
       title: string;
       options: string[];
+      /** Positional presentation metadata, as omp's RPC mode sends it. */
+      optionDetails?: ExtensionUiSelectOptionDetail[];
       timeout?: number;
       expiresAt?: number;
     }

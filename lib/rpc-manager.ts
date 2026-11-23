@@ -11,6 +11,7 @@ import {
   SessionManager,
   Theme,
 } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionUISelectItem, getExtensionUISelectOptionLabel } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { buildAvailableSlashCommands } from "@oh-my-pi/pi-coding-agent/slash-commands/available-commands";
 import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import { executeAcpBuiltinSlashCommand, type AcpBuiltinSlashCommandResult } from "@oh-my-pi/pi-coding-agent/slash-commands/acp-builtins";
@@ -55,6 +56,7 @@ import type {
   ExtensionAskDialogResult,
   ExtensionUiRequest,
   ExtensionUiResponse,
+  ExtensionUiSelectOptionDetail,
   ExtensionWidgetItem,
   SessionInfo,
   SessionMessageEntry,
@@ -138,6 +140,14 @@ type ExtensionUiRequestBody = Record<string, unknown> & {
   timeout?: number;
   expiresAt?: number;
 };
+
+/** Mirrors omp's RPC `select` wire: labels stay strings, descriptions travel positionally. */
+function toSelectRequestOptions(options: ExtensionUISelectItem[]): { options: string[]; optionDetails?: ExtensionUiSelectOptionDetail[] } {
+  const labels = options.map(getExtensionUISelectOptionLabel);
+  const descriptions = options.map((option) => typeof option === "string" ? undefined : option.description?.trim());
+  if (!descriptions.some(Boolean)) return { options: labels };
+  return { options: labels, optionDetails: descriptions.map((description) => description ? { description } : {}) };
+}
 
 type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
@@ -2412,7 +2422,7 @@ export class AgentSessionWrapper {
         opts?.signal,
       ),
       select: (title, options, opts) => this.requestExtensionUi(
-        { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "select", title, ...toSelectRequestOptions(options), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
