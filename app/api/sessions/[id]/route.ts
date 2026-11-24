@@ -51,8 +51,12 @@ export async function GET(
     const tail = Math.min(Number.isFinite(rawTail) && rawTail > 0 ? rawTail : CONTEXT_DEFAULT_TAIL, 1000);
     const context = buildSessionContext(entries, leafId, { deferThinking, deferToolResultImages, tail });
     // A runtime fallback can differ from the last persisted model selector.
-    if (liveRpc?.inner.model) {
-      context.model = { provider: liveRpc.inner.model.provider, modelId: liveRpc.inner.model.id };
+    if (liveRpc) {
+      const { agent, model } = liveRpc.inner;
+      if (model) context.model = { provider: model.provider, modelId: model.id };
+      // Auto can be active before the SDK records a thinking-level entry.
+      context.thinkingLevel = agent.state?.thinkingLevel ?? "off";
+      context.configuredThinkingLevel = liveRpc.inner.configuredThinkingLevel() ?? context.thinkingLevel;
     }
     const contextUsage = await getHistoricalContextUsage(entries, leafId);
     const totalActiveMs = computeSessionTotalActiveMs(entries);
