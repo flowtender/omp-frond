@@ -22,6 +22,7 @@ import { agentStatusUrl, canApplySessionIdentity, isPromptRejectedError, sendAge
 import { rememberSessionContinuation, clearSessionContinuation } from "@/lib/workspace-memory";
 import { getDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
+import { userMessageKey } from "@/lib/prompt-recovery";
 import { shouldShowScrollToLatest } from "@/lib/chat-lazy-load";
 import { isNestedToolExecutionEvent } from "@/lib/agent-event-wire";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -413,53 +414,6 @@ function noticeReducer(state: NoticeState, action: NoticeAction): NoticeState {
   }
 }
 
-function extractMessageText(message: Partial<AgentMessage>): string {
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) =>
-      block && typeof block === "object"
-        && (block as { type?: string }).type === "text"
-        && typeof (block as { text?: unknown }).text === "string"
-        ? (block as { text: string }).text
-        : "")
-    .filter(Boolean)
-    .join("\n");
-}
-
-function imageSignature(block: unknown): string {
-  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "image") return "";
-  const source = (block as { source?: unknown }).source;
-  if (source && typeof source === "object") {
-    const src = source as { type?: unknown; media_type?: unknown; data?: unknown; url?: unknown };
-    return [
-      src.type === "url" ? "url" : "base64",
-      typeof src.media_type === "string" ? src.media_type : "",
-      typeof src.data === "string" ? src.data : "",
-      typeof src.url === "string" ? src.url : "",
-    ].join(":");
-  }
-  const flat = block as { data?: unknown; mimeType?: unknown };
-  return [
-    "base64",
-    typeof flat.mimeType === "string" ? flat.mimeType : "",
-    typeof flat.data === "string" ? flat.data : "",
-    "",
-  ].join(":");
-}
-
-function userMessageKey(message: Partial<AgentMessage>): string {
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return JSON.stringify({ text: content, images: [] });
-  if (!Array.isArray(content)) return JSON.stringify({ text: "", images: [] });
-  return JSON.stringify({
-    text: extractMessageText(message),
-    images: content.map(imageSignature).filter(Boolean),
-  });
-}
-
-
 function readCompactResult(result: unknown, reason: string): CompactResultInfo | null {
   if (!result || typeof result !== "object") return null;
   const r = result as CompactCommandResult;
@@ -685,7 +639,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const contextUsageRequestIdRef = useRef(0);
   const contextUsageAppliedIdRef = useRef(0);
   const sessionHookMountedRef = useRef(true);
-  const optimisticUserMessageKeyRef = useRef<string | null>(null);
+  const optimisticUserMessageRef = useRef<UserMessage | null>(null);
   const modelSwitchPendingRef = useRef(false);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
@@ -1294,9 +1248,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const state = await stateRes.json() as { running?: boolean; state?: AgentStateResponse };
         if (!mountedRef.current || sessionIdRef.current !== sid) throw new Error("Session is no longer active");
         const stale = followRuntimeState(state.state, sid, requestedRuntimeId);
-        if (!stale && !state.running) {
-          if (!state.state?.sessionId) throw new Error("Runtime identity expired; reopen the intended session");
-          runtimeIdRef.current = null;
+        if (!stale && state.running === false && !state.state?.sessionId) {
+          // A restart also loses the runtime-to-transcript map. Reopen only the
+          // saved conversation still selected in this tab, before sending any command.
+          const savedRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
+          const saved = savedRes.ok
+            ? await savedRes.json() as { running?: boolean; state?: AgentStateResponse }
+            : null;
+          if (!mountedRef.current || sessionIdRef.current !== sid) throw new Error("Session is no longer active");
+          if (runtimeIdRef.current === requestedRuntimeId) {
+            if (saved?.running === false) followSessionIdentity(sid, null);
+            else if (saved?.state?.sessionId === sid && saved.state.runtimeId) {
+              followSessionIdentity(sid, saved.state.runtimeId);
+            } else {
+              throw new Error("Runtime identity expired; reopen the intended session");
+            }
+          }
         }
         sid = sessionIdRef.current ?? sid;
       }
@@ -1329,7 +1296,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (eventConnectionAttemptRef.current?.source === result.source) eventConnectionAttemptRef.current = null;
     result.source.close();
     throw new EventStreamConnectionError(result.status);
-  }, [connectEvents, followRuntimeState]);
+  }, [connectEvents, followRuntimeState, followSessionIdentity]);
 
   // The retry counter re-runs the discovery effect after a failed attempt, so a
   // run still reported as running is followed again.
@@ -1567,7 +1534,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const agentWasActive = sdkAgentActiveRef.current;
       rpcPromptPendingRef.current = false;
       sdkAgentActiveRef.current = false;
-      optimisticUserMessageKeyRef.current = null;
+      optimisticUserMessageRef.current = null;
       const wasRunning = settleUiStage();
       if (promptWasPending) {
         notifyPromptStage(runId);
@@ -1852,7 +1819,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const runId = promptRunIdRef.current;
           const promptWasPending = rpcPromptPendingRef.current;
           rpcPromptPendingRef.current = false;
-          optimisticUserMessageKeyRef.current = null;
+          optimisticUserMessageRef.current = null;
           const firstNotification = notifyPromptStage(runId, event.aborted === true);
           if (!promptWasPending && !firstNotification) break;
 
@@ -1898,22 +1865,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (!agentRunningRef.current) break;
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
-          // Delivered steering/follow-up messages surface here as user
-          // messages. The run's initial prompt also emits one, but handleSend
-          // already appended it optimistically. Consume only the still-adjacent
-          // optimistic bubble; later same-text queue deliveries must render.
-          const delivered = normalizeToolCalls(completed);
-          const deliveredKey = userMessageKey(delivered);
-          const optimisticKey = optimisticUserMessageKeyRef.current;
-          optimisticUserMessageKeyRef.current = null;
+          const optimistic = optimisticUserMessageRef.current;
           setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (optimisticKey && last?.role === "user" && userMessageKey(last) === optimisticKey) {
-              return optimisticKey === deliveredKey
-                ? prev
-                : [...prev.slice(0, -1), delivered];
-            }
-            return [...prev, delivered];
+            // A history read can install the saved user message before its SSE
+            // event arrives. Match the SDK's timestamp and attribution as well
+            // as content; the browser-created placeholder has its own identity.
+            const alreadyLoaded = completed.timestamp !== undefined && prev.some((message) =>
+              message !== optimistic
+              && message.role === "user"
+              && message.timestamp === completed.timestamp
+              && ("attribution" in message ? message.attribution : undefined)
+                === ("attribution" in completed ? completed.attribution : undefined)
+              && userMessageKey(message) === userMessageKey(completed)
+            );
+            if (alreadyLoaded) return prev;
+            return optimistic && prev.includes(optimistic)
+              ? prev.map((message) => message === optimistic ? completed : message)
+              : [...prev, completed];
           });
         } else if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
@@ -2162,7 +2130,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     rpcPromptPendingRef.current = true;
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
-    const userMsg: AgentMessage = {
+    const userMsg: UserMessage = {
       role: "user",
       content: imageBlocks?.length
         ? [...(message.trim() ? [{ type: "text" as const, text: message }] : []), ...imageBlocks]
@@ -2170,7 +2138,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg]);
-    optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
+    optimisticUserMessageRef.current = userMsg;
     promptRunIdRef.current = promptRunId;
     agentRunningRef.current = true;
     setAgentRunning(true);
@@ -2239,22 +2207,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
       rpcPromptPendingRef.current = false;
-      const optimisticKey = optimisticUserMessageKeyRef.current;
-      if (optimisticKey) {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          return last?.role === "user" && userMessageKey(last) === optimisticKey
-            ? prev.slice(0, -1)
-            : prev;
-        });
-      }
+      const optimistic = optimisticUserMessageRef.current;
+      if (optimistic) setMessages((prev) => prev.filter((message) => message !== optimistic));
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
       // The prompt never reached the agent, so restore the user's text (and
       // any attached images) into the input instead of losing it. Mirrors the
       // shell-command recovery in executeBash; restoreSubmission avoids
       // clobbering anything typed since.
       restoreSubmission(message, images, sessionIdRef.current ?? sentSessionId ?? session?.id ?? undefined);
-      optimisticUserMessageKeyRef.current = null;
+      optimisticUserMessageRef.current = null;
       // Rejection only describes this submission. Another tab or an event we
       // missed may still have a real run active for the same session, so keep
       // its SSE connection until server state says the wrapper is idle.

@@ -5,6 +5,7 @@ import ts from "typescript";
 import { isBlockingExtensionUiRequest } from "../lib/browser-notifications.ts";
 import { normalizeToolCalls } from "../lib/normalize.ts";
 import { toClientAgentEvent } from "../lib/agent-event-wire.ts";
+import { userMessageKey } from "../lib/prompt-recovery.ts";
 
 const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("useAgentSession.ts", source, ts.ScriptTarget.Latest, true);
@@ -27,6 +28,7 @@ const callbackNames = [
   "closeEvents", "followSessionIdentity", "followRuntimeState", "cancelEventStreamGrace",
   "handleExtensionUiRequest", "handleAgentEvent", "connectEvents", "ensureEventsConnected", "applyContextUsage", "refreshContextUsage",
   "settleUiStage", "notifyPromptStage", "finishPromptWithoutStream", "reconcileAgentState",
+  "handleSend",
 ];
 const helperNames = ["streamReducer", "EventStreamConnectionError"];
 for (const name of callbackNames) assert.ok(callbacks.has(name), `Missing callback: ${name}`);
@@ -36,7 +38,8 @@ for (const name of helperNames) assert.ok(declarations.has(name), `Missing decla
 const { outputText } = ts.transpileModule([
   ...helperNames.map((name) => declarations.get(name)),
   ...callbackNames.map((name) => `const ${name} = ${callbacks.get(name)};`),
-  `return { ${[...callbackNames, ...helperNames].join(", ")} };`,
+  `const loadTranscript = ${callbacks.get("loadSession")};`,
+  `return { loadTranscript, ${[...callbackNames, ...helperNames].join(", ")} };`,
 ].join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
 
 const response = (data) => ({ ok: true, json: async () => data });
@@ -56,7 +59,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
   const requests = [];
   const replies = [];
   const timers = new Map();
-  const state = { stream: { isStreaming: false, streamingMessage: null }, ExtensionDialog: null };
+  const state = { stream: { isStreaming: false, streamingMessage: null }, ExtensionDialog: null, Messages: [] };
   let nextTimer = 0;
   class FakeEventSource {
     static CONNECTING = 0;
@@ -73,6 +76,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
     EventSource: FakeEventSource,
     isBlockingExtensionUiRequest,
     normalizeToolCalls,
+    userMessageKey,
     mountedRef: { current: true },
     sessionIdRef: { current: sessionId },
     runtimeIdRef: { current: runtimeId },
@@ -93,10 +97,21 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
     sdkAgentActiveRef: { current: false },
     rpcPromptPendingRef: { current: false },
     notifiedPromptRunIdRef: { current: -1 },
-    optimisticUserMessageKeyRef: { current: null },
+    optimisticUserMessageRef: { current: null },
     normalizeQueuedMessages: (queue) => queue ?? { steering: [], followUp: [] },
     mergeSubagentSnapshots: (_current, incoming) => incoming,
     loadSession: async () => {},
+    historyRequestRef: { current: 0 },
+    composerEventRevisionRef: { current: 0 },
+    applyComposer: () => {},
+    session: { id: sessionId },
+    isNew: false,
+    editEntryId: null,
+    bashRunningRef: { current: false },
+    chatScrollMode: "follow",
+    setAutoFollowRef: { current: () => {} },
+    pendingScrollToUserRef: { current: false },
+    sendAgentCommand: async (id, command, runtime) => effects.push(["command", runtime.current ?? id, command]),
     scheduleEventStreamClose: (id) => effects.push(["grace", id]),
     onAgentEnd: (end) => effects.push(["completion", end]),
     EVENT_STREAM_CONNECT_TIMEOUT_MS: 5_000,
@@ -125,7 +140,8 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
   };
   for (const name of ["AgentRunning", "AgentPhase", "ExtensionDialog", "ExtensionCustomUi",
     "ExtensionStatuses", "ExtensionWidgets", "CurrentModelOverride", "ContextUsage",
-    "RetryInfo", "IsCompacting", "QueuedMessages", "Subagents", "GoalStatus", "SystemPrompt"]) {
+    "RetryInfo", "IsCompacting", "QueuedMessages", "Subagents", "GoalStatus", "SystemPrompt",
+    "Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error", "PromptAnchorActive"]) {
     bindings[`set${name}`] = (value) => {
       state[name] = typeof value === "function" ? value(state[name]) : value;
       effects.push([name, state[name]]);
@@ -166,6 +182,39 @@ function assertOutputAndDialog(h, stream) {
   assert.deepEqual(h.state.ExtensionDialog, request);
   assert.deepEqual(h.effects.filter(([kind]) => kind === "attention"), [["attention", request]]);
 }
+
+for (const running of [false, true]) {
+  test(`after restart, the next send uses the ${running ? "existing" : "new"} runtime without a reload`, async () => {
+    const h = harness();
+    const old = await openRuntime(h);
+    h.replies.push(response({ running: false }), response(running
+      ? { running: true, state: { sessionId: "a", runtimeId: "runtime:r2" } }
+      : { running: false }));
+
+    const sending = h.handleSend("after restart");
+    await tick();
+    assert.equal(old.readyState, 2);
+    const replacement = h.sources[1];
+    assert.equal(replacement.url, running ? "/api/agent/runtime%3Ar2/events" : "/api/agent/a/events");
+    replacement.open();
+    await tick();
+    assert.equal(h.effects.some(([kind]) => kind === "command"), false);
+    replacement.frame({ type: "connected", sessionId: "a", runtimeId: "runtime:r2" });
+    await sending;
+
+    assert.deepEqual(h.effects.filter(([kind]) => kind === "command"), [
+      ["command", "runtime:r2", { type: "prompt", message: "after restart" }],
+    ]);
+    assert.deepEqual(h.requests.slice(1, 3), ["/api/agent/runtime%3Ar1", "/api/sessions/a/state"]);
+  });
+}
+
+test("an expired runtime does not connect to a saved session the server cannot verify", async () => {
+  const h = harness();
+  h.replies.push(response({ running: false }), { ok: false, status: 404 });
+  await assert.rejects(h.ensureEventsConnected("a"), /Runtime identity expired/);
+  assert.equal(h.sources.length, 0);
+});
 
 for (const initialId of ["a", "b"]) {
   test(`expired OPEN ${initialId}→b stream reconnects through b before a prompt and delivers R2 output and UI`, async () => {
@@ -656,6 +705,36 @@ test("a canonical source can discover R3 on a later reconnect after accepting it
   await tick();
   assert.equal(ensuring.status, "fulfilled");
   assert.equal(h.sources.length, 1);
+});
+
+test("the first prompt after cold connect renders once when history beats its SSE event", async () => {
+  const h = harness({ runtimeId: null });
+  const first = h.handleSend("repeat me");
+  assert.equal(h.state.Messages.length, 1, "the pending send is visible before the handshake");
+  const stream = h.sources[0];
+  stream.open();
+  stream.frame({ type: "connected", sessionId: "a", runtimeId: "runtime:r1" });
+  await first;
+
+  const saved = { role: "user", content: [{ type: "text", text: "repeat me" }], timestamp: 100 };
+  h.replies.push(response({
+    sessionId: "a", runtimeId: "runtime:r1", leafId: "first",
+    context: { messages: [saved], entryIds: ["first"] },
+  }));
+  await h.loadTranscript("a");
+  stream.frame({ type: "message_end", message: saved });
+  assert.deepEqual(h.state.Messages, [saved]);
+
+  stream.frame({ type: "agent_end", isTerminal: true });
+  stream.frame({ type: "prompt_done" });
+  await h.handleSend("repeat me");
+  const repeated = { ...saved, timestamp: 200 };
+  stream.frame({ type: "message_end", message: repeated });
+  assert.deepEqual(h.state.Messages, [saved, repeated], "a second submission of the same text is a second bubble");
+  assert.deepEqual(h.effects.filter(([kind]) => kind === "command"), [
+    ["command", "runtime:r1", { type: "prompt", message: "repeat me" }],
+    ["command", "runtime:r1", { type: "prompt", message: "repeat me" }],
+  ]);
 });
 
 test("terminal SDK completion returns to send immediately and idle reconciliation cannot notify twice", async () => {
