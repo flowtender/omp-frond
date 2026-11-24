@@ -12,8 +12,7 @@ import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsConfig } from "./SettingsConfig";
-import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
-import { getLastSettingsSection, settingsSectionRequiresProject, type OmpSettingsShortcut, type SettingsSection } from "@/lib/settings-navigation";
+import type { OmpSettingsShortcut } from "@/lib/settings-navigation";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { OmpUpdateIndicator } from "./OmpUpdateIndicator";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
@@ -217,8 +216,7 @@ export function AppShell() {
     setSearchTarget((current) => current === target ? null : current);
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
-  const [settingsConfigSection, setSettingsConfigSection] = useState<OmpSettingsShortcut | null>(null);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const [settingsConfigSection, setSettingsConfigSection] = useState<"ui" | OmpSettingsShortcut | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -1415,18 +1413,11 @@ export function AppShell() {
     }
   }, [projectTrustBusy, projectTrustCwd]);
 
-  // The restricted-mode banner and Settings › MCP's trust notice open the same dialog.
+  // The restricted-mode banner opens the project trust dialog.
   const openProjectTrustDialog = useCallback(() => {
     setProjectTrustError(null);
     setProjectTrustDialogOpen(true);
   }, []);
-
-  // Settings › MCP added a project server: `.pi/mcp.json` alone makes a folder require trust, and a
-  // fresh folder was trusted in the same step. Every mounted section reloads in place on the new
-  // status (projectTrustReloadKey); nothing was rebuilt, so the chat needs no new session key.
-  const handleProjectTrustChanged = useCallback((cwd: string, status: ProjectTrustStatus) => {
-    if (cwd === projectTrustCwd) setProjectTrust(status);
-  }, [projectTrustCwd]);
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   // Subagent work tabs: like files, only the active one is mounted.
@@ -1445,7 +1436,6 @@ export function AppShell() {
     return () => observer.disconnect();
   }, [windowTitle]);
 
-  const skillsShortcutDisabled = settingsSectionRequiresProject("skills") && !projectTrustCwd;
   const sidebarContent = (
     <>
       <SessionSidebar
@@ -1484,29 +1474,10 @@ export function AppShell() {
       <div style={{ padding: "0 8px", flexShrink: 0 }}>
         <OmpUpdateIndicator />
       </div>
-      <div style={{ padding: "8px 8px 0", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
+      <div style={{ padding: "8px", flexShrink: 0, display: "flex" }}>
         <button
           type="button"
-          onClick={() => setSettingsSection("skills")}
-          disabled={skillsShortcutDisabled}
-          title={skillsShortcutDisabled ? translate("settings.projectRequired") : translate("common.skills")}
-          aria-label={translate("common.skills")}
-          style={{
-            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            height: 32, padding: 0, background: "none", border: "none",
-            borderRadius: 9, color: "var(--text-muted)", cursor: skillsShortcutDisabled ? "default" : "pointer",
-            fontSize: 12, opacity: skillsShortcutDisabled ? 0.35 : 1,
-            transition: "background 0.12s, color 0.12s",
-          }}
-          onMouseEnter={(event) => { if (!skillsShortcutDisabled) { event.currentTarget.style.background = "var(--bg-hover)"; event.currentTarget.style.color = "var(--text)"; } }}
-          onMouseLeave={(event) => { event.currentTarget.style.background = "none"; event.currentTarget.style.color = "var(--text-muted)"; }}
-        >
-          <SettingsSectionIcon section="skills" size={14} strokeWidth={2} />
-          <span>{translate("common.skills")}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setSettingsSection(getLastSettingsSection(projectTrustCwd))}
+          onClick={() => setSettingsConfigSection("ui")}
           title={translate("common.settings")}
           aria-label={translate("common.settings")}
           style={{
@@ -1518,29 +1489,10 @@ export function AppShell() {
           onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; event.currentTarget.style.color = "var(--text)"; }}
           onMouseLeave={(event) => { event.currentTarget.style.background = "none"; event.currentTarget.style.color = "var(--text-muted)"; }}
         >
-          <SettingsSectionIcon section="general" size={14} strokeWidth={2} />
-          <span>{translate("common.settings")}</span>
-        </button>
-      </div>
-      <div style={{ padding: "0 8px 8px", flexShrink: 0 }}>
-        <button
-          onClick={() => openSettingsSection("models")}
-          title="omp /settings (config.yml)"
-          aria-label="omp /settings (config.yml)"
-          style={{
-            width: "100%", height: 34, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            background: "none", border: "1px solid var(--border)", borderRadius: 9,
-            color: "var(--text-muted)", cursor: "pointer", fontSize: 12,
-            fontFamily: "var(--font-mono)", transition: "background 0.12s, color 0.12s, border-color 0.12s",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.borderColor = "var(--text-dim)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.12.39.33.74.6 1 .3.28.69.42 1.1.4h.09v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M20 7h-9M14 17H5" /><circle cx="7" cy="7" r="3" /><circle cx="17" cy="17" r="3" />
           </svg>
-          omp /settings
+          <span>{translate("common.settings")}</span>
         </button>
       </div>
     </>
@@ -2911,30 +2863,17 @@ export function AppShell() {
         </div>
       </div>
     </div>
-    {settingsSection && (
-      <SettingsPanel
-        cwd={projectTrustCwd}
-        sessionId={selectedSession?.id ?? null}
-        initialSection={settingsSection}
-        quoteSelectionEnabled={quoteSelectionEnabled}
-        onQuoteSelectionChange={handleQuoteSelectionChange}
-        onClose={() => {
-          setSettingsSection(null);
-          setModelsRefreshKey((key) => key + 1);
-        }}
-        onSessionReloaded={() => setSessionKey((key) => key + 1)}
-        projectTrust={projectTrust}
-        onOpenTrustDialog={openProjectTrustDialog}
-        onProjectTrustChanged={handleProjectTrustChanged}
-      />
-    )}
     {settingsConfigSection && (
       <SettingsConfig
+        key={settingsConfigSection}
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         runtimeId={selectedSession?.runtimeId}
         onRuntimeIdentity={handleRuntimeIdentity}
         initialSection={settingsConfigSection}
+        projectTrust={projectTrust}
+        quoteSelectionEnabled={quoteSelectionEnabled}
+        onQuoteSelectionChange={handleQuoteSelectionChange}
         onClose={() => setSettingsConfigSection(null)}
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}
         onReloaded={(runtimeId) => {

@@ -4,16 +4,19 @@
   z-index: 1000;
   display: grid;
   place-items: center;
-  padding: 18px;
+  box-sizing: border-box;
+  height: 100dvh;
+  padding: 16px;
   background: color-mix(in srgb, #000 48%, transparent);
   backdrop-filter: blur(8px);
 }
 
 .window {
-  width: min(1180px, calc(100vw - 36px));
-  height: min(860px, calc(100dvh - 36px));
+  width: min(1440px, 100%);
+  height: min(1000px, 100%);
   display: grid;
   grid-template-columns: 238px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -22,8 +25,11 @@
   box-shadow: 0 24px 80px rgba(0, 0, 0, .34);
 }
 
+.window:focus { outline: none; }
+
 .sidebar {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
@@ -148,6 +154,8 @@
   overflow: hidden;
   background: var(--bg);
 }
+
+.sectionHost { height: 100%; }
 
 .scrollContent {
   height: 100%;
@@ -357,7 +365,7 @@
 
 @media (max-width: 760px) {
   .backdrop { padding: 8px; }
-  .window { width: calc(100vw - 16px); height: calc(100dvh - 16px); grid-template-columns: 82px minmax(0, 1fr); border-radius: 10px; }
+  .window { grid-template-columns: 82px minmax(0, 1fr); border-radius: 10px; }
   .brand { padding: 14px 6px 9px; text-align: center; }
   .eyebrow, .context, .searchWrap, .navLabel, .closeButton span:first-child { display: none; }
   .title { font-size: 12px; }
@@ -372,4 +380,25 @@
   .themeGrid { grid-template-columns: 1fr; }
   .mcpLayout { grid-template-columns: 1fr; }
   .mcpList { min-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); }
+}
+
+/* Standalone iOS can report zero safe-area insets. */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .backdrop {
+      padding: max(59px, env(safe-area-inset-top))
+        max(8px, env(safe-area-inset-right))
+        max(24px, env(safe-area-inset-bottom))
+        max(8px, env(safe-area-inset-left));
+    }
+  }
+
+  @media (display-mode: standalone) and (orientation: landscape) {
+    .backdrop {
+      padding: max(8px, env(safe-area-inset-top))
+        max(59px, env(safe-area-inset-right))
+        max(8px, env(safe-area-inset-bottom))
+        max(59px, env(safe-area-inset-left));
+    }
+  }
 }

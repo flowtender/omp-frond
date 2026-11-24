@@ -1319,161 +1319,6 @@
   opacity: 0.7;
 }
 
-.settings-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.38);
-}
-
-/* Focus moves to the dialog itself when Settings opens (tabIndex -1); it is not a control, so no ring. */
-.settings-dialog-backdrop:focus {
-  outline: none;
-}
-
-.settings-dialog-surface {
-  display: flex;
-  flex-direction: column;
-  width: 1080px;
-  max-width: calc(100vw - 16px);
-  height: 84vh;
-  max-height: calc(100dvh - 16px);
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
-}
-
-.settings-dialog-header {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  min-height: 50px;
-  padding: 0 52px 0 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-dialog-title {
-  flex-shrink: 0;
-  color: var(--text);
-  font-size: 15px;
-  white-space: nowrap;
-}
-
-.settings-section-tabs {
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  min-width: 0;
-  height: 50px;
-  margin-left: 22px;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.settings-section-tab {
-  position: relative;
-  display: flex;
-  flex: 0 0 96px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 96px;
-  height: 100%;
-  padding: 0 2px;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 400;
-  white-space: nowrap;
-  transition: color 0.15s ease;
-}
-
-.settings-section-tab::after {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 24px;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--accent);
-  content: "";
-  opacity: 0;
-  transform: translateX(-50%) scaleX(0.5);
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.settings-section-tab[aria-current="page"] {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.settings-section-tab[aria-current="page"]::after {
-  opacity: 1;
-  transform: translateX(-50%) scaleX(1);
-}
-
-.settings-section-tab:not(:disabled):hover {
-  color: var(--text);
-}
-
-.settings-section-tab:disabled {
-  cursor: default;
-  opacity: 0.38;
-}
-
-.settings-section-tab:focus-visible:not([aria-current="page"]) {
-  border-radius: 4px;
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.settings-section-tab:focus-visible[aria-current="page"] {
-  outline: none;
-}
-
-.settings-section-icon {
-  flex-shrink: 0;
-}
-
-.settings-section-icon.is-agent {
-  transform: scale(1.25);
-}
-
-.settings-mobile-section-picker {
-  display: none;
-}
-
-.settings-dialog-close {
-  position: absolute;
-  top: 10px;
-  right: 14px;
-}
-
-.settings-dialog-main {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.settings-section-host {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-}
-
 /* The page scrolls across the dialog's full width, so its scrollbar sits at the
    dialog's edge; only the content keeps a readable column, centered so a wide
    dialog leaves its spare width on both sides. */
@@ -1900,29 +1745,6 @@
     padding: 14px;
   }
 
-  .settings-dialog-surface {
-    width: calc(100vw - 12px);
-    height: calc(100dvh - 12px);
-  }
-
-  .settings-section-tabs {
-    display: none;
-  }
-
-  .settings-mobile-section-picker {
-    display: block;
-    width: 100%;
-    max-width: 210px;
-    min-width: 0;
-    height: 32px;
-    margin-left: 14px;
-    padding: 0 9px;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: var(--bg-panel);
-    color: var(--text);
-    font-size: 16px;
-  }
 }
 
 @keyframes saved-pop {
@@ -2135,7 +1957,6 @@
    status-bar edge and cap dialog surfaces to the resulting safe box. */
 @supports (-webkit-touch-callout: none) {
   @media (display-mode: standalone) {
-    .settings-dialog-backdrop,
     .project-trust-backdrop,
     .config-panel-root.is-modal {
       padding-top: max(59px, env(safe-area-inset-top));
@@ -2144,7 +1965,6 @@
       padding-left: max(8px, env(safe-area-inset-left));
     }
 
-    .settings-dialog-surface,
     .config-panel-root.is-modal > .config-panel-surface {
       max-width: 100%;
       max-height: 100%;
@@ -2152,7 +1972,6 @@
   }
 
   @media (display-mode: standalone) and (orientation: landscape) {
-    .settings-dialog-backdrop,
     .project-trust-backdrop,
     .config-panel-root.is-modal {
       padding-top: max(8px, env(safe-area-inset-top));

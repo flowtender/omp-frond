@@ -88,6 +88,13 @@ test("a bare /mcp the built-in owns opens Settings › MCP with no notice and no
   assert.deepEqual(calls.requests, []);
 });
 
+test("omp's native /mcp opens Settings without running the server command", async () => {
+  const { run, calls } = hook({ commands: [{ name: "mcp", source: "builtin" }] });
+  assert.deepEqual(await run("/mcp"), { handled: true, action: "openSettings" });
+  assert.deepEqual(calls.opened, ["mcp"]);
+  assert.deepEqual(calls.requests, []);
+});
+
 test("another extension's /mcp is sent as before", async () => {
   const { run, calls } = hook({ commands: [deploy, otherMcp] });
   assert.deepEqual(await run("/mcp"), { handled: false });

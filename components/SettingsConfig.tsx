@@ -1,15 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ModelsConfig } from "./ModelsConfig";
 import { NewModelsBadge, useEnabledModels } from "./EnabledModelsSection";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { AccessConfig } from "./AccessConfig";
+import { UiSettings } from "./UiSettings";
 import { SearchableSelect } from "./SearchableSelect";
 import { refreshOmpTheme, useTheme } from "@/hooks/useTheme";
 import { refreshDisplaySettings } from "@/hooks/useDisplaySettings";
+import { useI18n } from "@/hooks/useI18n";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
+import type { ProjectTrustStatus } from "@/lib/api-types";
+import { focusModalPanel, listenForPanelEscape } from "@/lib/stacked-dialog";
 import type {
   McpConfigResponse,
   McpScopeConfig,
@@ -22,7 +26,7 @@ import type {
 } from "@/lib/settings-api";
 import styles from "./SettingsConfig.module.css";
 
-type SettingsSection = "models" | "themes" | "skills" | "plugins" | "mcp" | "access" | `settings:${string}`;
+type SettingsSection = "ui" | "models" | "themes" | "skills" | "plugins" | "mcp" | "access" | `settings:${string}`;
 
 interface SettingsConfigProps {
   cwd?: string | null;
@@ -30,12 +34,16 @@ interface SettingsConfigProps {
   runtimeId?: string;
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"];
   initialSection?: SettingsSection;
+  projectTrust?: ProjectTrustStatus | null;
+  quoteSelectionEnabled: boolean;
+  onQuoteSelectionChange: (enabled: boolean) => void;
   onClose: () => void;
   onModelsChanged?: () => void;
   onReloaded?: (runtimeId: string | null) => void;
 }
 
 const CORE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string; requiresCwd?: boolean }> = [
+  { id: "ui", label: "settings.ui", icon: "ui" },
   { id: "models", label: "Models", icon: "model" },
   { id: "themes", label: "Themes", icon: "theme" },
   { id: "skills", label: "Skills", icon: "skill", requiresCwd: true },
@@ -45,6 +53,7 @@ const CORE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string; r
 ];
 
 const ICON_PATHS: Record<string, React.ReactNode> = {
+  ui: <><path d="M20 7h-9M14 17H5"/><circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/></>,
   model: <><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 1v3m6-3v3M9 20v3m6-3v3M1 9h3m16 0h3M1 15h3m16 0h3"/></>,
   theme: <><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z"/></>,
   skill: <><path d="m12 3 8 4-8 4-8-4 8-4Z"/><path d="m4 12 8 4 8-4M4 17l8 4 8-4"/></>,
@@ -190,8 +199,11 @@ function ThemePreview({ palette }: { palette: WebThemePalette }) {
 /** Settings the web client applies itself, without reloading the agent. */
 const DISPLAY_SETTING_PATHS = new Set(["hideThinkingBlock"]);
 
-export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, initialSection = "models", onClose, onModelsChanged, onReloaded }: SettingsConfigProps) {
-  const [section, setSection] = useState<SettingsSection>(initialSection);
+export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, initialSection = "ui", projectTrust, quoteSelectionEnabled, onQuoteSelectionChange, onClose, onModelsChanged, onReloaded }: SettingsConfigProps) {
+  const { t } = useI18n();
+  const [selectedSection, setSection] = useState<SettingsSection>(initialSection);
+  const section = !cwd && CORE_SECTIONS.some((item) => item.id === selectedSection && item.requiresCwd) ? "ui" : selectedSection;
+  const [visitedProjectSections, setVisitedProjectSections] = useState(() => new Set([initialSection]));
   // Loaded with the dialog, not the Models section, so its entry can show the new-model count.
   const enabledModels = useEnabledModels(cwd, onModelsChanged);
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
@@ -258,6 +270,19 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
   }, [activeTab, query, visibleFields]);
 
   const close = useCallback(() => { onModelsChanged?.(); onClose(); }, [onClose, onModelsChanged]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => focusModalPanel(document, dialogRef.current, {
+    restoreTextEntry: !window.matchMedia?.("(pointer: coarse)").matches,
+  }), []);
+  useEffect(() => listenForPanelEscape(document, close), [close]);
+
+  const selectSection = (next: SettingsSection) => {
+    setQuery("");
+    setSection(next);
+    if (next === "skills" || next === "plugins") {
+      setVisitedProjectSections((previous) => previous.has(next) ? previous : new Set(previous).add(next));
+    }
+  };
   const reloadActiveSession = useCallback(async () => {
     if (!sessionId) return;
     setReloading(true);
@@ -331,22 +356,45 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
     );
   };
 
+  const searching = query.trim().length > 0;
+  const projectSectionVisible = !searching && (section === "skills" || section === "plugins");
+
   return (
     <div className={styles.backdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-      <div className={styles.window} role="dialog" aria-modal="true" aria-label="Settings">
+      <div ref={dialogRef} className={styles.window} role="dialog" aria-modal="true" aria-label={t("settings.title")} tabIndex={-1}>
         <aside className={styles.sidebar}>
-          <div className={styles.brand}><div className={styles.eyebrow}>omp /settings</div><h1 className={styles.title}>Settings</h1><code className={styles.context} title={cwd ?? "Global configuration"}>{cwd ?? "Global configuration"}</code></div>
+          <div className={styles.brand}><div className={styles.eyebrow}>omp /settings</div><h1 className={styles.title}>{t("settings.title")}</h1><code className={styles.context} title={cwd ?? "Global configuration"}>{cwd ?? "Global configuration"}</code></div>
           <div className={styles.searchWrap}><svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input className={styles.search} value={query} placeholder="Search /settings" onChange={(event) => setQuery(event.target.value)} /></div>
           <nav className={styles.nav}>
             <div className={styles.navLabel}>Configuration</div>
-            {CORE_SECTIONS.map((item) => <button key={item.id} type="button" className={styles.navButton} data-active={!query && section === item.id} disabled={item.requiresCwd && !cwd} title={item.requiresCwd && !cwd ? `${item.label} requires a project` : item.label} onClick={() => { setQuery(""); setSection(item.id); }}><SettingsIcon kind={item.icon}/><span>{item.label}</span>{item.id === "models" && <NewModelsBadge controller={enabledModels} />}</button>)}
+            {CORE_SECTIONS.map((item) => {
+              const label = item.id === "ui" ? t(item.label) : item.label;
+              return <button key={item.id} type="button" className={styles.navButton} data-active={!searching && section === item.id} disabled={item.requiresCwd && !cwd} title={item.requiresCwd && !cwd ? `${label} requires a project` : label} onClick={() => selectSection(item.id)}><SettingsIcon kind={item.icon}/><span>{label}</span>{item.id === "models" && <NewModelsBadge controller={enabledModels} />}</button>;
+            })}
             <div className={styles.navLabel}>OMP settings</div>
-            {settings?.tabs.map((tab) => <button key={tab.id} type="button" className={styles.navButton} data-active={!query && activeTab === tab.id} onClick={() => { setQuery(""); setSection(`settings:${tab.id}`); }}><SettingsIcon kind={tab.id}/><span>{tab.label}</span></button>)}
+            {settings?.tabs.map((tab) => <button key={tab.id} type="button" className={styles.navButton} data-active={!searching && activeTab === tab.id} onClick={() => selectSection(`settings:${tab.id}`)}><SettingsIcon kind={tab.id}/><span>{tab.label}</span></button>)}
           </nav>
-          <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close}><span>Close settings</span><span aria-hidden="true">×</span></button></div>
+          <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close} aria-label={t("i18n.close")}><span>{t("i18n.close")}</span><span aria-hidden="true">×</span></button></div>
         </aside>
         <main className={styles.content}>
-          {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} onModelsChanged={onModelsChanged} enabledModels={enabledModels} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} /> : section === "access" ? <AccessConfig /> : renderGenericSettings()}
+          {cwd && visitedProjectSections.has("skills") && (
+            <div className={styles.sectionHost} hidden={searching || section !== "skills"}>
+              <SkillsConfig cwd={cwd} key={cwd} trust={projectTrust} embedded onClose={close} />
+            </div>
+          )}
+          {cwd && visitedProjectSections.has("plugins") && (
+            <div className={styles.sectionHost} hidden={searching || section !== "plugins"}>
+              <PluginsConfig cwd={cwd} key={cwd} trust={projectTrust} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} embedded onClose={close} onReloaded={onReloaded} />
+            </div>
+          )}
+          {searching ? renderGenericSettings()
+            : projectSectionVisible ? null
+            : section === "ui" ? <UiSettings sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />
+            : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} onModelsChanged={onModelsChanged} enabledModels={enabledModels} />
+            : section === "themes" ? renderThemeSection()
+            : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} />
+            : section === "access" ? <AccessConfig />
+            : renderGenericSettings()}
         </main>
       </div>
     </div>

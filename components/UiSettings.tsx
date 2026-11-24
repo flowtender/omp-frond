@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
 import { THEME_OPTIONS } from "@/lib/theme";
@@ -17,60 +17,26 @@ import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useChatScrollMode, setChatScrollMode } from "@/hooks/useChatScrollMode";
 import { useShowCostWithUsage, setShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
-import { sendAgentCommand } from "@/lib/agent-client";
-import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
-import {
-  setLastSettingsSection,
-  settingsSectionRequiresProject,
-  type SettingsSection,
-} from "@/lib/settings-navigation";
-import { focusModalPanel, listenForPanelEscape } from "@/lib/stacked-dialog";
+import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
+import type { ToolSettingsResponse } from "@/lib/api-types";
 import {
   isThinkingExpandedByDefault,
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
 import { setupPushSubscription } from "@/lib/push-client";
-import { SkillsConfig } from "./SkillsConfig";
-import { PluginsConfig } from "./PluginsConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
 
-interface Props {
-  cwd: string | null;
+interface UiSettingsProps {
   sessionId: string | null;
-  initialSection: SettingsSection;
-  onClose: () => void;
-  onSessionReloaded: () => void;
+  runtimeId?: string;
+  onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"];
+  onReloaded?: (runtimeId: string | null) => void;
   quoteSelectionEnabled: boolean;
   onQuoteSelectionChange: (enabled: boolean) => void;
-  /** The page's trust status for `cwd`; Settings › MCP reloads when it changes, as after trusting. */
-  projectTrust?: ProjectTrustStatus | null;
-  /** Opens the page's trust dialog for `cwd`, above Settings; Settings › MCP's trust notice offers it. */
-  onOpenTrustDialog?: () => void;
-  /** Settings › MCP added a project server, which changed `cwd`'s trust (and may have trusted a fresh folder). */
-  onProjectTrustChanged?: (cwd: string, status: ProjectTrustStatus) => void;
 }
 
-export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
-  const common = {
-    width: size,
-    height: size,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-    className: "settings-section-icon",
-  };
-
-  if (section === "general") return <svg {...common}><path d="M20 7h-9M14 17H5" /><circle cx="7" cy="7" r="3" /><circle cx="17" cy="17" r="3" /></svg>;
-  if (section === "skills") return <svg {...common}><path d="m12 2-10 5 10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></svg>;
-  return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
-}
-
-function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
+export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: UiSettingsProps) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
@@ -133,7 +99,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       const data = await response.json() as { enabled?: boolean; error?: string };
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
       setCacheMissNotices(data.enabled === true);
-      if (sessionId) onSessionReloaded();
+      if (sessionId) onReloaded?.(runtimeId ?? null);
     } catch (cause) {
       setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -154,8 +120,9 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
       setShellSettings(data);
       if (sessionId) {
-        await sendAgentCommand(sessionId, { type: "reload" });
-        onSessionReloaded();
+        const binding = { current: runtimeId ?? null, onIdentity: onRuntimeIdentity };
+        await sendAgentCommand(sessionId, { type: "reload" }, binding);
+        onReloaded?.(binding.current);
       }
     } catch (cause) {
       setShellError(cause instanceof Error ? cause.message : String(cause));
@@ -483,130 +450,6 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           })}
         </div>
       </section>
-    </div>
-  );
-}
-
-export function SettingsPanel({
-  cwd,
-  sessionId,
-  initialSection,
-  onClose,
-  onSessionReloaded,
-  quoteSelectionEnabled,
-  onQuoteSelectionChange,
-  projectTrust,
-  onOpenTrustDialog,
-  onProjectTrustChanged,
-}: Props) {
-  const { t } = useI18n();
-  const [section, setSection] = useState<SettingsSection>(initialSection);
-  const [mountedSections, setMountedSections] = useState<ReadonlySet<SettingsSection>>(
-    () => new Set([section]),
-  );
-  // Which sections need a project is decided once, in lib/settings-navigation.ts.
-  const sections: { id: SettingsSection; label: string; requiresProject: boolean }[] = ([
-    { id: "general", label: t("settings.general") },
-    { id: "skills", label: t("common.skills") },
-    { id: "plugins", label: t("common.plugins") },
-  ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
-  const sectionRequiresProject = settingsSectionRequiresProject(section);
-
-  useEffect(() => setLastSettingsSection(initialSection), [initialSection]);
-
-  // Bubble phase, unless something nearer handled the key. The trust dialog,
-  // which opens above Settings, takes Escape in the capture phase and stops it,
-  // so one Escape closes that dialog and leaves Settings open.
-  useEffect(() => listenForPanelEscape(document, onClose), [onClose]);
-
-  // Focus moves into Settings as it opens and back to what had it once it closes. Left
-  // on the chat composer (a bare /mcp opens Settings from there), Escape would reach the
-  // composer first and stop a running agent, which also kept Settings open. A layout
-  // effect, so the opener is read before a section focuses its own search box.
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => focusModalPanel(document, dialogRef.current, {
-    restoreTextEntry: !window.matchMedia?.("(pointer: coarse)").matches,
-  }), []);
-
-  useEffect(() => {
-    if (cwd || !sectionRequiresProject) return;
-    setSection("general");
-    setMountedSections((current) => new Set(current).add("general"));
-    setLastSettingsSection("general");
-  }, [cwd, sectionRequiresProject]);
-
-  const activateSection = (nextSection: SettingsSection) => {
-    setMountedSections((current) => new Set(current).add(nextSection));
-    setSection(nextSection);
-    setLastSettingsSection(nextSection);
-  };
-
-  const sectionHost = (id: SettingsSection, content: ReactNode) => mountedSections.has(id) ? (
-    <div
-      key={id}
-      hidden={section !== id}
-      className="settings-section-host"
-    >
-      {content}
-    </div>
-  ) : null;
-
-  return (
-    <div
-      ref={dialogRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("settings.title")}
-      tabIndex={-1}
-      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-      className="settings-dialog-backdrop"
-    >
-      <div className="settings-dialog-surface">
-        <div className="settings-dialog-header">
-          <strong className="settings-dialog-title">{t("settings.title")}</strong>
-          <select
-            aria-label={t("settings.title")}
-            value={section}
-            onChange={(event) => activateSection(event.target.value as SettingsSection)}
-            className="settings-mobile-section-picker"
-          >
-            {sections.map((item) => (
-              <option key={item.id} value={item.id} disabled={item.requiresProject && !cwd}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <nav aria-label={t("settings.title")} className="settings-section-tabs">
-            {sections.map((item) => {
-              const selected = section === item.id;
-              const disabled = item.requiresProject && !cwd;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="settings-section-tab"
-                  disabled={disabled}
-                  title={disabled ? t("settings.projectRequired") : item.label}
-                  aria-current={selected ? "page" : undefined}
-                  onClick={() => activateSection(item.id)}
-                >
-                  <SettingsSectionIcon section={item.id} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-          <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
-        </div>
-
-        <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
-          {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
-              status and load again in place when trusting from Settings › MCP changes it. */}
-          {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} trust={projectTrust} onClose={onClose} />)}
-          {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
-        </main>
-      </div>
     </div>
   );
 }

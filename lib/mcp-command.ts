@@ -74,15 +74,14 @@ export function isBareMcpCommand(message: string): boolean {
 
 /**
  * Whether a bare `/mcp` opens Settings › MCP instead of being sent, given the
- * session's command list: when its `/mcp` is the built-in one, or when nothing
- * answers to `/mcp` at all (MCP turned off, `-builtin:mcp`, a Chat-only
- * session, or several extensions' `mcp:1`, `mcp:2`, which pi never runs for a
- * bare `/mcp`). Another extension's `/mcp`, and a prompt template named `mcp`
- * (pi expands it when no extension command has the name), keep the message,
- * which is sent as before. Subcommands are never asked about: `/mcp login`,
- * `logout` and `reconnect` act on the session's own connections.
+ * session's command list: when omp's native builtin or the built-in extension
+ * owns `/mcp`, or when no command has that exact name. Third-party commands,
+ * prompt templates, and subcommands keep their existing dispatch.
+ * `/mcp login`, `logout`, and `reconnect` act on the session's own connections.
  */
 export function bareMcpOpensSettings(commands: readonly McpCommandCandidate[]): boolean {
-  if (commands.some(isBuiltinMcpCommand)) return true;
+  if (commands.some((command) =>
+    (command.name === MCP_COMMAND_NAME && command.source === "builtin") || isBuiltinMcpCommand(command)
+  )) return true;
   return !commands.some((command) => command.name === MCP_COMMAND_NAME);
 }
