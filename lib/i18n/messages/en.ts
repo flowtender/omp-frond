@@ -732,6 +732,7 @@ export const enLocale: LocalePlugin = {
     "chat.commandReload": "Reload extensions, skills, prompts, and tools",
     "chat.commandName": "Set the session display name",
     "chat.commandSession": "Show session message, token, and cost stats",
+    "chat.commandModels": "Open model settings",
     "chat.commandCopy": "Copy the last assistant message",
     "chat.goalLabel": "Goal",
     "chat.goalPaused": "paused",

@@ -340,11 +340,26 @@
   white-space: nowrap;
 }
 
+.models-auth-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
+}
+
 .enabled-models-section {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
   padding-top: 10px;
+}
+
+.models-auth-detail > :not(.enabled-models-section),
+.enabled-models-section > :not(.enabled-models-list) {
+  flex-shrink: 0;
 }
 
 .enabled-models-title {
@@ -410,7 +425,8 @@
 }
 
 .enabled-models-list {
-  max-height: 360px;
+  flex: 1;
+  min-height: min(8rem, 30dvh);
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-panel);

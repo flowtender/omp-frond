@@ -36,7 +36,7 @@ import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import type { GoalStatusInfo, SessionStatsInfo } from "@/lib/omp-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
-import type { SettingsSection } from "@/lib/settings-navigation";
+import type { OmpSettingsShortcut } from "@/lib/settings-navigation";
 import { getTranscriptNotices, summarizeCacheMisses, type CacheMissSummary } from "@/lib/transcript-notices";
 import { cacheMissSummaryText, TRANSCRIPT_NOTICE_WARNING_COLOR, TranscriptNoticeLines } from "@/components/TranscriptNotices";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
@@ -81,8 +81,8 @@ interface Props {
   onSystemInfoLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
-  /** Opens Settings on a section: a bare `/mcp` the built-in MCP extension owns opens the omp config browser. */
-  onOpenSettings?: (section: SettingsSection | "mcp") => void;
+  /** Opens a section of the omp config browser from a composer shortcut. */
+  onOpenSettings?: (section: OmpSettingsShortcut) => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   /** Subscription usage of the account behind the current model; null hides it and keeps cost visible. */
   onProviderUsageChange?: (usage: ProviderUsageSummary | null) => void;

@@ -13,7 +13,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsConfig } from "./SettingsConfig";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
-import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
+import { getLastSettingsSection, settingsSectionRequiresProject, type OmpSettingsShortcut, type SettingsSection } from "@/lib/settings-navigation";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { OmpUpdateIndicator } from "./OmpUpdateIndicator";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
@@ -217,7 +217,7 @@ export function AppShell() {
     setSearchTarget((current) => current === target ? null : current);
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
-  const [settingsConfigOpen, setSettingsConfigOpen] = useState(false);
+  const [settingsConfigSection, setSettingsConfigSection] = useState<OmpSettingsShortcut | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
@@ -435,21 +435,8 @@ export function AppShell() {
     setActiveTopPanel("session");
   }, [isMobile]);
 
-  // The composer can open Settings too: a bare slash command deep-links into
-  // the requested section of the primary settings dialog (SettingsPanel).
-  const openSettingsSection = useCallback((section: SettingsSection | "mcp") => {
-    // omp has no MCP section in Settings; the omp config browser is its MCP surface.
-    if (section === "mcp") {
-      setSettingsConfigOpen(true);
-      return;
-    }
-    setSettingsSection(section);
-  }, []);
-
-  // The fork's omp config.yml browser (SettingsConfig) has no deep-link
-  // sections; its bottom-row entry opens the dialog directly.
-  const openSettings = useCallback(() => {
-    setSettingsConfigOpen(true);
+  const openSettingsSection = useCallback((section: OmpSettingsShortcut) => {
+    setSettingsConfigSection(section);
   }, []);
 
   const handleSidebarToggle = useCallback(() => {
@@ -1458,6 +1445,7 @@ export function AppShell() {
     return () => observer.disconnect();
   }, [windowTitle]);
 
+  const skillsShortcutDisabled = settingsSectionRequiresProject("skills") && !projectTrustCwd;
   const sidebarContent = (
     <>
       <SessionSidebar
@@ -1497,34 +1485,25 @@ export function AppShell() {
         <OmpUpdateIndicator />
       </div>
       <div style={{ padding: "8px 8px 0", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
-        {([
-          ["models", translate("common.models")],
-          ["skills", translate("common.skills")],
-        ] as const).map(([section, label]) => {
-          const disabled = settingsSectionRequiresProject(section) && !projectTrustCwd;
-          return (
-            <button
-              key={section}
-              type="button"
-              onClick={() => setSettingsSection(section)}
-              disabled={disabled}
-              title={disabled ? translate("settings.projectRequired") : label}
-              aria-label={label}
-              style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                height: 32, padding: 0, background: "none", border: "none",
-                borderRadius: 9, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-                fontSize: 12, opacity: disabled ? 0.35 : 1,
-                transition: "background 0.12s, color 0.12s",
-              }}
-              onMouseEnter={(event) => { if (!disabled) { event.currentTarget.style.background = "var(--bg-hover)"; event.currentTarget.style.color = "var(--text)"; } }}
-              onMouseLeave={(event) => { event.currentTarget.style.background = "none"; event.currentTarget.style.color = "var(--text-muted)"; }}
-            >
-              <SettingsSectionIcon section={section} size={14} strokeWidth={2} />
-              <span>{label}</span>
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={() => setSettingsSection("skills")}
+          disabled={skillsShortcutDisabled}
+          title={skillsShortcutDisabled ? translate("settings.projectRequired") : translate("common.skills")}
+          aria-label={translate("common.skills")}
+          style={{
+            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            height: 32, padding: 0, background: "none", border: "none",
+            borderRadius: 9, color: "var(--text-muted)", cursor: skillsShortcutDisabled ? "default" : "pointer",
+            fontSize: 12, opacity: skillsShortcutDisabled ? 0.35 : 1,
+            transition: "background 0.12s, color 0.12s",
+          }}
+          onMouseEnter={(event) => { if (!skillsShortcutDisabled) { event.currentTarget.style.background = "var(--bg-hover)"; event.currentTarget.style.color = "var(--text)"; } }}
+          onMouseLeave={(event) => { event.currentTarget.style.background = "none"; event.currentTarget.style.color = "var(--text-muted)"; }}
+        >
+          <SettingsSectionIcon section="skills" size={14} strokeWidth={2} />
+          <span>{translate("common.skills")}</span>
+        </button>
         <button
           type="button"
           onClick={() => setSettingsSection(getLastSettingsSection(projectTrustCwd))}
@@ -1545,7 +1524,7 @@ export function AppShell() {
       </div>
       <div style={{ padding: "0 8px 8px", flexShrink: 0 }}>
         <button
-          onClick={openSettings}
+          onClick={() => openSettingsSection("models")}
           title="omp /settings (config.yml)"
           aria-label="omp /settings (config.yml)"
           style={{
@@ -2949,13 +2928,14 @@ export function AppShell() {
         onProjectTrustChanged={handleProjectTrustChanged}
       />
     )}
-    {settingsConfigOpen && (
+    {settingsConfigSection && (
       <SettingsConfig
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         runtimeId={selectedSession?.runtimeId}
         onRuntimeIdentity={handleRuntimeIdentity}
-        onClose={() => setSettingsConfigOpen(false)}
+        initialSection={settingsConfigSection}
+        onClose={() => setSettingsConfigSection(null)}
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}
         onReloaded={(runtimeId) => {
           const ownsSession = runtimeId

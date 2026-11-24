@@ -35,7 +35,7 @@ import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/to
 import type { ContextUsage, GoalStatusInfo, SessionStatsInfo, SlashCommandInfo } from "@/lib/omp-types";
 import type { ModelRoleAssignment } from "@/lib/api-types";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
-import type { SettingsSection } from "@/lib/settings-navigation";
+import type { OmpSettingsShortcut } from "@/lib/settings-navigation";
 import type { RunHint } from "@/lib/session-run-hint";
 import { runHintAction } from "@/lib/session-run-hint";
 import { useChatScrollMode } from "@/hooks/useChatScrollMode";
@@ -267,8 +267,8 @@ export interface UseAgentSessionOptions {
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string, runtimeId?: string | null) => void;
   modelsRefreshKey?: number;
-  /** Deep-links Settings to a section; the bare `/mcp` shortcut uses "mcp". */
-  onOpenSettings?: (section: SettingsSection | "mcp") => void;
+  /** Opens a section of the omp config browser from a composer shortcut. */
+  onOpenSettings?: (section: OmpSettingsShortcut) => void;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void, locked: boolean) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
@@ -2532,6 +2532,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
+    if (commandName === "models") {
+      if (args || !onOpenSettings) return { handled: false };
+      onOpenSettings("models");
+      return { handled: true, action: "openSettings" };
+    }
     const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;

@@ -1467,7 +1467,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
     loginState.phase === "prompt" || loginState.phase === "select";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: provider.loggedIn && loginState.phase === "idle" ? 0 : 16 }}>
+    <div className="models-auth-detail" style={{ gap: provider.loggedIn && loginState.phase === "idle" ? 0 : 16 }}>
       <ConfigDetailHeader>
         <ConfigDetailHeaderInfo>
           <SectionTitle>{t("i18n.subscription")}</SectionTitle>
@@ -1656,7 +1656,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
   }, [provider.id, onRefresh]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="models-auth-detail">
       <ConfigDetailHeader>
         <ConfigDetailHeaderInfo>
           <SectionTitle>API Key</SectionTitle>
@@ -2320,7 +2320,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
 
           {/* Right: detail */}
           <ConfigDetail>
-            <ConfigDetailStack className="is-fill">
+            <ConfigDetailStack className={selection?.type === "oauth" || selection?.type === "apikey" ? "is-full-height" : "is-fill"}>
               {loading ? null : detailContent ?? (
                 <ConfigEmptyState>{t("i18n.selectProviderModel")}</ConfigEmptyState>
               )}

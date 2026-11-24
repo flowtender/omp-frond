@@ -305,6 +305,7 @@ const BUILTIN_SLASH_COMMANDS: LocalBuiltinSlashCommand[] = [
   { name: "reload", descriptionKey: "chat.commandReload", source: "builtin" },
   { name: "name", descriptionKey: "chat.commandName", source: "builtin" },
   { name: "session", descriptionKey: "chat.commandSession", source: "builtin", availableWhileStreaming: true },
+  { name: "models", descriptionKey: "chat.commandModels", source: "builtin", availableWhileStreaming: true },
   { name: "copy", descriptionKey: "chat.commandCopy", source: "builtin", availableWhileStreaming: true },
 ];
 
