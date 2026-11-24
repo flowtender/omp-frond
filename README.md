@@ -286,7 +286,10 @@ bun run lint
 bun test
 ```
 
-Avoid running `bun run build` (or `next build`) during local development. It writes to `.next/` and can interfere with the dev server; leave builds for release work.
+For a local production preview, set `OMP_WEB_DIST_DIR=.next-production` in
+`.env.production.local`, then run `bun run build && bun run start`. Stop the
+previous preview before rebuilding, and keep `.next-production/` between
+builds so webpack can reuse its cache. Development still uses `.next/dev`.
 
 For the fork's remotes, upstream sync, submission routing, and SDK upgrades, see the canonical guide: [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
 
