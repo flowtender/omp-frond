@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentMessage, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
+import type { AgentMessage, BackgroundJob, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
@@ -276,13 +276,17 @@ function SubagentRow({ subagent, selected, onSelect }: { subagent: SubagentSnaps
   );
 }
 
-export function SubagentPanel({ sessionId, runtimeId, onRuntimeIdentity, cwd, subagents }: { sessionId: string | null; runtimeId?: string; onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"]; cwd?: string; subagents: SubagentSnapshot[] }) {
+export function SubagentPanel({ sessionId, runtimeId, onRuntimeIdentity, cwd, subagents, backgroundJobs }: { sessionId: string | null; runtimeId?: string; onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"]; cwd?: string; subagents: SubagentSnapshot[]; backgroundJobs: BackgroundJob[] }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const running = subagents.filter(isSubagentActive);
   const finished = subagents.filter((subagent) => !isSubagentActive(subagent));
   const selected = selectedId ? subagents.find((subagent) => subagent.id === selectedId) ?? null : null;
+  const jobRunningCount = backgroundJobs.filter((job) => job.status === "running").length;
+  const runningCount = running.length + jobRunningCount;
+  const finishedCount = finished.length + backgroundJobs.length - jobRunningCount;
+  const title = t(backgroundJobs.length === 0 ? "subagents.title" : subagents.length === 0 ? "backgroundJobs.title" : "backgroundJobs.activityTitle");
 
   useEffect(() => {
     setSelectedId(null);
@@ -293,12 +297,12 @@ export function SubagentPanel({ sessionId, runtimeId, onRuntimeIdentity, cwd, su
     if (selectedId && !selected) setSelectedId(null);
   }, [selected, selectedId]);
 
-  if (!sessionId || subagents.length === 0) return null;
+  if (!sessionId || (subagents.length === 0 && backgroundJobs.length === 0)) return null;
 
   return (
     <aside
       className="subagent-panel"
-      aria-label={t("subagents.title")}
+      aria-label={title}
       style={{
         display: "flex",
         flex: "1 1 auto",
@@ -322,10 +326,10 @@ export function SubagentPanel({ sessionId, runtimeId, onRuntimeIdentity, cwd, su
             style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", minHeight: 42, padding: "0 11px", border: "none", borderBottom: collapsed ? "none" : "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", cursor: "pointer", textAlign: "left" }}
           >
             <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: collapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}><polyline points="3 2 7 5 3 8" /></svg>
-            <span style={{ fontSize: 10, fontWeight: 750, letterSpacing: "0.08em", textTransform: "uppercase" }}>{t("subagents.title")}</span>
+            <span style={{ fontSize: 10, fontWeight: 750, letterSpacing: "0.08em", textTransform: "uppercase" }}>{title}</span>
             <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, fontSize: 9.5, fontVariantNumeric: "tabular-nums" }}>
-              <span style={{ color: running.length > 0 ? "var(--accent)" : "var(--text-dim)" }}>{t("subagents.runningCount", { count: running.length })}</span>
-              <span style={{ color: "var(--text-dim)" }}>{t("subagents.finishedCount", { count: finished.length })}</span>
+              <span style={{ color: runningCount > 0 ? "var(--accent)" : "var(--text-dim)" }}>{t("subagents.runningCount", { count: runningCount })}</span>
+              <span style={{ color: "var(--text-dim)" }}>{t("subagents.finishedCount", { count: finishedCount })}</span>
             </span>
           </button>
 
@@ -342,6 +346,23 @@ export function SubagentPanel({ sessionId, runtimeId, onRuntimeIdentity, cwd, su
                   <div style={{ padding: "0 7px 4px", color: "var(--text-dim)", fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>{t("subagents.history")}</div>
                   {finished.map((subagent) => <SubagentRow key={subagent.id} subagent={subagent} selected={false} onSelect={() => setSelectedId(subagent.id)} />)}
                 </div>
+              )}
+              {backgroundJobs.length > 0 && (
+                <section aria-label={t("backgroundJobs.title")} style={{ marginTop: subagents.length > 0 ? 8 : 0, paddingTop: subagents.length > 0 ? 8 : 0, borderTop: subagents.length > 0 ? "1px solid var(--border)" : "none" }}>
+                  {subagents.length > 0 && (
+                    <div style={{ padding: "0 7px 4px", color: "var(--text-dim)", fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>{t("backgroundJobs.title")}</div>
+                  )}
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                    {backgroundJobs.map((job) => (
+                      <li key={job.id} style={{ padding: "6px 7px", fontSize: 11 }}>
+                        <div title={job.label} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.label || job.id}</div>
+                        <div style={{ color: job.status === "running" ? "var(--accent)" : job.status === "failed" ? "var(--danger)" : "var(--text-muted)", fontSize: 9.5 }}>
+                          {job.type} · {t(`backgroundJobs.${job.status}`)}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
             </div>
           )}

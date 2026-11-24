@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
+  BackgroundJob,
   BlockingExtensionUiRequest,
   CustomMessage,
   ExtensionStatusItem,
@@ -159,6 +160,7 @@ type AgentStateResponse = {
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
   subagents?: SubagentSnapshot[];
+  backgroundJobs?: BackgroundJob[];
   goal?: GoalStatusInfo | null;
 };
 
@@ -596,6 +598,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
   const [subagents, setSubagents] = useState<SubagentSnapshot[]>([]);
+  const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventSourceSessionIdRef = useRef<string | null>(null);
@@ -862,6 +865,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const liveState = agentState.state;
         if (followRuntimeState(liveState, sid, requestedRuntimeId)) return null;
         if (!agentState.running && liveState?.sessionId) runtimeIdRef.current = null;
+        setBackgroundJobs(liveState?.backgroundJobs ?? []);
         if (liveState) {
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
@@ -1485,6 +1489,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         sid = sessionIdRef.current ?? sid;
         setSubagents((current) => mergeSubagentSnapshots(current, state?.subagents ?? []));
+        setBackgroundJobs(state?.backgroundJobs ?? []);
         const promptActive = Boolean(
           data.running
           && state
@@ -1506,7 +1511,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
           return;
         }
-        if (data.running && (state?.subagents?.length ?? 0) > 0) {
+        if (data.running && ((state?.subagents?.length ?? 0) > 0 || state?.backgroundJobs?.some((job) => job.status === "running"))) {
           eventStreamGraceTimerRef.current = setTimeout(
             () => void checkServerIdle(),
             CONTEXT_USAGE_REFRESH_MS,
@@ -1971,6 +1976,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
         break;
       }
+      case "background_jobs":
+        setBackgroundJobs(event.jobs as BackgroundJob[]);
+        break;
       case "subagent_lifecycle": {
         const payload = event.payload as {
           id?: string;
@@ -3003,6 +3011,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if ((agentState.state?.subagents?.length ?? 0) > 0) {
             followRun(sid);
           }
+          if (agentState.state?.backgroundJobs?.some((job) => job.status === "running")) {
+            followRun(sid);
+            if (!agentRunningRef.current) scheduleEventStreamClose(sid);
+          }
         }
         const state = agentState?.state;
         if (state) {
@@ -3213,6 +3225,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages, subagents,
+    backgroundJobs,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     addNotice,
     setNoticePaused: setPausedNoticeId,

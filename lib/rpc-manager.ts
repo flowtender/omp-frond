@@ -56,6 +56,7 @@ import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./omp-t
 import { GoalModeController } from "./goal-mode";
 import { formDataFromState, loadFormMedia, parseFormDialogState, prepareFormDialog, type FormDialogAnswer, type FormMediaSource } from "./form-dialog";
 import type {
+  BackgroundJob,
   ExtensionAskDialogResult,
   ExtensionUiRequest,
   ExtensionUiResponse,
@@ -484,6 +485,7 @@ export class AgentSessionWrapper {
   // but lookups must treat the wrapper as gone from this point on.
   private closing = false;
   private readonly subagents: RpcSubagentRegistry;
+  private readonly unsubscribeJobs?: () => void;
   // The SDK registry removes terminal entries after emitting their lifecycle frame.
   // Keep a bounded per-session copy so state requests can still expose history.
   private readonly subagentHistory = new Map<string, SubagentSnapshot>();
@@ -516,6 +518,26 @@ export class AgentSessionWrapper {
       notifyRunningChange();
     });
     this.subagents.setSubscriptionLevel("progress");
+    this.unsubscribeJobs = this.inner.asyncJobManager?.onJobsChanged(() => {
+      if (this.listeners.length > 0) this.emit(this.backgroundJobsEvent());
+    });
+  }
+
+  private getBackgroundJobs(): BackgroundJob[] {
+    const jobs: BackgroundJob[] = [];
+    const snapshot = this.inner.getAsyncJobSnapshot?.();
+    if (!snapshot) return jobs;
+    for (const group of [snapshot.running, snapshot.recent]) {
+      for (const { id, type, label, status, agentId } of group) {
+        // omp's tray shows jobs associated with an agent on the agent's row.
+        if (agentId === undefined) jobs.push({ id, type, label, status });
+      }
+    }
+    return jobs;
+  }
+
+  private backgroundJobsEvent(): AgentEvent {
+    return { type: "background_jobs", jobs: this.getBackgroundJobs() };
   }
 
   private rememberSubagentSnapshot(snapshot: SubagentSnapshot): void {
@@ -1112,10 +1134,14 @@ export class AgentSessionWrapper {
     this.forcedIdleTimerArmed = timeoutMs !== 0 && this.forceShutdownOnIdle;
     if (timeoutMs === 0) return;
     this.idleTimer = setTimeout(() => {
-      if (!this.forceShutdownOnIdle && (this.isRunning() || hasActiveSessionLivenessProvider({
-        sessionId: this.sessionId,
-        sessionFile: this.sessionFile || undefined,
-      }))) {
+      if (!this.forceShutdownOnIdle && (
+        this.isRunning()
+        || this.inner.asyncJobManager?.getRunningJobs().length
+        || hasActiveSessionLivenessProvider({
+          sessionId: this.sessionId,
+          sessionFile: this.sessionFile || undefined,
+        })
+      )) {
         this.resetIdleTimer();
         return;
       }
@@ -1147,6 +1173,7 @@ export class AgentSessionWrapper {
 
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
+    if (this.inner.asyncJobManager) listener(this.backgroundJobsEvent());
     for (const event of this.pendingUiRequests.values()) listener(event);
     for (const event of this.activeToolEvents.values()) listener(event);
     if (this.activeMessageEvent) listener(this.activeMessageEvent);
@@ -1460,6 +1487,7 @@ export class AgentSessionWrapper {
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
           subagents: this.getSubagentSnapshots(),
+          backgroundJobs: this.getBackgroundJobs(),
           goal: this.goalMode.getStatus(),
         };
       }
@@ -1839,6 +1867,7 @@ export class AgentSessionWrapper {
     clearTimeout(this.idleTimer);
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
+    this.unsubscribeJobs?.();
     this.goalModeController?.dispose();
     this.subagents.dispose();
     this.subagentHistory.clear();

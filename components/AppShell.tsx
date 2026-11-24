@@ -74,7 +74,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
-import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot } from "@/lib/types";
+import type { BackgroundJob, BlockingExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
@@ -349,6 +349,7 @@ export function AppShell() {
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
   const [subagents, setSubagents] = useState<SubagentSnapshot[]>([]);
+  const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
@@ -1371,7 +1372,7 @@ export function AppShell() {
     />
   ) : null;
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
-  const showSubagentPanel = !isMobile && selectedSession !== null && subagents.length > 0;
+  const showSubagentPanel = !isMobile && selectedSession !== null && (subagents.length > 0 || backgroundJobs.length > 0);
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
@@ -2721,6 +2722,7 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onProviderUsageChange={setProviderUsage}
               onSubagentsChange={setSubagents}
+              onBackgroundJobsChange={setBackgroundJobs}
               onOpenFile={handleOpenLinkedFile}
               onFilesUploaded={handleExplorerRefresh}
               onOpenSubagent={handleOpenSubagentTab}
@@ -2784,6 +2786,7 @@ export function AppShell() {
                 onRuntimeIdentity={handleRuntimeIdentity}
                 cwd={selectedSession?.cwd ?? effectiveNewSessionCwd ?? undefined}
                 subagents={subagents}
+                backgroundJobs={backgroundJobs}
               />
             </div>
           )}

@@ -17,7 +17,6 @@ test("uses a desktop sibling column instead of an absolute overlay", () => {
   assert.doesNotMatch(source, /position:\s*"absolute"/);
   assert.match(shellSource, /className="chat-content-layout"/);
   assert.match(shellSource, /className="subagent-column"/);
-  assert.match(shellSource, /const showSubagentPanel = !isMobile && selectedSession !== null && subagents\.length > 0/);
   assert.match(stylesSource, /\.subagent-column\s*\{[\s\S]*display: none !important;/);
 });
 

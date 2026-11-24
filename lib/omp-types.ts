@@ -6,6 +6,8 @@ import type {
   SlashCommandInfo as OmpSlashCommandInfo,
   Theme,
 } from "@oh-my-pi/pi-coding-agent";
+import type { AsyncJobManagerApi } from "@oh-my-pi/pi-coding-agent/async";
+import type { AsyncJobSnapshot } from "@oh-my-pi/pi-coding-agent/session/agent-session-types";
 import type { CompactOptions } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import type { GoalModeState } from "@oh-my-pi/pi-coding-agent/goals/state";
 import type { FormDialogAnswer } from "./form-dialog";
@@ -208,6 +210,8 @@ export interface AgentSessionLike {
   ): Promise<{ output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string }>;
   abortBash(): void;
   readonly isBashRunning: boolean;
+  readonly asyncJobManager?: Pick<AsyncJobManagerApi, "getRunningJobs" | "onJobsChanged">;
+  getAsyncJobSnapshot?(): AsyncJobSnapshot | null;
   setModel(model: ModelLike, role?: string, options?: { selector?: string; thinkingLevel?: string; persist?: boolean }): Promise<{ switched: boolean }>;
   resolveRoleModel(role: string): ModelLike | undefined;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;

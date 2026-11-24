@@ -77,7 +77,7 @@ function harness() {
   };
   for (const name of ["Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error",
     "ContextUsage", "CurrentModelOverride", "SystemPrompt", "ThinkingLevel", "EffectiveThinkingLevel",
-    "ExtensionStatuses", "ExtensionWidgets", "QueuedMessages", "Subagents", "IsCompacting",
+    "ExtensionStatuses", "ExtensionWidgets", "QueuedMessages", "Subagents", "BackgroundJobs", "IsCompacting",
     "AgentPhase", "RetryInfo", "GoalStatus", "BashRunning", "PendingBash"]) {
     bindings[`set${name}`] = (...args) => effects.push([name, ...args]);
   }

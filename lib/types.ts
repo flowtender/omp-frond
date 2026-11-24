@@ -202,6 +202,13 @@ export interface SubagentSnapshot {
   parentToolCallId?: string;
 }
 
+export interface BackgroundJob {
+  id: string;
+  type: "bash" | "task" | "eval";
+  label: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+}
+
 
 /**
  * Prompt and tool loadout carried by the session transcript (Pi >= 0.86). The
