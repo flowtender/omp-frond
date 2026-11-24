@@ -41,7 +41,7 @@ for initial GitHub setup and upstream review tracking.
 git fetch origin
 git status --short --branch
 git log --oneline --decorate -5
-git rev-list --left-right --count main...origin/main
+git rev-list --left-right --count trunk...origin/trunk
 gh auth status
 npm whoami
 bun --version   # the published .next is built with Bun; engines.bun requires 1.4.4+
@@ -53,7 +53,7 @@ ls .next/server/route-cache
 Expected:
 
 - `git status` is clean, or only contains changes you intentionally plan to release.
-- `main` and `origin/main` are aligned (`0	0`).
+- `trunk` and `origin/trunk` are aligned (`0	0`).
 - GitHub is authenticated as an account that can push and create releases.
 - npm is authenticated as an owner of `omp-web`, only if you intend to publish it.
 - No dev server is listening on 30141: the production build rewrites `.next/` and breaks a running `bun run dev`. Stop it first.
@@ -242,5 +242,5 @@ Expected:
 - GitHub Release exists and is not a draft unless intentionally published as one.
 - If published to npm: the exact version resolves and `latest` points at it (allow a few minutes, see step 2).
 - `git ls-remote --tags origin` shows no tag you did not mean to publish.
-- `main` is aligned with `origin/main`.
+- `trunk` is aligned with `origin/trunk`.
 - `HEAD` points at the release commit and `v<version>` tag.
