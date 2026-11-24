@@ -75,6 +75,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
     "settings.chatScrollAnchor": "保持最新提问在顶部",
     "settings.chatScrollAnchorDescription": "对下一条发送的消息生效。关闭时跟随最新回复。",
+    "settings.showCostWithUsage": "订阅用量旁同时显示费用",
+    "settings.showCostWithUsageDescription": "当套餐报告订阅用量时，默认隐藏费用。开启后继续显示金额，例如按量计费的套餐。保存在此浏览器中。",
     "settings.quoteSelection": "选中文字时显示提问浮窗",
     "settings.sidebar": "侧边栏",
     "settings.filesPlacement": "文件浏览器",

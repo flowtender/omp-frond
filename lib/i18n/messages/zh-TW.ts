@@ -61,6 +61,8 @@ export const zhTWLocale: LocalePlugin = {
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
     "settings.chatScrollAnchor": "保持最新提問在頂部",
     "settings.chatScrollAnchorDescription": "套用於下一則送出的訊息。關閉時跟隨最新回覆。",
+    "settings.showCostWithUsage": "訂閱用量旁同時顯示費用",
+    "settings.showCostWithUsageDescription": "當方案回報訂閱用量時，預設隱藏費用。開啟後繼續顯示金額，例如按量計費的方案。儲存在此瀏覽器中。",
     "settings.quoteSelection": "選取文字時顯示提問浮窗",
     "settings.sidebar": "側邊欄",
     "settings.filesPlacement": "檔案瀏覽器",

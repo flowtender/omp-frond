@@ -75,6 +75,8 @@ export const enLocale: LocalePlugin = {
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
     "settings.chatScrollAnchor": "Keep latest prompt at top",
     "settings.chatScrollAnchorDescription": "Applies to the next message you send. Off follows the latest reply.",
+    "settings.showCostWithUsage": "Show cost alongside subscription usage",
+    "settings.showCostWithUsageDescription": "When your plan reports subscription usage, cost is hidden by default. Turn this on to keep showing cash values, e.g. for a metered plan. Saved in this browser.",
     "settings.quoteSelection": "Show actions for selected text",
     "settings.sidebar": "Sidebar",
     "settings.filesPlacement": "File browser",

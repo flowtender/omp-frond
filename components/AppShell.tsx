@@ -29,6 +29,7 @@ import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import { useShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
 import { canApplySessionIdentity, type SessionIdentity } from "@/lib/agent-client";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
@@ -381,6 +382,8 @@ export function AppShell() {
   }, []);
   // Subscription usage of the current model's account — populated by ChatWindow; replaces cost when present
   const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null);
+  const showCostWithUsage = useShowCostWithUsage();
+  const hideCost = providerUsage !== null && !showCostWithUsage;
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "tools" | "session" | "language" | null>(null);
@@ -1878,7 +1881,7 @@ export function AppShell() {
     const tokens = sessionStats?.tokens;
     const cost = sessionStats?.cost ?? 0;
     const formatCompact = formatCompactCount;
-    const costText = providerUsage ? null : formatCostShort(cost);
+    const costText = hideCost ? null : formatCostShort(cost);
     const now = Date.now();
 
     let contextColor = "var(--text-muted)";
@@ -1899,7 +1902,7 @@ export function AppShell() {
       tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
       tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
       tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
-      if (cost > 0 && !providerUsage) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
+      if (cost > 0 && !hideCost) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
     }
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
@@ -2516,7 +2519,7 @@ export function AppShell() {
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const extraTokenRows = [
-                       ...(sessionStats.cost > 0 && !providerUsage ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
+                       ...(sessionStats.cost > 0 && !hideCost ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
                        ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompactCount(ctx.contextWindow)}`]] : []),
                        // Cache hit rate = cache reads / (input + cache writes + cache reads) — the denominator covers all input-class tokens.
                        ...(sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite > 0 && sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input > 0

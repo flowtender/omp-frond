@@ -25,6 +25,7 @@ import { phaseLabel } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { useSyncedDisplaySettings } from "@/hooks/useDisplaySettings";
 import { useProviderUsage } from "@/hooks/useProviderUsage";
+import { useShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
 import type { ProviderUsageSummary } from "@/lib/provider-usage-types";
 import { formatTokenCount } from "@/lib/format-tokens";
 import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
@@ -821,9 +822,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [ctxKey, onContextUsageChange]);
   useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
-  // Subscription usage replaces cost in the top bar and the per-request lines.
+  // Subscription usage replaces cost in the top bar and the per-request lines, unless the user keeps cost.
   const providerUsage = useProviderUsage(displayModelValue, session?.id);
-  const hideCost = providerUsage !== null;
+  const showCostWithUsage = useShowCostWithUsage();
+  const hideCost = providerUsage !== null && !showCostWithUsage;
   useEffect(() => {
     onProviderUsageChange?.(providerUsage);
   }, [providerUsage, onProviderUsageChange]);

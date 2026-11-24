@@ -15,6 +15,7 @@ import {
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useChatScrollMode, setChatScrollMode } from "@/hooks/useChatScrollMode";
+import { useShowCostWithUsage, setShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
@@ -78,6 +79,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const chatScrollMode = useChatScrollMode();
+  const showCostWithUsage = useShowCostWithUsage();
   const filesPlacement = useFilesPlacement();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
@@ -354,6 +356,15 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             />
           </div>
           <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.showCostWithUsage")}</span>
+            <ConfigSwitch
+              checked={showCostWithUsage}
+              label={t("settings.showCostWithUsage")}
+              describedBy="settings-show-cost-with-usage-description"
+              onChange={setShowCostWithUsage}
+            />
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.cacheMissNotices")}</span>
             <ConfigSwitch
               checked={cacheMissNotices === true}
@@ -365,6 +376,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           </div>
         </div>
         <p id="settings-chat-scroll-anchor-description" className="settings-general-description">{t("settings.chatScrollAnchorDescription")}</p>
+        <p id="settings-show-cost-with-usage-description" className="settings-general-description">{t("settings.showCostWithUsageDescription")}</p>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
       </section>
