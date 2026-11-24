@@ -1,6 +1,6 @@
 # Maintaining the upstream streams
 
-This is the maintenance policy for [flowtender/omp-web](https://github.com/flowtender/omp-web),
+This is the maintenance policy for [flowtender/omp-frond](https://github.com/flowtender/omp-frond),
 not a claim that either OMP UI upstream has stopped maintaining its fork.
 See the [documentation index](README.md) for installation, runtime guides,
 translations, and the scope of inherited Pi Web implementation notes.
@@ -9,7 +9,7 @@ translations, and the scope of inherited Pi Web implementation notes.
 
 | Remote | Repository | Role |
 | --- | --- | --- |
-| `origin` | `flowtender/omp-web` | Publish this fork and its PR branches |
+| `origin` | `flowtender/omp-frond` | Publish this fork and its PR branches |
 | `pi-web` | `agegr/pi-web` | Original UI upstream |
 | `ddallabenetta` | `ddallabenetta/omp-web` | OMP adaptation upstream |
 | `kd-mm2` | `KD-MM2/omp-web` | OMP fork with a newer pi-web integration |
@@ -176,7 +176,7 @@ git push origin main
 No force push is required. Do not push all branches or tags. If either push is
 rejected, inspect the remote changes rather than forcing it.
 
-In <https://github.com/flowtender/omp-web/settings/actions>:
+In <https://github.com/flowtender/omp-frond/settings/actions>:
 
 1. Under **Actions permissions**, allow the actions used by the workflows:
    `actions/checkout`, `actions/github-script`, `oven-sh/setup-bun`, and
@@ -200,11 +200,11 @@ In <https://github.com/flowtender/omp-web/settings/actions>:
 
 Verified 2026-11-23 through GitHub's API:
 
-- `integration` exists on `flowtender/omp-web` at
+- `integration` exists on `flowtender/omp-frond` at
   `76839bc584f19ddf38551ff2b0cd02606a8921d9`.
 - **Monitor UI upstreams** and **Update omp dependency** are both `active`.
-- The latest manual [monitor run](https://github.com/flowtender/omp-web/actions/runs/45243564233)
-  and [SDK updater run](https://github.com/flowtender/omp-web/actions/runs/45243763169)
+- The latest manual [monitor run](https://github.com/flowtender/omp-frond/actions/runs/45243564233)
+  and [SDK updater run](https://github.com/flowtender/omp-frond/actions/runs/45243763169)
   completed successfully.
 
 These are dated observations, not a guarantee about future run outcomes or

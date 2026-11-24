@@ -4,7 +4,7 @@
 
 [oh-my-pi（omp）](https://github.com/can1357/oh-my-pi) コーディングエージェントのブラウザー UI です。omp-web は `omp` CLI がすでに書き込んでいるセッションを読み込み、会話の閲覧、リアルタイムのチャット、モデルロール、Provider 設定、スキル管理、プロジェクトファイルのプレビューをブラウザーで提供します。
 
-このリポジトリ `flowtender/omp-web` は omp-web のフォークです。UI は [pi-web](https://github.com/agegr/pi-web)（作者 [@agegr](https://github.com/agegr)）に由来し、[ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) と [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) の OMP 適応を取り込んでいます。OMP SDK（[can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)）は正確なバージョンに固定された依存関係です。ブランチ構成と更新手順は英語のガイド [docs/upstream-maintenance.md](./upstream-maintenance.md) を参照してください。
+このリポジトリ `flowtender/omp-frond` は omp-web のフォークです。UI は [pi-web](https://github.com/agegr/pi-web)（作者 [@agegr](https://github.com/agegr)）に由来し、[ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) と [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) の OMP 適応を取り込んでいます。OMP SDK（[can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)）は正確なバージョンに固定された依存関係です。ブランチ構成と更新手順は英語のガイド [docs/upstream-maintenance.md](./upstream-maintenance.md) を参照してください。
 
 ## クイックスタート
 
@@ -15,8 +15,8 @@ omp SDK は TypeScript のソースとして配布され、`bun:` の組み込�
 このリポジトリのソースチェックアウトが、このフォークのビルドです：
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev                      # 開発サーバー：http://127.0.0.1:30141
 ```
@@ -111,8 +111,8 @@ HTTP_PROXY=http://127.0.0.1:7890 HTTPS_PROXY=http://127.0.0.1:7890 bunx omp-web@
 このリポジトリのソースチェックアウトで開発してください。Bun 1.4.4 以降と Node.js 22.19.0 以降が必要です。
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev
 ```

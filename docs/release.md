@@ -1,12 +1,12 @@
 # Release Checklist
 
-This fork (`flowtender/omp-web`) publishes its own GitHub Releases and tags. The npm package `omp-web` is the upstream distribution, not automatically this fork: publish it only if you own that package and have configured trusted publishing (see below). Source install of this fork is authoritative (see README).
+This fork (`flowtender/omp-frond`) publishes its own GitHub Releases and tags. The npm package `omp-web` is the upstream distribution, not automatically this fork: publish it only if you own that package and have configured trusted publishing (see below). Source install of this fork is authoritative (see README).
 
 Use this checklist from a clean `main` checkout.
 
 ## Automated npm publishing
 
-`.github/workflows/publish-npm.yml` is inherited from upstream. It runs on a pushed `v*` tag or manual dispatch and publishes `omp-web` to npm with provenance. Pushing a release tag to `flowtender/omp-web` therefore starts a publish attempt. Do not push `v*` tags here unless you own the `omp-web` npm package and intend to publish it.
+`.github/workflows/publish-npm.yml` is inherited from upstream. It runs on a pushed `v*` tag or manual dispatch and publishes `omp-web` to npm with provenance. Pushing a release tag to `flowtender/omp-frond` therefore starts a publish attempt. Do not push `v*` tags here unless you own the `omp-web` npm package and intend to publish it.
 
 If you own it, the npm trusted publisher must match the repository and workflow that will run:
 
@@ -127,7 +127,7 @@ Confirm the tag does not already exist before creating it when unsure:
 
 ```bash
 git ls-remote --tags origin v<version>
-gh release view v<version> --repo flowtender/omp-web
+gh release view v<version> --repo flowtender/omp-frond
 ```
 
 ## 5. Generate Release Notes from Commits
@@ -197,7 +197,7 @@ Create a new release:
 
 ```bash
 gh release create v<version> \
-  --repo flowtender/omp-web \
+  --repo flowtender/omp-frond \
   --verify-tag \
   --title "v<version>" \
   --notes-file "$NOTES"
@@ -207,14 +207,14 @@ If the release already exists and only the notes need updating:
 
 ```bash
 gh release edit v<version> \
-  --repo flowtender/omp-web \
+  --repo flowtender/omp-frond \
   --notes-file "$NOTES"
 ```
 
 You can avoid a temporary file by passing notes through stdin:
 
 ```bash
-gh release edit v<version> --repo flowtender/omp-web --notes-file - <<'EOF'
+gh release edit v<version> --repo flowtender/omp-frond --notes-file - <<'EOF'
 ## 中文
 
 ...
@@ -228,7 +228,7 @@ EOF
 ## 7. Final Verification
 
 ```bash
-gh release view v<version> --repo flowtender/omp-web
+gh release view v<version> --repo flowtender/omp-frond
 # only if this release was published to npm by an owner of omp-web
 npm view omp-web@<version> version --registry https://registry.npmjs.org/
 npm view omp-web dist-tags --registry https://registry.npmjs.org/

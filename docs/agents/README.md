@@ -28,7 +28,7 @@ Do not mechanically rename `.pi` paths, `pi-web:` persisted identifiers, global
 symbols, or SDK imports. Some are intentional compatibility contracts. Check
 the actual route and SDK adapter before changing either code or its notes.
 Unqualified issue numbers in inherited text refer to their original upstream
-context; they are not necessarily issues in `flowtender/omp-web`.
+context; they are not necessarily issues in `flowtender/omp-frond`.
 
 ## Note map
 

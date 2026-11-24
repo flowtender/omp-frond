@@ -5,7 +5,7 @@ description: "Use when the user asks to prepare, create, publish, or update a Gi
 
 # GitHub Release
 
-Use this skill for releases of `ddallabenetta/omp-web`.
+Use this skill for releases of `flowtender/omp-frond`.
 
 ## Release-body contract
 
@@ -90,7 +90,7 @@ Before creating the release, check whether the tag or GitHub release already exi
 
 ```bash
 git ls-remote --tags origin v<version>
-gh release view v<version> --repo ddallabenetta/omp-web
+gh release view v<version> --repo flowtender/omp-frond
 ```
 
 Do not replace a published release unless the user explicitly asks to update its notes.
@@ -101,7 +101,7 @@ Write the generated body to a temporary notes file outside the repository, revie
 
 ```bash
 gh release create v<version> \
-  --repo ddallabenetta/omp-web \
+  --repo flowtender/omp-frond \
   --verify-tag \
   --title "v<version>" \
   --notes-file /tmp/omp-web-release-notes.md
@@ -111,7 +111,7 @@ Never use `--generate-notes`; it would bypass the required format. If the releas
 
 ```bash
 gh release edit v<version> \
-  --repo ddallabenetta/omp-web \
+  --repo flowtender/omp-frond \
   --notes-file /tmp/omp-web-release-notes.md
 ```
 
@@ -123,7 +123,7 @@ Confirm the published metadata and body, then check for unintended local changes
 
 ```bash
 gh release view v<version> \
-  --repo ddallabenetta/omp-web \
+  --repo flowtender/omp-frond \
   --json name,tagName,isDraft,isPrerelease,body,url
 git status --short --branch
 ```

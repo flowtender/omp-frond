@@ -2,13 +2,13 @@
   <img src="./docs/hero.png" alt="omp-web — Browser workspace for omp" width="100%">
 </p>
 
-  <a href="https://github.com/flowtender/omp-web/blob/main/LICENSE"><img src="https://img.shields.io/github/license/flowtender/omp-web?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://github.com/flowtender/omp-frond/blob/main/LICENSE"><img src="https://img.shields.io/github/license/flowtender/omp-frond?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&colorA=222222&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat&colorA=222222" alt="Bun"></a>
 </p>
 
 <p align="center">
-  flowtender's fork of <a href="https://github.com/ddallabenetta/omp-web">omp-web</a>, which builds on <a href="https://github.com/agegr/pi-web">pi-web</a> by <a href="https://github.com/agegr">@agegr</a>
+  flowtender's fork of <a href="https://github.com/KD-MM2/omp-web">KD-MM2/omp-web</a>, which builds on <a href="https://github.com/ddallabenetta/omp-web">ddallabenetta/omp-web</a> and the original <a href="https://github.com/agegr/pi-web">pi-web</a> by <a href="https://github.com/agegr">@agegr</a>
 </p>
 
 
@@ -16,7 +16,7 @@ The web view for [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi). omp-web 
 
 It is not a separate agent: omp-web runs omp's own SDK in-process, against the same `~/.omp/agent` directory, so a session started in the terminal continues in the browser and back again.
 
-This fork, `flowtender/omp-web`, tracks three UI upstreams: [agegr/pi-web](https://github.com/agegr/pi-web) (the original UI), [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) (the OMP adaptation), and [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) (an OMP fork with a newer pi-web integration). The OMP SDK ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) is an exact pinned package dependency, not a branch to merge. Branch roles and update workflows are documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
+This fork, `flowtender/omp-frond`, tracks three UI upstreams: [agegr/pi-web](https://github.com/agegr/pi-web) (the original UI), [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) (the OMP adaptation), and [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) (an OMP fork with a newer pi-web integration). The OMP SDK ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) is an exact pinned package dependency, not a branch to merge. Branch roles and update workflows are documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
 
 
 ## Quick Start
@@ -28,8 +28,8 @@ omp-web serves its API on **Bun**, because the omp SDK is published as TypeScrip
 The source checkout of this repository is the build of this fork:
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev                      # development server at http://127.0.0.1:30141
 ```
@@ -38,7 +38,7 @@ For a production run from this checkout, build first and then start: `bun run bu
 
 ### The upstream npm package
 
-The `omp-web` package on npm is published from the upstream [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) repository, and its `package.json` points there. It does not prove that this fork has been published to npm, and it does not contain this fork's changes. Use it only if you want the upstream distribution:
+The `omp-web` package on npm is published by upstream [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web). It does not contain this fork’s changes. Use it only if you want the upstream distribution:
 
 ```bash
 bunx omp-web@latest
@@ -272,8 +272,8 @@ still take precedence.
 Develop from a source checkout of this fork. You need Bun 1.4.4 or newer and Node.js 22.19.0 or newer.
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev
 ```

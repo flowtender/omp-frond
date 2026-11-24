@@ -1,8 +1,8 @@
-# Documentation for flowtender/omp-web
+# Documentation for flowtender/omp-frond
 
-This repository is a downstream fork of `KD-MM2/omp-web` and
-`ddallabenetta/omp-web`, ultimately derived from `agegr/pi-web`. It embeds the
-Oh My Pi SDK from `can1357/oh-my-pi`; it is not the original Pi Web application
+This repository is a fork of [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web).
+It tracks [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) and the original [agegr/pi-web](https://github.com/agegr/pi-web). It embeds the
+Oh My Pi SDK from [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi); it is not the original Pi Web application
 or proof of a new release of the upstream `omp-web` npm package.
 
 ## Start here

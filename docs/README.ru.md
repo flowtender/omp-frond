@@ -4,7 +4,7 @@
 
 Браузерный интерфейс для [oh-my-pi (omp)](https://github.com/can1357/oh-my-pi) — агента для программирования. omp-web читает сессии, которые уже записывает CLI `omp`, и предоставляет в браузере просмотр сессий, чат в реальном времени, роли моделей, настройку провайдеров, управление навыками и предпросмотр файлов проекта.
 
-Этот репозиторий, `flowtender/omp-web`, — форк omp-web. Интерфейс происходит от [pi-web](https://github.com/agegr/pi-web) (автор [@agegr](https://github.com/agegr)) и включает OMP-адаптации из [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) и [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web). SDK OMP ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) подключён как зафиксированная точная версия пакета. Ветки и порядок обновлений описаны на английском: [docs/upstream-maintenance.md](./upstream-maintenance.md).
+Этот репозиторий, `flowtender/omp-frond`, — форк omp-web. Интерфейс происходит от [pi-web](https://github.com/agegr/pi-web) (автор [@agegr](https://github.com/agegr)) и включает OMP-адаптации из [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) и [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web). SDK OMP ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) подключён как зафиксированная точная версия пакета. Ветки и порядок обновлений описаны на английском: [docs/upstream-maintenance.md](./upstream-maintenance.md).
 
 ## Быстрый старт
 
@@ -15,8 +15,8 @@ omp-web обслуживает API на **Bun**, потому что SDK omp п�
 Исходная копия этого репозитория и есть сборка форка:
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev                      # сервер разработки: http://127.0.0.1:30141
 ```
@@ -111,8 +111,8 @@ HTTP_PROXY=http://127.0.0.1:7890 HTTPS_PROXY=http://127.0.0.1:7890 bunx omp-web@
 Работайте из исходной копии этого форка. Нужны Bun 1.4.4 или новее и Node.js 22.19.0 или новее.
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev
 ```

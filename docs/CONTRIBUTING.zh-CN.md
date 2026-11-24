@@ -2,11 +2,11 @@
 
 [English](../CONTRIBUTING.md)
 
-本仓库 `flowtender/omp-web` 是 omp-web 的 fork。omp-web 是 [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi) 编码智能体的浏览器前端，界面源自 [pi-web](https://github.com/agegr/pi-web)。这里涉及三个界面上游，所以动手前先确定改动应该提交到哪个仓库。
+本仓库 `flowtender/omp-frond` 是 omp-web 的 fork。omp-web 是 [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi) 编码智能体的浏览器前端，界面源自 [pi-web](https://github.com/agegr/pi-web)。这里涉及三个界面上游，所以动手前先确定改动应该提交到哪个仓库。
 
 ## 改动应该提交到哪里
 
-- **本分支的修复和文档**（`flowtender/omp-web`）：直接在这里开 issue 或 PR。较大的改动请先开 issue。
+- **本分支的修复和文档**（`flowtender/omp-frond`）：直接在这里开 issue 或 PR。较大的改动请先开 issue。
 - **基于 OMP 的界面功能**：需要针对接收方仓库的 `main` 分支准备，接收方可以是 [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) 或 [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web)。请遵循该仓库自己的贡献规则。在本分支能跑，并不代表在其他接收方的基线上也能跑。
 - **不依赖 OMP 的原始 pi 界面改动**：请提交到 [agegr/pi-web](https://github.com/agegr/pi-web)，并遵循其 [CONTRIBUTING.md](https://github.com/agegr/pi-web/blob/main/CONTRIBUTING.md)。那里的范围规则适用于 pi-web，不适用于本分支。
 - **OMP SDK 的行为**（会话、工具、提示词、重试或 SDK API）：请反馈到 [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)。本仓库以精确锁定的包版本使用 SDK。

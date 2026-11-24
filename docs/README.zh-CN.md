@@ -4,7 +4,7 @@
 
 [oh-my-pi（omp）](https://github.com/can1357/oh-my-pi) 编码智能体的浏览器界面。omp-web 读取 `omp` CLI 已经写入的会话，在浏览器中提供会话浏览、实时对话、模型角色、Provider 配置、技能管理和项目文件预览。
 
-本仓库 `flowtender/omp-web` 是 omp-web 的 fork，界面源自 [pi-web](https://github.com/agegr/pi-web)（作者 [@agegr](https://github.com/agegr)），并包含 [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) 与 [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) 的 OMP 适配。OMP SDK（[can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)）以精确版本号作为依赖锁定。分支结构和更新流程见英文文档 [docs/upstream-maintenance.md](./upstream-maintenance.md)。
+本仓库 `flowtender/omp-frond` 是 omp-web 的 fork，界面源自 [pi-web](https://github.com/agegr/pi-web)（作者 [@agegr](https://github.com/agegr)），并包含 [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) 与 [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) 的 OMP 适配。OMP SDK（[can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)）以精确版本号作为依赖锁定。分支结构和更新流程见英文文档 [docs/upstream-maintenance.md](./upstream-maintenance.md)。
 
 ## 快速开始
 
@@ -15,8 +15,8 @@ omp-web 的 API 运行在 **Bun** 上，因为 omp SDK 以 TypeScript 源码发�
 本仓库的源码检出即为本分支的构建方式：
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev                      # 开发服务器：http://127.0.0.1:30141
 ```
@@ -111,8 +111,8 @@ HTTP_PROXY=http://127.0.0.1:7890 HTTPS_PROXY=http://127.0.0.1:7890 bunx omp-web@
 请在本仓库的源码检出中开发。需要 Bun 1.4.4 或更高版本，以及 Node.js 22.19.0 或更高版本。
 
 ```bash
-git clone https://github.com/flowtender/omp-web.git
-cd omp-web
+git clone https://github.com/flowtender/omp-frond.git
+cd omp-frond
 bun install
 bun run dev
 ```
