@@ -67,11 +67,12 @@ app/api/
   sessions/[id]/route.ts          GET/PATCH/DELETE session
   sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
   sessions/[id]/export/route.ts   GET exported HTML for a session
+  sessions/prompt-cache/route.ts  GET prompt-cache status of every listed session, read off its transcript
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
   agent/[id]/form-media/[token]/[index]/route.ts  GET a picture of an open ask form
-  agent/running/route.ts          GET currently-running session ids
+  agent/running/route.ts          GET currently-running session ids + live prompt-cache statuses
   agent/running/events/route.ts   GET SSE stream of currently-running session ids
   auth/all-providers/route.ts     GET API-key provider list
   auth/api-key/[provider]/route.ts GET/POST/DELETE provider API key status/storage
@@ -122,6 +123,8 @@ lib/
   omp-types.ts         structural view of omp's AgentSession
   project-trust.ts     gates a project's executable resources
   seen-models.ts       models already shown, for the "new" tags (omp-web-seen-models.json)
+  prompt-cache.ts      prompt-cache status: a live session's warmer, or inferred from a transcript
+  prompt-cache-shared.ts  client-safe prompt-cache report, view-at-time and indicator settings
   push-client.ts       browser push subscription helpers
   web-push.ts          VAPID keys + web-push notification sending
   rpc-manager.ts       AgentSessionWrapper + registry + startRpcSession
@@ -138,6 +141,7 @@ lib/
 components/
   AccessConfig.tsx    password lock panel inside the settings modal
   FormDialog.tsx      the ask tool's HTML form, drawn natively (ui.formDialog)
+  PromptCacheIndicator.tsx  the cache marker (composer + sidebar rows), per the Appearance settings
   AppShell.tsx        layout + URL state + tab management
   SessionSidebar.tsx  session tree + FileExplorer
   ChatWindow.tsx      chat composition + completion sound wrapper
@@ -159,6 +163,7 @@ components/
 hooks/
   useAgentSession.ts  messages + streaming + SSE + fork/navigate/reconciliation logic
   useAudio.ts         completion sound + browser AudioContext unlock
+  usePromptCacheIndicator.ts  prompt-cache marker settings (localStorage)
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
   useTheme.ts         theme state

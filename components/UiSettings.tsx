@@ -17,6 +17,8 @@ import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useChatScrollMode, setChatScrollMode } from "@/hooks/useChatScrollMode";
 import { useShowCostWithUsage, setShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { setPromptCacheIndicatorSettings, usePromptCacheIndicatorSettings } from "@/hooks/usePromptCacheIndicator";
+import type { PromptCacheIndicatorSource, PromptCacheIndicatorStyle } from "@/lib/prompt-cache-shared";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
 import type { ToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -26,6 +28,17 @@ import {
 import { setupPushSubscription } from "@/lib/push-client";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
+
+const PROMPT_CACHE_SOURCES: { value: PromptCacheIndicatorSource; label: string }[] = [
+  { value: "off", label: "settings.promptCacheSourceOff" },
+  { value: "live", label: "settings.promptCacheSourceLive" },
+  { value: "inferred", label: "settings.promptCacheSourceInferred" },
+];
+
+const PROMPT_CACHE_STYLES: { value: PromptCacheIndicatorStyle; label: string }[] = [
+  { value: "terminal", label: "settings.promptCacheStyleTerminal" },
+  { value: "gradient", label: "settings.promptCacheStyleGradient" },
+];
 
 interface UiSettingsProps {
   sessionId: string | null;
@@ -44,6 +57,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
   const chatScrollMode = useChatScrollMode();
   const showCostWithUsage = useShowCostWithUsage();
   const filesPlacement = useFilesPlacement();
+  const promptCacheIndicator = usePromptCacheIndicatorSettings();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -195,6 +209,54 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
             );
           })}
         </div>
+        <div className="settings-chat-options">
+          <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.promptCacheSource")}>
+            <span>{t("settings.promptCacheSource")}</span>
+            <div className="settings-send-mode-options">
+              {PROMPT_CACHE_SOURCES.map((option) => (
+                <label key={option.value} className="settings-send-mode-option">
+                  <input
+                    type="radio"
+                    name="prompt-cache-source"
+                    value={option.value}
+                    checked={promptCacheIndicator.source === option.value}
+                    onChange={() => setPromptCacheIndicatorSettings({ source: option.value })}
+                    className="sr-only"
+                  />
+                  <span className="settings-send-mode-label">{t(option.label)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.promptCacheStyle")}>
+            <span>{t("settings.promptCacheStyle")}</span>
+            <div className="settings-send-mode-options">
+              {PROMPT_CACHE_STYLES.map((option) => (
+                <label key={option.value} className="settings-send-mode-option">
+                  <input
+                    type="radio"
+                    name="prompt-cache-style"
+                    value={option.value}
+                    checked={promptCacheIndicator.style === option.value}
+                    onChange={() => setPromptCacheIndicatorSettings({ style: option.value })}
+                    className="sr-only"
+                  />
+                  <span className="settings-send-mode-label">{t(option.label)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.promptCacheDistinguishInferred")}</span>
+            <ConfigSwitch
+              checked={promptCacheIndicator.distinguishInferred}
+              label={t("settings.promptCacheDistinguishInferred")}
+              describedBy="settings-prompt-cache-description"
+              onChange={(distinguishInferred) => setPromptCacheIndicatorSettings({ distinguishInferred })}
+            />
+          </div>
+        </div>
+        <p id="settings-prompt-cache-description" className="settings-general-description">{t("settings.promptCacheDescription")}</p>
       </section>
 
       <section className="settings-general-section">

@@ -80,7 +80,7 @@ function harness() {
     BASH_STATE_RECONCILE_MS: 1,
   };
   for (const name of ["Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error",
-    "ContextUsage", "CurrentModelOverride", "SystemPrompt", "ThinkingLevel", "EffectiveThinkingLevel",
+    "ContextUsage", "PromptCache", "CurrentModelOverride", "SystemPrompt", "ThinkingLevel", "EffectiveThinkingLevel",
     "ExtensionStatuses", "ExtensionWidgets", "QueuedMessages", "Subagents", "BackgroundJobs", "IsCompacting",
     "AgentPhase", "RetryInfo", "GoalStatus", "BashRunning", "PendingBash"]) {
     bindings[`set${name}`] = (...args) => effects.push([name, ...args]);

@@ -46,6 +46,8 @@ import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import { resolveSessionSystemPrompts } from "./session-system-prompt";
 import { readDefaultModelRole } from "./model-roles";
 import { getOmpRuntime, getSettingsForCwd } from "./omp-runtime";
+import { livePromptCacheReport } from "./prompt-cache";
+import type { PromptCacheReport } from "./prompt-cache-shared";
 import { PRESET_FULL } from "./tool-presets";
 import { readSubagentRun } from "./subagents";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -1141,6 +1143,8 @@ export class AgentSessionWrapper {
           sessionId: this.sessionId,
           sessionFile: this.sessionFile || undefined,
         })
+        // Shutting down stops omp's cache warmer: stay while the prompt cache is warm.
+        || this.inner.getPromptCacheStatus?.()?.state === "warm"
       )) {
         this.resetIdleTimer();
         return;
@@ -1481,6 +1485,7 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
+          promptCache: livePromptCacheReport(this.inner, contextUsage?.tokens),
           systemPrompt: this.exactSystemPrompt?.() || stateSystemPrompt || this.inner.systemPrompt || "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           configuredThinkingLevel: queueSource.configuredThinkingLevel?.() ?? "off",
@@ -2952,12 +2957,16 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
 export function getRpcSessionActivitySnapshot() {
   const runningSessionIds = new Set<string>();
   const sessionIdsByRuntimeId: Record<string, string> = Object.fromEntries(globalThis.__ompFinalSessionIds ?? []);
+  const livePromptCaches: Record<string, PromptCacheReport> = {};
   for (const session of getRegistry().values()) {
     if (!session.isAlive()) continue;
     sessionIdsByRuntimeId[session.runtimeId] = session.sessionId;
     if (session.isRunning()) runningSessionIds.add(session.sessionId);
+    // No token count: the sidebar shows only whether the cache is warm.
+    const promptCache = livePromptCacheReport(session.inner, 0);
+    if (promptCache) livePromptCaches[session.sessionId] = promptCache;
   }
-  return { runningSessionIds: [...runningSessionIds], sessionIdsByRuntimeId };
+  return { runningSessionIds: [...runningSessionIds], sessionIdsByRuntimeId, livePromptCaches };
 }
 
 export function getRunningRpcSessionIds(): string[] {

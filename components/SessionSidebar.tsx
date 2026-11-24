@@ -81,6 +81,8 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
+import { usePromptCacheIndicatorSettings } from "@/hooks/usePromptCacheIndicator";
+import { keepSamePromptCacheReports, type PromptCacheReports } from "@/lib/prompt-cache-shared";
 import { archiveViewState, filesFoldState, useSidebarMotion } from "@/hooks/useSidebarMotion";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { DismissButton } from "./DismissButton";
@@ -557,6 +559,10 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
+  // Live sessions report through the running poll; the rest are read off their transcripts.
+  const [livePromptCaches, setLivePromptCaches] = useState<PromptCacheReports>({});
+  const [savedPromptCaches, setSavedPromptCaches] = useState<PromptCacheReports>({});
+  const promptCacheSource = usePromptCacheIndicatorSettings().source;
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -949,6 +955,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
           awaitingInputSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
           sessionUiStateRevision?: number | null;
+          livePromptCaches?: PromptCacheReports;
         };
         if (stopped || controller !== current) return;
         runningPollAuthoritativeRef.current = true;
@@ -958,6 +965,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
         );
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
+        setLivePromptCaches((previous) => keepSamePromptCacheReports(previous, data.livePromptCaches ?? {}));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
         if (data.sessionListVersion !== sessionListVersionRef.current) {
@@ -999,6 +1007,26 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
   useEffect(() => {
     onSessionsChange?.(allSessions);
   }, [allSessions, onSessionsChange]);
+
+  // Each list reload means a transcript may have changed; the server re-reads only those.
+  useEffect(() => {
+    if (promptCacheSource !== "inferred" || !sessionDetailsLoaded) return;
+    const controller = new AbortController();
+    fetch("/api/sessions/prompt-cache", { cache: "no-store", signal: controller.signal })
+      .then((res) => res.ok ? res.json() as Promise<{ reports: PromptCacheReports }> : null)
+      .then((data) => {
+        if (data) setSavedPromptCaches((previous) => keepSamePromptCacheReports(previous, data.reports));
+      })
+      .catch(() => {
+        // Keep the last known markers; the next list reload asks again.
+      });
+    return () => controller.abort();
+  }, [allSessions, promptCacheSource, sessionDetailsLoaded]);
+
+  const promptCaches = useMemo(
+    () => ({ ...savedPromptCaches, ...livePromptCaches }),
+    [livePromptCaches, savedPromptCaches],
+  );
 
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
@@ -2653,6 +2681,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
   const treeLoading = loading || !uiStateLoaded;
   const treeProps = {
     layout: treeLayout,
+    promptCaches,
     loading: treeLoading,
     error,
     renamingRootId,

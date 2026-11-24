@@ -353,6 +353,11 @@ a.session-tree-main {
   vertical-align: -1px;
 }
 
+/* The prompt cache's marker, just before the right column. */
+.session-tree-prompt-cache {
+  align-self: center;
+}
+
 /* The right column: the time, or the running spinner / unread dot in its place. */
 .session-tree-meta {
   display: flex;

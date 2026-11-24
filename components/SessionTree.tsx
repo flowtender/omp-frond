@@ -29,6 +29,7 @@ import {
   type SidebarRow,
 } from "@/lib/session-tree";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { PromptCacheReport, PromptCacheReports } from "@/lib/prompt-cache-shared";
 import { isPlainActivation, sessionDeepLink } from "@/lib/session-links";
 import { formatRelativeTime, formatShortRelativeTime } from "@/lib/i18n/format";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -50,6 +51,7 @@ import {
   SpinnerIcon,
   TrashIcon,
 } from "./SidebarIcons";
+import { PromptCacheIndicator } from "./PromptCacheIndicator";
 
 /**
  * The sessions tab's tree: the pinned section, every project as a group of
@@ -102,6 +104,8 @@ export interface SessionTreeProps {
     onSelect(leafId: string): void;
   };
   layout: SidebarLayout;
+  /** Prompt-cache status per session id; the row shows its root's. */
+  promptCaches?: PromptCacheReports;
   /** Shown above the footer rows when there are no session/group rows; null = none. */
   emptyLabel: string | null;
   /** Shows t("sidebar.loading") instead of rows. */
@@ -196,6 +200,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     confirmForkRootId,
     activeMenuRowKey,
     reveal,
+    promptCaches,
   } = props;
   const { t } = useI18n();
   // Rows read the handlers at event time, so memoized rows need not re-render
@@ -495,6 +500,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                     top={top}
                     height={height}
                     now={now}
+                    promptCache={promptCaches?.[row.family.root.id] ?? null}
                     renaming={row.family.root.id === renamingRootId}
                     confirming={row.family.root.id === confirmDeleteRootId ? "delete" : row.family.root.id === confirmForkRootId ? "fork" : null}
                     menuOpen={menuOpen}
@@ -559,6 +565,7 @@ const SessionRowView = memo(function SessionRowView({
   top,
   height,
   now,
+  promptCache,
   renaming,
   confirming,
   menuOpen,
@@ -571,6 +578,7 @@ const SessionRowView = memo(function SessionRowView({
   top: number;
   height: number;
   now: number;
+  promptCache: PromptCacheReport | null;
   renaming: boolean;
   confirming: "delete" | "fork" | null;
   menuOpen: boolean;
@@ -699,6 +707,7 @@ const SessionRowView = memo(function SessionRowView({
           {branch}
         </span>
       )}
+      <PromptCacheIndicator report={promptCache} className="session-tree-prompt-cache" />
       <span className={`session-tree-meta${metaState}`} title={metaTitle}>{meta}</span>
     </>
   );

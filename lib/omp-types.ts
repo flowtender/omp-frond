@@ -12,6 +12,7 @@ import type { CompactOptions } from "@oh-my-pi/pi-coding-agent/extensibility/ext
 import type { GoalModeState } from "@oh-my-pi/pi-coding-agent/goals/state";
 import type { FormDialogAnswer } from "./form-dialog";
 import type { Goal } from "@oh-my-pi/pi-tui/tools/goal";
+import type { PromptCacheStatus } from "@oh-my-pi/pi-tui/status-line/host";
 import type { ExtensionAskDialogQuestion, ExtensionAskDialogResult } from "./types";
 
 
@@ -256,6 +257,8 @@ export interface AgentSessionLike {
   }>;
   setPlanReferencePath?(path: string): void;
   getContextUsage(): { tokens: number; contextWindow: number; percent: number } | undefined;
+  /** What the next request finds in the prompt cache; undefined without a warmer or a cached reply. */
+  getPromptCacheStatus?(nowMs?: number, nextTokens?: number): PromptCacheStatus | undefined;
   dispose?(options?: { keepAlive?: boolean }): Promise<void>;
 
   // Goal mode. omp drives these from the TUI only, so omp-web reproduces that

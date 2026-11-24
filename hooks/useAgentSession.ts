@@ -42,6 +42,7 @@ import { runHintAction } from "@/lib/session-run-hint";
 import { useChatScrollMode } from "@/hooks/useChatScrollMode";
 import type { SessionComposerSnapshot } from "@/lib/session-composer";
 import type { WebSessionAccent } from "@/lib/omp-theme";
+import type { PromptCacheReport } from "@/lib/prompt-cache-shared";
 
 export interface SessionData {
   runtimeId?: string;
@@ -51,6 +52,7 @@ export interface SessionData {
   tree: SessionTreeNode[];
   leafId: string | null;
   contextUsage?: ContextUsage;
+  promptCache?: PromptCacheReport | null;
   sessionAccent?: WebSessionAccent;
   context: SessionHistoryContext & SessionComposerSnapshot;
 }
@@ -154,6 +156,7 @@ type AgentStateResponse = {
   sessionId?: string;
   model?: { provider: string; id: string };
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+  promptCache?: PromptCacheReport | null;
   systemPrompt?: string;
   thinkingLevel?: string;
   configuredThinkingLevel?: string;
@@ -318,6 +321,8 @@ const PROMPT_SETTLE_MAX_MS = 20_000;
 const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const CONTEXT_USAGE_REFRESH_MS = 1000;
+/** How long after a scheduled cache refresh, or during one, the composer asks for its outcome. */
+const PROMPT_CACHE_RECHECK_MS = 5_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
 // A failed connect for a run still reported as running is retried this often.
@@ -535,6 +540,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [autoCompactionEnabled, setAutoCompactionEnabled] = useState(false);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
+  const [promptCache, setPromptCache] = useState<PromptCacheReport | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
@@ -815,6 +821,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setEarlierTurnCount(d.context.turnsBefore ?? 0);
       }
       setContextUsage(d.contextUsage ?? null);
+      setPromptCache(d.promptCache ?? null);
       if (composerEventRevisionRef.current === composerEventRevision) applyComposer(d.context);
       setError(null);
 
@@ -837,6 +844,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setBackgroundJobs(liveState?.backgroundJobs ?? []);
         if (liveState) {
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
+          if (liveState.promptCache !== undefined) setPromptCache(liveState.promptCache ?? null);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
@@ -1619,6 +1627,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       || promptRunIdRef.current !== runId || requestId <= contextUsageAppliedIdRef.current) return;
     contextUsageAppliedIdRef.current = requestId;
     if (state?.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
+    if (state?.promptCache !== undefined) setPromptCache(state.promptCache ?? null);
   }, []);
 
   const reconcileAgentState = useCallback(async (sid: string) => {
@@ -1691,6 +1700,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => clearInterval(interval);
   }, [agentRunning, isCompacting, refreshContextUsage]);
 
+  // An idle live session's warmer refreshes its cache entry with no stream open
+  // to say so: ask again once the scheduled refresh has had time to land, and at
+  // expiry, so the marker never shows a lapse the warmer prevented.
+  useEffect(() => {
+    if (!promptCache?.live || agentRunning) return;
+    const { info } = promptCache;
+    const checks = [
+      info.warming?.state === "refreshing" ? Date.now() + PROMPT_CACHE_RECHECK_MS : undefined,
+      info.warming?.nextWarmAt === undefined ? undefined : info.warming.nextWarmAt + PROMPT_CACHE_RECHECK_MS,
+      info.ttlMs === undefined ? undefined : info.touchedAt + info.ttlMs,
+    ].filter((at): at is number => at !== undefined && at > Date.now());
+    if (checks.length === 0) return;
+    const timer = setTimeout(() => {
+      const sid = sessionIdRef.current;
+      if (sid) void refreshContextUsage(sid);
+    }, Math.min(...checks) - Date.now());
+    return () => clearTimeout(timer);
+  }, [agentRunning, promptCache, refreshContextUsage]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1787,6 +1814,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             .then((d: { state?: AgentStateResponse }) => {
               if (followRuntimeState(d.state, sid, requestedRuntimeId)) return;
               if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+              if (d.state?.promptCache !== undefined) setPromptCache(d.state.promptCache ?? null);
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
@@ -2083,6 +2111,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }
         }
         break;
+      case "cache_warming_end": {
+        // A refresh moved (or lost) the cache entry the composer's marker shows.
+        const sid = sessionIdRef.current;
+        if (sid) void refreshContextUsage(sid);
+        break;
+      }
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
@@ -3008,6 +3042,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (state) {
           if (state.isCompacting !== undefined) setIsCompacting(state.isCompacting);
           if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
+          if (state.promptCache !== undefined) setPromptCache(state.promptCache ?? null);
           if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
           if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
           if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
@@ -3206,7 +3241,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelRoles, newSessionModel, toolPreset, thinkingLevel,
     effectiveThinkingLevel,
-    retryInfo, contextUsage, systemPrompt, forkingEntryId,
+    retryInfo, contextUsage, promptCache, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages, subagents,
     backgroundJobs,

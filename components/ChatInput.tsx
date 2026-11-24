@@ -47,6 +47,8 @@ import { POPUP_GAP_PX, type PopupSide } from "@/lib/popup-placement";
 import { SelectorRow } from "./SelectorRow";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { PromptCacheIndicator } from "./PromptCacheIndicator";
+import type { PromptCacheReport } from "@/lib/prompt-cache-shared";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -117,6 +119,8 @@ interface Props {
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
   contextUsage?: ContextUsage | null;
+  /** The session's prompt-cache status, for the marker beside the context meter. */
+  promptCache?: PromptCacheReport | null;
   /** Files picked with the attach button, handled like files dropped onto the chat. Without it the button takes images only. */
   onAttachFiles?: (files: File[]) => void;
 }
@@ -701,6 +705,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   draftKey,
   cwd,
   contextUsage,
+  promptCache,
   onAttachFiles,
   compact = false,
 }: Props, ref) {
@@ -2515,10 +2520,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           <div style={{
             display: "flex",
             justifyContent: "flex-end",
+            alignItems: "center",
+            gap: 6,
             minWidth: 0,
             marginTop: 6,
           }}>
             <ContextUsageMeter usage={contextUsage} t={t} />
+            <PromptCacheIndicator report={promptCache} />
           </div>
         )}
 
@@ -2698,8 +2706,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               minWidth: 0,
               display: "flex",
               justifyContent: "center",
+              alignItems: "center",
+              gap: 6,
             }}>
               <ContextUsageMeter usage={contextUsage} t={t} />
+              <PromptCacheIndicator report={promptCache} />
             </div>
           )}
           {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}

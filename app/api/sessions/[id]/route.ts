@@ -23,6 +23,7 @@ import { getOmpRuntime, getSettingsForCwd } from "@/lib/omp-runtime";
 import { readLiveComposer, readRestoredComposer } from "@/lib/session-composer";
 import type { SessionEntry } from "@/lib/types";
 import { getWebSessionAccent } from "@/lib/omp-theme";
+import { livePromptCacheReport, savedSessionPromptCacheReport } from "@/lib/prompt-cache";
 
 export async function GET(
   req: Request,
@@ -58,9 +59,10 @@ export async function GET(
     const composer = liveRpc
       ? readLiveComposer(liveRpc.inner)
       : await readRestoredComposer(context, entries, settings, (await getOmpRuntime()).modelRegistry);
-    const [contextUsage, sessionAccent] = await Promise.all([
+    const [contextUsage, sessionAccent, promptCache] = await Promise.all([
       getHistoricalContextUsage(entries, leafId),
       composer.shimmer === "classic" ? getWebSessionAccent(sm.getSessionName(), settings) : undefined,
+      liveRpc ? livePromptCacheReport(liveRpc.inner) : savedSessionPromptCacheReport(sm, settings),
     ]);
     const totalActiveMs = computeSessionTotalActiveMs(entries);
     const header = sm.getHeader();
@@ -99,6 +101,7 @@ export async function GET(
       sessionAccent,
       totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
+      promptCache,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

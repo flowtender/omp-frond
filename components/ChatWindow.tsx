@@ -295,7 +295,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     effectiveThinkingLevel,
     composerStatus,
     sessionAccent,
-    retryInfo, contextUsage, forkingEntryId,
+    retryInfo, contextUsage, promptCache, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages, subagents,
     backgroundJobs,
@@ -1079,6 +1079,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       retryInfo={retryInfo}
       queuedMessages={queuedMessages}
       contextUsage={contextUsage}
+      promptCache={promptCache}
       inputHistory={inputHistory}
       onRecallQueue={handleRecallQueue}
       slashCommands={slashCommands}
