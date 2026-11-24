@@ -28,7 +28,7 @@ import {
   type SidebarProject,
   type SidebarRow,
 } from "@/lib/session-tree";
-import type { SessionInfo } from "@/lib/types";
+import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import { isPlainActivation, sessionDeepLink } from "@/lib/session-links";
 import { formatRelativeTime, formatShortRelativeTime } from "@/lib/i18n/format";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -36,6 +36,7 @@ import { useGroupDrag, type GroupDragHandlers } from "@/hooks/useGroupDrag";
 import { useI18n } from "@/hooks/useI18n";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import type { SidebarMenuAnchor } from "./SidebarMenu";
+import { listBranchChoices } from "./BranchNavigator";
 import {
   ArchiveIcon,
   BranchIcon,
@@ -93,6 +94,13 @@ export interface SessionTreeReveal {
 
 export interface SessionTreeProps {
   rows: SidebarRow[];
+  sessionBranches?: {
+    sessionId: string;
+    tree: SessionTreeNode[];
+    activeLeafId: string | null;
+    locked: boolean;
+    onSelect(leafId: string): void;
+  };
   layout: SidebarLayout;
   /** Shown above the footer rows when there are no session/group rows; null = none. */
   emptyLabel: string | null;
@@ -176,7 +184,8 @@ function anchorOf(button: HTMLElement): SidebarMenuAnchor {
 
 export function SessionTree(props: SessionTreeProps): ReactNode {
   const {
-    rows,
+    rows: sessionRows,
+    sessionBranches,
     layout,
     emptyLabel,
     loading,
@@ -193,6 +202,31 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   // when the parent passes new callbacks.
   const handlersRef = useRef(props);
   handlersRef.current = props;
+
+  const [expandedBranchRowKey, setExpandedBranchRowKey] = useState<string | null>(null);
+  const branchParent = useMemo(() => sessionBranches && sessionRows.find(
+    (row): row is SessionRow => row.kind === "session" && row.context !== "archive" &&
+      row.family.root.id === sessionBranches.sessionId,
+  ), [sessionRows, sessionBranches]);
+  const branchParentKey = branchParent?.key;
+  const branchesExpanded = branchParentKey !== undefined && expandedBranchRowKey === branchParentKey;
+  const branchTree = sessionBranches?.tree;
+  const activeLeafId = sessionBranches?.activeLeafId ?? null;
+  const rows = useMemo(() => {
+    if (!branchesExpanded || !branchParent || branchParent.context === "archive" || !branchTree) return sessionRows;
+    const context = branchParent.context;
+    const children: SidebarRow[] = listBranchChoices(branchTree, activeLeafId).map((choice) => ({
+      ...choice,
+      kind: "branch",
+      key: `${branchParent.key}:branch:${choice.leafId}`,
+      context,
+    }));
+    const index = sessionRows.indexOf(branchParent) + 1;
+    return [...sessionRows.slice(0, index), ...children, ...sessionRows.slice(index)];
+  }, [activeLeafId, branchParent, branchTree, branchesExpanded, sessionRows]);
+  const toggleBranches = useCallback(() => {
+    if (branchParentKey) setExpandedBranchRowKey((key) => key === branchParentKey ? null : branchParentKey);
+  }, [branchParentKey]);
 
   const treeRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -434,6 +468,24 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
               const top = offsets[index];
               const height = offsets[index + 1] - top;
               const menuOpen = row.key === activeMenuRowKey;
+              if (row.kind === "branch") {
+                return (
+                  <div key={row.key} data-row-key={row.key} className="session-tree-row session-tree-branch" style={rowStyle(top, height)}>
+                    <button
+                      type="button"
+                      className="session-tree-main"
+                      style={{ paddingInlineStart: 24 + Math.min(row.depth, 6) * 10 }}
+                      title={sessionBranches?.locked ? t("i18n.branchesLockedWhileRunning") : row.label}
+                      aria-current={row.active ? "true" : undefined}
+                      disabled={sessionBranches?.locked}
+                      onClick={() => sessionBranches?.onSelect(row.leafId)}
+                    >
+                      <BranchIcon size={12} />
+                      <span>{row.label}</span>
+                    </button>
+                  </div>
+                );
+              }
               if (row.kind === "session") {
                 return (
                   <SessionRowView
@@ -446,6 +498,8 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                     renaming={row.family.root.id === renamingRootId}
                     confirming={row.family.root.id === confirmDeleteRootId ? "delete" : row.family.root.id === confirmForkRootId ? "fork" : null}
                     menuOpen={menuOpen}
+                    onToggleBranches={row.key === branchParentKey ? toggleBranches : undefined}
+                    branchesExpanded={row.key === branchParentKey && branchesExpanded}
                     handlers={handlersRef}
                   />
                 );
@@ -508,6 +562,8 @@ const SessionRowView = memo(function SessionRowView({
   renaming,
   confirming,
   menuOpen,
+  onToggleBranches,
+  branchesExpanded,
   handlers,
 }: {
   row: SessionRow;
@@ -518,6 +574,8 @@ const SessionRowView = memo(function SessionRowView({
   renaming: boolean;
   confirming: "delete" | "fork" | null;
   menuOpen: boolean;
+  onToggleBranches?: () => void;
+  branchesExpanded: boolean;
   handlers: Handlers;
 }) {
   const { locale, t } = useI18n();
@@ -653,6 +711,21 @@ const SessionRowView = memo(function SessionRowView({
       onClick={() => handlers.current.onSelectFamily(family)}
       onContextMenu={(event) => handlers.current.onRowContextMenu(row, event)}
     >
+      {onToggleBranches && (
+        <button
+          type="button"
+          className="session-tree-action session-tree-branches-toggle"
+          aria-label={t("i18n.branches")}
+          title={t("i18n.branches")}
+          aria-expanded={branchesExpanded}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleBranches();
+          }}
+        >
+          <BranchIcon size={14} />
+        </button>
+      )}
       {status.transient ? (
         // No file yet: a link would open a session no other tab can load.
         <button type="button" className="session-tree-main" title={tooltip} aria-current={status.selected ? "true" : undefined}>

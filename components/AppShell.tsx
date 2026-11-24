@@ -1459,6 +1459,13 @@ export function AppShell() {
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         selectedRuntimeId={selectedSession?.runtimeId}
+        sessionBranches={selectedSession && sessionHasBranches ? {
+          sessionId: selectedSession.id,
+          tree: branchTree,
+          activeLeafId: branchActiveLeafId,
+          locked: branchSwitchLocked,
+          onSelect: handleBranchLeafChange,
+        } : undefined}
         optimisticSession={selectedSession}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}

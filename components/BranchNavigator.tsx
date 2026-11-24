@@ -104,6 +104,26 @@ function getLabel(entry: SessionEntry): string {
   return entry.type;
 }
 
+export function listBranchChoices(tree: SessionTreeNode[], activeLeafId: string | null) {
+  const activePath = buildActivePath(tree, activeLeafId);
+  const choices: { leafId: string; label: string; depth: number; active: boolean }[] = [];
+  const pending = selectTopLevelBranches(tree).map((node) => ({ node, depth: 0 })).reverse();
+  while (pending.length > 0) {
+    const { node, depth } = pending.pop()!;
+    const { node: end, branchPreview, labelEntry } = compressChain(node);
+    choices.push({
+      leafId: end.entry.id,
+      label: branchPreview?.text ?? getLabel(labelEntry),
+      depth,
+      active: activePath.has(end.entry.id),
+    });
+    for (let i = end.children.length - 1; i >= 0; i--) {
+      pending.push({ node: end.children[i], depth: depth + 1 });
+    }
+  }
+  return choices;
+}
+
 // Does the tree have any branching at all? Iterative: a linear chain has no
 // branching but recursing over it would overflow the stack, so walk with a stack.
 export function hasSessionBranches(nodes: SessionTreeNode[]): boolean {

@@ -415,6 +415,39 @@ a.session-tree-main {
   display: flex;
 }
 
+.session-tree .session-tree-branches-toggle {
+  display: flex;
+}
+
+.session-tree-branches-toggle[aria-expanded="true"],
+.session-tree-branch button[aria-current="true"] {
+  color: var(--accent);
+}
+
+.session-tree-branch button {
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.session-tree-branch button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.session-tree-branch button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.session-tree-branch button svg {
+  flex: none;
+}
+
+.session-tree-branch button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .session-tree-meta.is-running {
   color: var(--accent);
 }
