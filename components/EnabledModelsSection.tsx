@@ -33,9 +33,12 @@ interface Failure {
 export interface EnabledModelsController {
   view: EnabledModelsView | null;
   loading: boolean;
-  /** Control currently waiting on the server, or null when idle. */
-  pending: string | null;
+  /** Queued and in-flight model switches, keyed by model ref. */
+  pendingRows: ReadonlySet<string>;
+  /** A queued or in-flight mutation that can affect multiple rows. */
+  pendingScope: string | null;
   failure: Failure | null;
+  setModel: (ref: string, enabled: boolean) => void;
   setModels: (key: string, refs: string[], enabled: boolean) => void;
   setProvider: (providerId: string, enabled: boolean) => void;
   clearScope: () => void;
@@ -67,6 +70,13 @@ const FAILURE_KEYS: Record<string, string> = {
   "path-scoped": "models.enabledPathScoped",
 };
 
+interface PendingMutation {
+  key: string;
+  body: MutationBody;
+  row: boolean;
+  cwd?: string | null;
+}
+
 /** Body of a failed `/api/models/enabled` call, or the view of a successful one. */
 async function readEnabledModelsResponse(res: Response): Promise<EnabledModelsView> {
   const data = await res.json() as EnabledModelsView & { error?: string; reason?: string };
@@ -95,11 +105,9 @@ function toFailure(error: unknown): Failure {
 export function useEnabledModels(cwd?: string | null, onChanged?: () => void): EnabledModelsController {
   const [view, setView] = useState<EnabledModelsView | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState<readonly PendingMutation[]>([]);
   const [failure, setFailure] = useState<Failure | null>(null);
-  const pendingRef = useRef<string | null>(null);
-  const queuedRef = useRef<{ key: string; body: MutationBody } | null>(null);
-  const mutateRef = useRef<((key: string, body: MutationBody) => void) | null>(null);
+  const queueRef = useRef<PendingMutation[]>([]);
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
 
@@ -125,38 +133,38 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
     return () => controller.abort();
   }, [cwd, reloadKey]);
 
-  const mutate = useCallback((key: string, body: MutationBody) => {
-    // A save can land while a switch is still in flight; queue it rather than
-    // dropping it, or the panel keeps describing the previous models.yml.
-    if (pendingRef.current) {
-      queuedRef.current = { key, body };
-      return;
-    }
-    pendingRef.current = key;
-    setPending(key);
+  const mutate = useCallback((key: string, body: MutationBody, row = false) => {
+    const queue = queueRef.current;
+    if (row && queue.some((edit) => !edit.row || edit.key === key)) return;
+
+    queue.push({ key, body, row, cwd });
+    setPending([...queue]);
+    if (queue.length > 1) return;
+
     setFailure(null);
     void (async () => {
-      try {
-        const res = await fetch("/api/models/enabled", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, ...(cwd ? { cwd } : {}) }),
-        });
-        setView(await readEnabledModelsResponse(res));
-        onChangedRef.current?.();
-      } catch (error) {
-        setFailure(toFailure(error));
-      } finally {
-        pendingRef.current = null;
-        setPending(null);
-        const queued = queuedRef.current;
-        queuedRef.current = null;
-        if (queued) mutateRef.current?.(queued.key, queued.body);
+      for (let edit = queue[0]; edit; edit = queue[0]) {
+        try {
+          const res = await fetch("/api/models/enabled", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...edit.body, ...(edit.cwd ? { cwd: edit.cwd } : {}) }),
+          });
+          setView(await readEnabledModelsResponse(res));
+          onChangedRef.current?.();
+        } catch (error) {
+          setFailure(toFailure(error));
+        } finally {
+          queue.shift();
+          setPending([...queue]);
+        }
       }
     })();
   }, [cwd]);
 
-  mutateRef.current = mutate;
+  const setModel = useCallback((ref: string, enabled: boolean) => {
+    mutate(ref, { op: "models", refs: [ref], enabled }, true);
+  }, [mutate]);
 
   const setModels = useCallback((key: string, refs: string[], enabled: boolean) => {
     mutate(key, { op: "models", refs, enabled });
@@ -185,8 +193,10 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
   return {
     view,
     loading,
-    pending,
+    pendingRows: new Set(pending.filter((edit) => edit.row).map((edit) => edit.key)),
+    pendingScope: pending.find((edit) => !edit.row)?.key ?? null,
     failure,
+    setModel,
     setModels,
     setProvider,
     clearScope,
@@ -208,7 +218,7 @@ export function NewModelsBadge({ controller }: { controller: EnabledModelsContro
 /** Panel-wide note shown while `enabledModels` narrows the selector. */
 export function EnabledModelsBanner({ controller }: { controller: EnabledModelsController }) {
   const { t } = useI18n();
-  const { view, pending } = controller;
+  const { view, pendingRows, pendingScope } = controller;
   if (!view) return null;
   const scoped = !view.allEnabled;
   const stale = view.stalePatterns.length;
@@ -235,7 +245,7 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
         <ConfigButton
           size="small"
           onClick={controller.pruneStale}
-          disabled={pending !== null}
+          disabled={pendingScope !== null || pendingRows.size > 0}
           title={t("models.enabledPruneHint")}
         >
           {t("models.enabledPrune")}
@@ -245,7 +255,7 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
         <ConfigButton
           size="small"
           onClick={controller.clearScope}
-          disabled={pending !== null}
+          disabled={pendingScope !== null || pendingRows.size > 0}
           title={t("models.enabledClearHint")}
         >
           {t("models.enabledClear")}
@@ -276,7 +286,7 @@ export function EnabledModelsProviderSwitch({
   noteId: string;
 }) {
   const { t } = useI18n();
-  const { view, loading, pending, failure } = controller;
+  const { view, loading, pendingRows, pendingScope, failure } = controller;
   const provider = findProviderView(view, providerId);
   const message = failure ? (failure.messageKey ? t(failure.messageKey) : failure.message) : null;
   const describedBy = providerSwitchBlockKey(controller, providerId) ? noteId : undefined;
@@ -300,8 +310,8 @@ export function EnabledModelsProviderSwitch({
       {message && <span className="enabled-models-switch-error">{message}</span>}
       <ConfigSwitch
         checked={toggle.checked}
-        loading={pending === `provider:${provider.id}`}
-        disabled={pending !== null || toggle.blocked}
+        loading={pendingScope === `provider:${provider.id}`}
+        disabled={pendingScope !== null || pendingRows.size > 0 || toggle.blocked}
         label={t("models.enabledProviderToggle", { provider: provider.name })}
         describedBy={describedBy}
         onChange={(checked) => controller.setProvider(provider.id, checked)}
@@ -349,7 +359,7 @@ export function EnabledModelsSection({
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
-  const { view, loading, pending, failure } = controller;
+  const { view, loading, pendingRows, pendingScope, failure } = controller;
   const provider = findProviderView(view, providerId);
   const noteId = useId();
 
@@ -367,7 +377,7 @@ export function EnabledModelsSection({
   const shown = filterEnabledModels(provider.models, query);
   const bulk = enabledModelsBulkActions(view, shown);
   const filtered = shown.length !== provider.models.length;
-  const busy = pending !== null;
+  const busy = pendingScope !== null || pendingRows.size > 0;
   const bulkKey = `provider:${provider.id}`;
   // Why switches cannot move is visible text they point at: a tooltip never shows on a touch screen.
   const editable = view?.editable === true;
@@ -462,11 +472,11 @@ export function EnabledModelsSection({
               )}
               <ConfigSwitch
                 checked={model.enabled}
-                loading={pending === model.ref}
-                disabled={busy || !view?.editable || lastOne}
+                loading={pendingRows.has(model.ref)}
+                disabled={pendingScope !== null || !view?.editable || lastOne}
                 label={t("models.enabledToggle", { model: model.name })}
                 describedBy={!editable ? scopeNoteId : lastOne ? lastModelNoteId : undefined}
-                onChange={(checked) => controller.setModels(model.ref, [model.ref], checked)}
+                onChange={(checked) => controller.setModel(model.ref, checked)}
               />
             </div>
           );

@@ -160,6 +160,10 @@ key and the counts never shrink.
   concurrent TUI write of other settings is never clobbered. Panel edits are
   serialized client-side because each one is a read-modify-write of the same
   field.
+  Individual model clicks queue in order; only queued or saving rows show a
+  busy switch. Bulk scope controls wait for the queue to drain so they use
+  confirmed state. The server still checks the last-model rule for every edit,
+  since a queued edit can become invalid before it is sent.
 - Running sessions keep the `scopedModels` they were created with; new sessions
   and the selector pick up the change after `invalidateModelsCache()` and the
   refresh `AppShell` triggers when the settings panel closes.
