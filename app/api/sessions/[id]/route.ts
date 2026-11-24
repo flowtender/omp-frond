@@ -19,6 +19,10 @@ import { getRpcSession } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { getOmpRuntime, getSettingsForCwd } from "@/lib/omp-runtime";
+import { readLiveComposer, readRestoredComposer } from "@/lib/session-composer";
+import type { SessionEntry } from "@/lib/types";
+import { getWebSessionAccent } from "@/lib/omp-theme";
 
 export async function GET(
   req: Request,
@@ -39,7 +43,7 @@ export async function GET(
 
     const sm = liveRpc?.inner.sessionManager ?? await SessionManager.open(resolvedPath!);
     const filePath = liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
-    const entries = sm.getEntries() as never;
+    const entries = sm.getEntries() as unknown as SessionEntry[];
     const leafId = sm.getLeafId();
     const tree = projectTreeForResponse(sm.getTree());
     const searchParams = new URL(req.url).searchParams;
@@ -50,15 +54,14 @@ export async function GET(
     const rawTail = Number(searchParams.get("tail"));
     const tail = Math.min(Number.isFinite(rawTail) && rawTail > 0 ? rawTail : CONTEXT_DEFAULT_TAIL, 1000);
     const context = buildSessionContext(entries, leafId, { deferThinking, deferToolResultImages, tail });
-    // A runtime fallback can differ from the last persisted model selector.
-    if (liveRpc) {
-      const { agent, model } = liveRpc.inner;
-      if (model) context.model = { provider: model.provider, modelId: model.id };
-      // Auto can be active before the SDK records a thinking-level entry.
-      context.thinkingLevel = agent.state?.thinkingLevel ?? "off";
-      context.configuredThinkingLevel = liveRpc.inner.configuredThinkingLevel() ?? context.thinkingLevel;
-    }
-    const contextUsage = await getHistoricalContextUsage(entries, leafId);
+    const settings = liveRpc?.inner.settings ?? await getSettingsForCwd(sm.getCwd());
+    const composer = liveRpc
+      ? readLiveComposer(liveRpc.inner)
+      : await readRestoredComposer(context, entries, settings, (await getOmpRuntime()).modelRegistry);
+    const [contextUsage, sessionAccent] = await Promise.all([
+      getHistoricalContextUsage(entries, leafId),
+      composer.shimmer === "classic" ? getWebSessionAccent(sm.getSessionName(), settings) : undefined,
+    ]);
     const totalActiveMs = computeSessionTotalActiveMs(entries);
     const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
@@ -92,7 +95,8 @@ export async function GET(
       info,
       leafId,
       tree,
-      context,
+      context: { ...context, ...composer },
+      sessionAccent,
       totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     });

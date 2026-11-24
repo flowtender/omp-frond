@@ -39,6 +39,8 @@ import type { OmpSettingsShortcut } from "@/lib/settings-navigation";
 import type { RunHint } from "@/lib/session-run-hint";
 import { runHintAction } from "@/lib/session-run-hint";
 import { useChatScrollMode } from "@/hooks/useChatScrollMode";
+import type { SessionComposerSnapshot } from "@/lib/session-composer";
+import type { WebSessionAccent } from "@/lib/omp-theme";
 
 export interface SessionData {
   runtimeId?: string;
@@ -48,20 +50,24 @@ export interface SessionData {
   tree: SessionTreeNode[];
   leafId: string | null;
   contextUsage?: ContextUsage;
-  context: {
-    messages: AgentMessage[];
-    entryIds: string[];
-    thinkingLevel: string;
-    configuredThinkingLevel?: string;
-    model: { provider: string; modelId: string } | null;
-    /** Cursor for paging upward: the oldest entry currently loaded. */
-    oldestEntryId?: string | null;
-    /** Whether the session has entries older than the loaded window. */
-    hasMore?: boolean;
-    /** Whole turns above the loaded window. */
-    turnsBefore?: number;
-  };
+  sessionAccent?: WebSessionAccent;
+  context: SessionHistoryContext & SessionComposerSnapshot;
 }
+
+type SessionHistoryContext = {
+  messages: AgentMessage[];
+  entryIds: string[];
+  thinkingLevel: string | null;
+  configuredThinkingLevel: string | null;
+  model: { provider: string; modelId: string } | null;
+  modelRole: string | null;
+  /** Cursor for paging upward: the oldest entry currently loaded. */
+  oldestEntryId?: string | null;
+  /** Whether the session has entries older than the loaded window. */
+  hasMore?: boolean;
+  /** Whole turns above the loaded window. */
+  turnsBefore?: number;
+};
 
 interface StreamingState {
   isStreaming: boolean;
@@ -570,6 +576,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [toolPreset, setToolPreset] = useState<ToolPreset>("default");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [effectiveThinkingLevel, setEffectiveThinkingLevel] = useState<string | undefined>();
+  const [composerStatus, setComposerStatus] = useState<Pick<SessionComposerSnapshot, "source" | "shimmer" | "modelRole">>();
+  const composerEventRevisionRef = useRef(0);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [autoCompactionEnabled, setAutoCompactionEnabled] = useState(false);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -681,6 +689,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const modelSwitchPendingRef = useRef(false);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
+
+  const applyComposer = useCallback((snapshot: SessionComposerSnapshot, connected = false) => {
+    setComposerStatus({ source: snapshot.source, shimmer: snapshot.shimmer, modelRole: snapshot.modelRole });
+    setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : connected ? snapshot.model : null);
+    setThinkingLevel(snapshot.configuredThinkingLevel === "auto" ? "auto" : asConcreteThinkingLevel(snapshot.configuredThinkingLevel) ?? "off");
+    setEffectiveThinkingLevel(snapshot.thinkingLevel);
+    setToolPresetState(snapshot.toolPreset);
+  }, [setToolPresetState]);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
@@ -800,6 +816,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     const requestId = ++historyRequestRef.current;
+    const composerEventRevision = composerEventRevisionRef.current;
     const ownsHistory = () => mountedRef.current && sessionIdRef.current === sid && historyRequestRef.current === requestId;
     let messagesLoaded = false;
     try {
@@ -844,10 +861,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setEarlierTurnCount(d.context.turnsBefore ?? 0);
       }
       setContextUsage(d.contextUsage ?? null);
-      setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
+      if (composerEventRevisionRef.current === composerEventRevision) applyComposer(d.context);
       setError(null);
-      setThinkingLevel((d.context.configuredThinkingLevel ?? d.context.thinkingLevel ?? "off") as ThinkingLevelOption);
-      setEffectiveThinkingLevel(d.context.thinkingLevel);
 
       messagesLoaded = true;
       if (showLoading) setLoading(false);
@@ -869,10 +884,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (liveState) {
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
-          if (liveState.thinkingLevel !== undefined) {
-            setThinkingLevel((liveState.configuredThinkingLevel ?? liveState.thinkingLevel) as ThinkingLevelOption);
-            setEffectiveThinkingLevel(liveState.thinkingLevel);
-          }
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
@@ -892,14 +903,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (ownsHistory() && (showLoading || messagesLoaded)) setLoading(false);
     }
-  }, [followSessionIdentity, followRuntimeState, onSessionForked]);
+  }, [applyComposer, followSessionIdentity, followRuntimeState, onSessionForked]);
 
   const loadContext = useCallback(async (
     sid: string,
     leafId: string | null,
     before?: string | null,
     options?: { tail?: number; signal?: AbortSignal },
-  ): Promise<boolean | SessionData["context"]> => {
+  ): Promise<boolean | SessionHistoryContext> => {
     const requestId = ++contextRequestRef.current;
     const requestedRuntimeId = runtimeIdRef.current;
     const ownsContext = () => mountedRef.current && sessionIdRef.current === sid
@@ -917,7 +928,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const d = await res.json() as {
         sessionId?: string;
         runtimeId?: string | null;
-        context: SessionData["context"];
+        context: SessionHistoryContext;
         contextUsage?: ContextUsage;
       };
       if (!ownsContext() || options?.signal?.aborted) return false;
@@ -948,7 +959,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // A branch switch re-baselines the paging cursor when the response
       // carries paged-view metadata; a legacy payload has nothing to track.
       if ("oldestEntryId" in d.context) {
-        setData((prev) => prev && prev.sessionId === sid ? { ...prev, context: d.context } : prev);
+        setData((prev) => prev && prev.sessionId === sid ? {
+          ...prev,
+          context: {
+            ...prev.context,
+            ...d.context,
+            thinkingLevel: d.context.thinkingLevel ?? prev.context.thinkingLevel,
+            configuredThinkingLevel: d.context.configuredThinkingLevel ?? prev.context.configuredThinkingLevel,
+          },
+        } : prev);
         setHistoryCursor(d.context.oldestEntryId ?? null);
         setHasEarlierMessages(d.context.hasMore ?? false);
         setEarlierTurnCount(d.context.turnsBefore ?? 0);
@@ -964,15 +983,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" }, runtimeIdRef);
       if (!tools || !sessionHookMountedRef.current || sessionIdRef.current !== sid) return null;
-      const { getPresetFromTools } = await import("@/lib/tool-presets");
-      setToolPresetState(getPresetFromTools(tools));
       onSystemToolsChange?.(tools);
       return tools;
     } catch (e) {
       console.error("Failed to load tools:", e);
       return null;
     }
-  }, [onSystemToolsChange, setToolPresetState]);
+  }, [onSystemToolsChange]);
 
   const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
     const sid = sessionIdRef.current;
@@ -1751,6 +1768,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (typeof event.sessionId === "string") {
           followSessionIdentity(event.sessionId, typeof event.runtimeId === "string" ? event.runtimeId : undefined);
         }
+        if (event.composer && !isNew) {
+          composerEventRevisionRef.current++;
+          applyComposer(event.composer as SessionComposerSnapshot, true);
+        }
         dispatch({ type: "end" });
         if (Array.isArray(event.pendingExtensionUiIds)) {
           // The server replays the requests it still holds right after this
@@ -2101,7 +2122,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialog((current) => current?.id === event.id ? null : current);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, followSessionIdentity, followRuntimeState, refreshContextUsage, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, applyComposer, cancelEventStreamGrace, handleExtensionUiRequest, isNew, loadSession, notifyPromptStage, onAgentEnd, followSessionIdentity, followRuntimeState, refreshContextUsage, scheduleEventStreamClose, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -2427,11 +2448,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!sid) return;
     try {
       await sendAgentCommand(sid, { type: "set_role_model", role }, runtimeIdRef);
-      if (!isNew) setCurrentModelOverride({ provider: resolved.provider, modelId: resolved.modelId });
+      if (!isNew) await loadSession(sessionIdRef.current ?? sid);
     } catch (e) {
       console.error("Failed to set role model:", e);
     }
-  }, [isNew, modelRoles, setNewSessionModel]);
+  }, [isNew, loadSession, modelRoles, setNewSessionModel]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -2884,10 +2905,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!sid) return;
     try {
       await sendAgentCommand(sid, { type: "set_tools", toolNames }, runtimeIdRef);
+      if (!isNew) await loadSession(sessionIdRef.current ?? sid);
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
-  }, [setToolPresetState]);
+  }, [isNew, loadSession, setToolPresetState]);
 
   // Single writer for the follow flag so the ref (read by the scroll effects)
   // and the state (read by the jump-to-bottom button) never drift apart.
@@ -3026,10 +3048,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (state.isCompacting !== undefined) setIsCompacting(state.isCompacting);
           if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
           if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
-          if (state.thinkingLevel !== undefined) {
-            setThinkingLevel((state.configuredThinkingLevel ?? state.thinkingLevel) as ThinkingLevelOption);
-            setEffectiveThinkingLevel(state.thinkingLevel);
-          }
           if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
           if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
           if (state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(state.queuedMessages));
@@ -3235,7 +3253,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     addNotice,
     setNoticePaused: setPausedNoticeId,
     isAutoModelSelection: isNew && newSessionModel === null,
-    isAutoThinkingSelection: isNew && thinkingLevel === "auto",
+    isAutoThinkingSelection: thinkingLevel === "auto",
+    composerStatus,
+    sessionAccent: data?.sessionAccent,
     defaultModel: newSessionDefaultModel,
     savedDefaultThinkingLevel,
     agentPhase,

@@ -165,7 +165,7 @@ export function ModelSelector({
         color: "var(--text-muted)",
         cursor: locked ? "not-allowed" : "pointer",
         fontSize: 12,
-        opacity: locked ? 0.5 : 1,
+        opacity: locked ? "var(--model-selector-locked-opacity, 0.5)" : 1,
         transition: "background 0.12s, color 0.12s",
       };
 

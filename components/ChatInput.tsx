@@ -5,6 +5,8 @@ import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages } fro
 import type { ModelRoleAssignment, SkillsResponse } from "@/lib/api-types";
 import type { ContextUsage, SlashCommandInfo } from "@/lib/omp-types";
 import type { TextContent, UserMessage } from "@/lib/types";
+import type { SessionComposerSnapshot } from "@/lib/session-composer";
+import type { WebSessionAccent } from "@/lib/omp-theme";
 import {
   clearDraft,
   getDraft,
@@ -73,6 +75,8 @@ interface Props {
   onModelChange?: (provider: string, modelId: string) => void;
   /** omp's model roles (default/smol/slow/plan/commit/…) with their assignments. */
   modelRoles?: ModelRoleAssignment[];
+  composerStatus?: Pick<SessionComposerSnapshot, "source" | "shimmer" | "modelRole">;
+  sessionAccent?: WebSessionAccent;
   onRoleModelChange?: (role: string) => void;
   modelSwitching?: boolean;
   /** The model new sessions start with, starred in the model selector. */
@@ -684,7 +688,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
-  modelRoles, onRoleModelChange, modelSwitching,
+  modelRoles, composerStatus, sessionAccent, onRoleModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, effectiveThinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1740,9 +1744,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   // omp's roles, in omp's own order, minus the ones it hides from its selector
   // and the ones with nothing configured to switch to.
   const roleRows = (modelRoles ?? []).filter((role) => !role.hidden && role.resolved);
-  const activeRole = model
-    ? roleRows.find((role) => role.resolved?.provider === model.provider && role.resolved?.modelId === model.modelId)
-    : undefined;
+  const modelRole = composerStatus
+    ? composerStatus.modelRole
+    : model && roleRows.find((role) => role.resolved?.provider === model.provider && role.resolved?.modelId === model.modelId)?.role;
+  const activeRole = modelRoles?.find((role) => role.role === modelRole);
+  const roleLabel = activeRole?.tag ?? modelRole?.toUpperCase() ?? t("chat.modelRoles");
+  const composerSource = composerStatus?.source;
+  const busyShimmer = isStreaming || modelSwitching ? composerStatus?.shimmer : undefined;
   const [rolesDropdownOpen, setRolesDropdownOpen] = useState(false);
   const rolesDropdownRef = useRef<HTMLDivElement>(null);
   const rolesPlacement = usePopupPlacement(rolesDropdownRef, rolesDropdownOpen, { viewportFraction: 0.5, cap: 420 });
@@ -2515,13 +2523,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         )}
 
         {/* Bottom bar: left | center (context) | right */}
-        {!compact && <div className="chat-input-controls" style={{
+        {!compact && <div className="chat-input-controls" data-composer-source={composerSource} data-shimmer={busyShimmer} style={{
+          "--composer-accent-dark": sessionAccent?.dark,
+          "--composer-accent-light": sessionAccent?.light,
           marginTop: isMobile ? 4 : 8,
           display: isMobile ? "grid" : "flex",
           gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,
           alignItems: "center",
           gap: 6,
-        }}>
+        } as React.CSSProperties}>
 
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
@@ -2593,7 +2603,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       color: "var(--text-muted)",
                       cursor: isStreaming ? "not-allowed" : "pointer",
                       fontSize: 12,
-                      opacity: isStreaming ? 0.5 : 1,
                       transition: "background 0.12s, color 0.12s",
                     }}
                     onMouseEnter={(e) => {
@@ -2612,8 +2621,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                     </svg>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {activeRole ? (activeRole.tag ?? activeRole.role.toUpperCase()) : t("chat.modelRoles")}
+                    <span className="chat-composer-value" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                      {roleLabel}
                     </span>
                   </button>
                   {rolesDropdownOpen && (
@@ -2633,7 +2642,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       padding: "4px 0",
                     }}>
                       {roleRows.map((role) => {
-                        const isActive = activeRole?.role === role.role;
+                        const isActive = modelRole === role.role;
                         const resolvedName = role.resolved?.name ?? role.resolved?.modelId ?? "";
                         return (
                           <SelectorRow
@@ -2678,6 +2687,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   )}
                 </div>
               )}
+              {roleRows.length === 0 && modelRole && <span className="chat-composer-value">{roleLabel}</span>}
               </>
             )}
           </div>
@@ -2800,7 +2810,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     <line x1="7" y1="18" x2="12" y2="18" />
                     <line x1="8" y1="21" x2="11" y2="21" />
                   </svg>
-                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
+                  {(!isMobile || controlsMenuOpen) && <span className="chat-composer-value" style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
                 </button>
                 {thinkingDropdownOpen && (
                   <div style={{
@@ -2893,7 +2903,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
                   </svg>
-                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
+                  {(!isMobile || controlsMenuOpen) && <span className="chat-composer-value" style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
                 </button>
                 {toolDropdownOpen && (
                   <div style={{

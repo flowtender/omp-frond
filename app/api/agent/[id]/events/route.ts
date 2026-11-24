@@ -1,6 +1,7 @@
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession, type AgentEvent } from "@/lib/rpc-manager";
 import { isApiRequestAllowed } from "@/lib/request-security";
+import { readLiveComposer } from "@/lib/session-composer";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,7 @@ export async function GET(
         runtimeId: session.runtimeId,
         isStreaming: session.isRunning(),
         pendingExtensionUiIds: session.pendingExtensionUiIds(),
+        composer: readLiveComposer(session.inner),
       });
 
       unsubscribe = session.onEvent((event) => {

@@ -48,6 +48,10 @@ function harness() {
     eventSourceRuntimeIdRef: { current: "runtime:r1" },
     closeEvents: () => {},
     historyRequestRef: { current: 0 },
+    composerEventRevisionRef: { current: 0 },
+    applyComposer: (snapshot) => effects.push(["composer", snapshot]),
+    isNew: false,
+    refreshContextUsage: () => {},
     contextUsageRequestIdRef: { current: 0 },
     promptRunIdRef: { current: 1 },
     bashRecoveryIdRef: { current: 0 },
@@ -151,6 +155,24 @@ test("mount history loading drops the entire stale state response", async () => 
   assert.equal(await loading, null);
   assertNewRuntime(h);
   assert.deepEqual(h.effects.filter(([name]) => name !== "Loading"), []);
+});
+
+test("a delayed transcript cannot replace a composer snapshot from a newly connected runtime", async () => {
+  const h = harness();
+  const pending = deferred();
+  h.bindings.fetch = () => pending.promise;
+  const loading = callback("loadSession", h.bindings)("b");
+  const composer = { source: "live", model: { provider: "test", modelId: "live-model" } };
+  callback("handleAgentEvent", h.bindings)({
+    type: "connected", sessionId: "b", runtimeId: "runtime:r1", composer,
+  });
+  pending.resolve(response({
+    sessionId: "b", leafId: null,
+    context: { source: "restored", messages: [], entryIds: [], model: { provider: "test", modelId: "saved-model" } },
+  }));
+  await loading;
+  assert.deepEqual(h.effects.filter(([kind]) => kind === "composer"), [["composer", composer]]);
+  assert.equal(h.effects.some(([kind]) => kind === "Data"), true);
 });
 
 for (const name of ["reconcileAgentState", "refreshContextUsage", "handleAgentEvent"]) {

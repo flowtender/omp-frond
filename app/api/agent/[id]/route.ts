@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { startRpcSession, getRpcSession, getFinalRpcSessionId } from "@/lib/rpc-manager";
+import { startRpcSession, getRpcSession, getFinalRpcSessionId, setRpcSessionTools } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 // POST /api/agent/[id] - Send a command to an existing session
@@ -25,6 +25,15 @@ export async function POST(
 
     // Fast path: already-running session
     const existing = getRpcSession(id);
+    if (body.type === "set_tools") {
+      const active = existing?.isAlive() ? existing : undefined;
+      if (active || !id.startsWith("runtime:")) {
+        const sessionFile = active ? active.sessionFile : await resolveSessionPath(id);
+        if (!active && !sessionFile) return NextResponse.json({ error: "Session not found" }, { status: 404 });
+        const { session, sessionId } = await setRpcSessionTools(active?.sessionId ?? id, sessionFile ?? undefined, body.toolNames);
+        return NextResponse.json({ success: true, data: null, sessionId, runtimeId: session.runtimeId });
+      }
+    }
     if (existing?.isAlive()) {
       const result = await existing.send(body);
       promptAccepted = body.type === "prompt";

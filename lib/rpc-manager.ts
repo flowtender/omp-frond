@@ -1752,16 +1752,6 @@ export class AgentSessionWrapper {
       }
 
 
-      case "set_tools": {
-        const toolNames = command.toolNames as string[];
-        this.setForceEmptySystemPrompt(toolNames.length === 0);
-        await this.inner.setActiveToolsByName(
-          this.goalMode.reconcileToolNames(withExtensionTools(this.inner, toolNames)),
-        );
-        this.applyForcedEmptySystemPrompt();
-        return null;
-      }
-
       case "reload": {
         // A reload invalidates the extension ctx the running turn still holds,
         // and the turn dies at its next extension hook (#1172). pi refuses too.

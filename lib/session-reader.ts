@@ -6,6 +6,7 @@ import {
 import { Tokenizer } from "@oh-my-pi/pi-agent-core";
 import type { AgentMessage as OmpAgentMessage } from "@oh-my-pi/pi-agent-core";
 import { calculatePromptTokens, hasContextTokenUsage } from "@oh-my-pi/pi-agent-core/compaction";
+import { parseModelString, splitUpstreamRouting } from "@oh-my-pi/pi-tui/overlays/model-selector";
 import { closeSync, existsSync, fstatSync, openSync, readSync, statSync } from "fs";
 import { join, normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
@@ -688,29 +689,31 @@ export function sliceActiveBranch(
   return chain;
 }
 
-/** Newest explicit `model_change` selector on the file. */
-export function getLatestModelChange(entries: SessionEntry[]): SessionContext["model"] {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
-    if (entry.type === "model_change") {
-      return { provider: entry.provider, modelId: entry.modelId };
-    }
-  }
-  return null;
-}
+type SessionModelSettings = Pick<SessionContext, "model" | "modelRole">;
 
 function getSessionSettings(
   entries: SessionEntry[],
   leafId?: string | null,
-): Pick<SessionContext, "thinkingLevel" | "configuredThinkingLevel" | "model"> {
-  if (leafId === null) return { thinkingLevel: "off", configuredThinkingLevel: "off", model: null };
+): Pick<SessionContext, "thinkingLevel" | "configuredThinkingLevel"> & SessionModelSettings {
+  if (leafId === null) return { thinkingLevel: null, configuredThinkingLevel: null, model: null, modelRole: null };
   const branch = sliceActiveBranch(entries, leafId ?? null, entries.length);
   let thinkingLevel: string | undefined;
   let configuredThinkingLevel: string | undefined;
   let responseModel: SessionContext["model"] | undefined;
 
-  for (let i = branch.length - 1; i >= 0 && (thinkingLevel === undefined || responseModel === undefined); i--) {
+  let selected: SessionModelSettings | undefined;
+  for (let i = branch.length - 1; i >= 0 && (thinkingLevel === undefined || !selected); i--) {
     const entry = branch[i];
+    if (!selected && entry.type === "model_change") {
+      const selector = "model" in entry ? entry.model : undefined;
+      const parsed = selector ? parseModelString(splitUpstreamRouting(selector)?.base ?? selector) : undefined;
+      const model = parsed?.id
+        ? { provider: parsed.provider, modelId: parsed.id }
+        : "provider" in entry && entry.provider && entry.modelId
+          ? { provider: entry.provider, modelId: entry.modelId }
+          : null;
+      if (model) selected = { model, modelRole: entry.role ?? "default" };
+    }
     if (thinkingLevel === undefined && entry.type === "thinking_level_change") {
       thinkingLevel = entry.thinkingLevel;
       // omp records what the user pinned (`auto`) beside the effort Auto
@@ -727,9 +730,9 @@ function getSessionSettings(
   }
 
   return {
-    thinkingLevel: thinkingLevel ?? "off",
-    configuredThinkingLevel: configuredThinkingLevel ?? thinkingLevel ?? "off",
-    model: getLatestModelChange(branch) ?? responseModel ?? null,
+    thinkingLevel: thinkingLevel ?? null,
+    configuredThinkingLevel: configuredThinkingLevel ?? thinkingLevel ?? null,
+    ...(selected ?? { model: responseModel ?? null, modelRole: null }),
   };
 }
 
@@ -822,12 +825,7 @@ export function buildSessionContext(
     oldestEntryId: sliced[0]?.id ?? null,
     hasMore,
     turnsBefore,
-    thinkingLevel: settings.thinkingLevel,
-    // What the branch recorded as its pin (Auto stays Auto even when the
-    // transcript's last resolution was an effort); pre-pin sessions carry no
-    // `configured` marker and fall back to the effective level.
-    configuredThinkingLevel: settings.configuredThinkingLevel,
-    model: settings.model,
+    ...settings,
   };
 }
 

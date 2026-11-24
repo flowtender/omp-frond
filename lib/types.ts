@@ -371,11 +371,13 @@ export interface ThinkingLevelChangeEntry extends SessionEntryBase {
   thinkingLevel: string;
 }
 
-export interface ModelChangeEntry extends SessionEntryBase {
+export type ModelChangeEntry = SessionEntryBase & {
   type: "model_change";
-  provider: string;
-  modelId: string;
-}
+  role?: string;
+} & (
+  | { model: string }
+  | { provider: string; modelId: string }
+);
 
 /** Model usage outside the conversation, such as prompt-cache warming (`kind: "cache_warm"`). */
 export interface UsageEntry extends SessionEntryBase {
@@ -528,7 +530,8 @@ export interface SessionContext {
   hasMore: boolean;
   /** Turns on the branch before `oldestEntryId`, not loaded (the minimap numbers from it). */
   turnsBefore: number;
-  thinkingLevel: string;
-  configuredThinkingLevel: string;
+  thinkingLevel: string | null;
+  configuredThinkingLevel: string | null;
   model: { provider: string; modelId: string } | null;
+  modelRole: string | null;
 }

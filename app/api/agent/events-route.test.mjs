@@ -34,6 +34,7 @@ function harness({ cold = false, running = false, pendingExtensionUiIds = [] } =
     resolveSessionPath: async () => "session.jsonl",
     startRpcSession: () => startup,
     isApiRequestAllowed: () => true,
+    readLiveComposer: () => ({ source: "live" }),
     setInterval: (callback) => { const id = Symbol(); timers.set(id, callback); return id; },
     clearInterval: (id) => timers.delete(id),
   };
@@ -88,6 +89,7 @@ test("connected tells a joining client the run state and the requests still open
     runtimeId: "runtime:a",
     isStreaming: true,
     pendingExtensionUiIds: ["ask-1"],
+    composer: { source: "live" },
   });
   h.controller.abort();
 });
