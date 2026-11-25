@@ -22,6 +22,7 @@ import { TerminalPanel } from "./TerminalPanel";
 import { SubagentViewer } from "./SubagentViewer";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
+import { headerLanguageSwitch, headerThemeSwitch } from "@/hooks/useHeaderControls";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
@@ -112,6 +113,8 @@ export function AppShell() {
   const searchParams = useSearchParams();
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
   const { preference, toggleTheme } = useTheme();
+  const showThemeSwitch = headerThemeSwitch.useVisible();
+  const showLanguageSwitch = headerLanguageSwitch.useVisible();
   const themeLabelKey =
     preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
@@ -2174,7 +2177,7 @@ export function AppShell() {
               </svg>
             )}
           </button>
-          <button
+          {showThemeSwitch && <button
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
@@ -2209,8 +2212,8 @@ export function AppShell() {
                 <line x1="12" y1="17" x2="12" y2="21" />
               </svg>
             )}
-          </button>
-          <button
+          </button>}
+          {showLanguageSwitch && <button
             ref={languageBtnRef}
             type="button"
             onClick={() => toggleTopPanel("language")}
@@ -2250,7 +2253,7 @@ export function AppShell() {
               <path d="m22 22-5-10-5 10" />
               <path d="M14 18h6" />
             </svg>
-          </button>
+          </button>}
           {isMobile && (
             <div
               ref={mobileToolbarRef}
@@ -2357,7 +2360,7 @@ export function AppShell() {
               overflowY: "auto",
               zIndex: 500,
             }}>
-              {activeTopPanel === "language" && (
+              {showLanguageSwitch && activeTopPanel === "language" && (
                 <div
                   role="menu"
                   aria-label={translate("common.language")}

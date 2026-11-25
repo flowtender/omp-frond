@@ -566,6 +566,8 @@ export const enLocale: LocalePlugin = {
     "transcriptNotice.foldCacheMisses": "{count} cache misses {tokens} tokens{cost}",
     "settings.cacheMissNotices": "Show cache and cost notices",
     "settings.cacheMissNoticesDescription": "omp's showCacheMissNotices: cache misses, cache warming, compaction cost and Anthropic dropping thinking blocks, in the chat. Saved to the global settings.json; a project's .omp/settings.json can override it.",
+    "settings.showHeaderThemeSwitch": "Show theme switch in header",
+    "settings.showHeaderLanguageSwitch": "Show language switch in header",
     "settings.promptCacheSource": "Cache marker",
     "settings.promptCacheSourceOff": "No indicator",
     "settings.promptCacheSourceLive": "Live sessions only",

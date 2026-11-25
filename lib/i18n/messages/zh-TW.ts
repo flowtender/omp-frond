@@ -510,6 +510,8 @@ export const zhTWLocale: LocalePlugin = {
     "transcriptNotice.foldCacheMisses": "快取未命中 {count} 次 {tokens} Token{cost}",
     "settings.cacheMissNotices": "顯示快取與費用提示",
     "settings.cacheMissNoticesDescription": "即 omp 的 showCacheMissNotices：在對話中顯示快取未命中、快取預熱、壓縮費用，以及 Anthropic 捨棄思考區塊。儲存到全域 settings.json，專案的 .omp/settings.json 可以覆寫它。",
+    "settings.showHeaderThemeSwitch": "在頂端列顯示佈景主題切換按鈕",
+    "settings.showHeaderLanguageSwitch": "在頂端列顯示語言切換按鈕",
     "settings.promptCacheSource": "提示快取標記",
     "settings.promptCacheSourceOff": "不顯示",
     "settings.promptCacheSourceLive": "僅作用中的工作階段",

@@ -15,6 +15,7 @@ import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useChatScrollMode, setChatScrollMode } from "@/hooks/useChatScrollMode";
 import { useShowCostWithUsage, setShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { headerLanguageSwitch, headerThemeSwitch } from "@/hooks/useHeaderControls";
 import { setPromptCacheIndicatorSettings, usePromptCacheIndicatorSettings } from "@/hooks/usePromptCacheIndicator";
 import type { PromptCacheIndicatorSource, PromptCacheIndicatorStyle } from "@/lib/prompt-cache-shared";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
@@ -54,6 +55,8 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
   const chatScrollMode = useChatScrollMode();
   const showCostWithUsage = useShowCostWithUsage();
   const filesPlacement = useFilesPlacement();
+  const showThemeSwitch = headerThemeSwitch.useVisible();
+  const showLanguageSwitch = headerLanguageSwitch.useVisible();
   const promptCacheIndicator = usePromptCacheIndicatorSettings();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
@@ -169,6 +172,14 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
         <div className="settings-chat-options">
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.showHeaderThemeSwitch")}</span>
+            <ConfigSwitch checked={showThemeSwitch} label={t("settings.showHeaderThemeSwitch")} onChange={headerThemeSwitch.setVisible} />
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.showHeaderLanguageSwitch")}</span>
+            <ConfigSwitch checked={showLanguageSwitch} label={t("settings.showHeaderLanguageSwitch")} onChange={headerLanguageSwitch.setVisible} />
+          </div>
           <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.promptCacheSource")}>
             <span>{t("settings.promptCacheSource")}</span>
             <div className="settings-send-mode-options">

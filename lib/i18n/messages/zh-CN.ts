@@ -564,6 +564,8 @@ export const zhCNLocale: LocalePlugin = {
     "transcriptNotice.foldCacheMisses": "缓存未命中 {count} 次 {tokens} Token{cost}",
     "settings.cacheMissNotices": "显示缓存与费用提示",
     "settings.cacheMissNoticesDescription": "即 omp 的 showCacheMissNotices：在对话中显示缓存未命中、缓存预热、压缩费用，以及 Anthropic 丢弃思考块。保存到全局 settings.json，项目的 .omp/settings.json 可以覆盖它。",
+    "settings.showHeaderThemeSwitch": "在顶栏显示主题切换按钮",
+    "settings.showHeaderLanguageSwitch": "在顶栏显示语言切换按钮",
     "settings.promptCacheSource": "提示缓存标记",
     "settings.promptCacheSourceOff": "不显示",
     "settings.promptCacheSourceLive": "仅活动会话",
