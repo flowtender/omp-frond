@@ -1,12 +1,13 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo, type CSSProperties } from "react";
+import { memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vs, vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
+import { PlugGlyph } from "./PlugGlyph";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -28,7 +29,8 @@ import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
-import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
+import { mcpToolLabel, prettyMcpResultText, type McpToolLabel } from "@/lib/mcp-tool-display";
+import { inlineToolResult, inlineToolTarget, shellToolDispatches, type ToolDispatch } from "@/lib/inline-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import { getTranscriptNotices } from "@/lib/transcript-notices";
 import { TRANSCRIPT_NOTICE_WARNING_COLOR, transcriptNoticeText } from "@/components/TranscriptNotices";
@@ -1188,12 +1190,6 @@ export function formatToolDuration(ms: number): string {
 
 function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSubagent?: (sessionId: string, label: string) => void }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(() => isToolCallExpanded(block.toolCallId));
-  const toggleExpanded = () => {
-    const next = !expanded;
-    setToolCallExpanded(block.toolCallId, next);
-    setExpanded(next);
-  };
   const writtenFileText = getWrittenFileText(block);
   const inputStr = writtenFileText ?? getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
@@ -1237,8 +1233,21 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   const isBashTool = normalizedToolName === "bash" || normalizedToolName.startsWith("bash ") || normalizedToolName.endsWith(".bash") || normalizedToolName.endsWith("_bash");
   const isTodoTool = normalizedToolName === "todo" || normalizedToolName.endsWith(".todo") || normalizedToolName.endsWith("_todo");
   const todoPhases = isTodoTool ? getTodoPreviewPhases(block, result) : null;
+  const inlineTarget = /^(?:lsp|memory_edit|retain|recall|reflect|mcp__.*)$/.test(block.toolName)
+    ? inlineToolTarget(block.toolName, block.input) : "";
 
   if (isBashTool) {
+    const dispatches = shellToolDispatches(result?.details);
+    if (dispatches.length > 0) {
+      return <MountedToolCards
+        callId={block.toolCallId}
+        dispatches={dispatches}
+        output={resultText ?? ""}
+        isError={isError}
+        hasFinalTiming={isRecord(result?.details) && typeof result.details.wallTimeMs === "number"}
+        duration={duration}
+      />;
+    }
     return (
       <ConsoleOutputPreview
         command={isRecord(block.input) && typeof block.input.command === "string" ? block.input.command : ""}
@@ -1254,67 +1263,21 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   if (isTodoTool && todoPhases) {
     return <TodoChecklistPreview phases={todoPhases} />;
   }
-
+  const inlineResult = inlineToolResult(block.toolName, result?.details, t);
 
   return (
-    <div
-      style={{
-        borderRadius: 7,
-        overflow: "hidden",
-        fontSize: 12,
-        border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
-        background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
-      }}
-    >
-      {/* ── Tool call header ── */}
-      <div style={{ display: "flex", alignItems: "stretch", minWidth: 0 }}>
-        <button
-          onClick={toggleExpanded}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            flex: 1,
-            minWidth: 0,
-            padding: "6px 10px",
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: 12,
-            textAlign: "left",
-          }}
-        >
-          <ToolBlockIcon toolName={block.toolName} isError={isError} />
-          <span
-            title={mcpLabel ? block.toolName : undefined}
-            style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}
-          >
-            {mcpLabel ? (
-              <>
-                <span style={{ fontWeight: 500, opacity: 0.75 }}>{mcpLabel.server}/</span>
-                {mcpLabel.tool}
-              </>
-            ) : block.toolName}
-          </span>
-          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {isStreamingInput
-              ? t("chat.generatingToolInput")
-              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getStructuredToolPreview(block, todoPhases)))}
-          </span>
-          {codemodeCallCount > 0 && (
-            <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
-              {codemodeCallCount === 1 ? t("codemode.callCountOne") : t("codemode.callCount", { count: codemodeCallCount })}
-            </span>
-          )}
-          {duration !== undefined && (
-            <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formatToolDuration(duration)}</span>
-          )}
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-            <polyline points="2 3.5 5 6.5 8 3.5" />
-          </svg>
-        </button>
-        {subagent && onOpenSubagent && (
+    <ToolCard
+      callId={block.toolCallId}
+      toolName={block.toolName}
+      mcpLabel={mcpLabel}
+      isError={isError}
+      target={isStreamingInput
+        ? t("chat.generatingToolInput")
+        : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : inlineTarget || getStructuredToolPreview(block, todoPhases)))}
+      facts={inlineResult}
+      duration={duration}
+      count={codemodeCallCount}
+      action={subagent && onOpenSubagent && (
           <button
             type="button"
             onClick={() => onOpenSubagent(subagent.sessionId, subagent.description || subagent.profile)}
@@ -1324,9 +1287,9 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" /></svg>
           </button>
-        )}
-      </div>
-
+      )}
+    >
+      {(expanded) => <>
       {/* ── Expanded: input args (only when no richer view exists); a codemode script in place of its JSON ── */}
       {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
         toolFields ? (
@@ -1395,10 +1358,79 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
           />
         )
       )}
+      </>}
+    </ToolCard>
+  );
+}
+
+function ToolCard({ callId, toolName, label, mcpLabel, isError, target, facts, duration, count = 0, action, children }: {
+  callId: string;
+  toolName: string;
+  label?: string;
+  mcpLabel?: McpToolLabel | null;
+  isError: boolean;
+  target?: string;
+  facts?: string;
+  duration?: number;
+  count?: number;
+  action?: ReactNode;
+  children: (expanded: boolean) => ReactNode;
+}) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(() => isToolCallExpanded(callId));
+  return (
+    <div style={{
+      borderRadius: 7,
+      overflow: "hidden",
+      fontSize: 12,
+      border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
+      background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
+    }}>
+      <div style={{ display: "flex", alignItems: "stretch", minWidth: 0 }}>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => {
+            setToolCallExpanded(callId, !expanded);
+            setExpanded(!expanded);
+          }}
+          style={{
+            display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0,
+            padding: "6px 10px", background: "none", border: "none",
+            color: "var(--text-muted)", cursor: "pointer", fontSize: 12, textAlign: "left",
+          }}
+        >
+          <ToolBlockIcon toolName={toolName} mcpLabel={mcpLabel} isError={isError} />
+          <span
+            title={mcpLabel ? toolName : undefined}
+            style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, overflowWrap: "anywhere" }}
+          >
+            {mcpLabel ? <><span style={{ fontWeight: 500, opacity: 0.75 }}>{mcpLabel.server}/</span>{mcpLabel.tool}</> : label ?? toolName}
+          </span>
+          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+            {target}
+          </span>
+          {facts && <span className="inline-tool-facts" title={facts}>{facts}</span>}
+          {count > 0 && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+              {count === 1 ? t("codemode.callCountOne") : t("codemode.callCount", { count })}
+            </span>
+          )}
+          {duration !== undefined && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formatToolDuration(duration)}</span>
+          )}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+        </button>
+        {action}
+      </div>
+      {children(expanded)}
     </div>
   );
 }
-type ToolIconKind = "read" | "write" | "glob" | "grep" | "edit" | "bash" | "todo" | "eval" | "task" | "browser" | "image" | "generic";
+type ToolIconKind = "read" | "write" | "glob" | "grep" | "edit" | "bash" | "todo" | "eval" | "task" | "browser" | "image"
+  | "lsp" | "retain" | "recall" | "reflect" | "memory_edit" | "mcp" | "gitnexus-impact" | "generic";
 
 const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   read: "var(--accent)",
@@ -1412,6 +1444,13 @@ const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   task: "var(--accent)",
   browser: "var(--accent-hover)",
   image: "var(--success)",
+  lsp: "var(--accent)",
+  retain: "var(--warning)",
+  recall: "var(--accent)",
+  reflect: "var(--accent-hover)",
+  memory_edit: "var(--warning)",
+  mcp: "var(--accent-hover)",
+  "gitnexus-impact": "var(--accent)",
   generic: "var(--text-dim)",
 };
 
@@ -1423,8 +1462,22 @@ function toolNameHasPart(toolName: string, part: string): boolean {
     normalized.split(/[.\s:_-]+/).includes(part);
 }
 
-function getToolIconKind(toolName: string): ToolIconKind {
+function getToolIconKind(toolName: string, mcpLabel?: McpToolLabel | null): ToolIconKind {
   const normalized = toolName.trim().toLowerCase();
+  if (normalized.startsWith("mcp__")) {
+    const isImpact = mcpLabel
+      ? mcpLabel.server === "gitnexus" && mcpLabel.tool === "impact"
+      : normalized === "mcp__gitnexus_impact" || normalized === "mcp__gitnexus__impact";
+    return isImpact ? "gitnexus-impact" : "mcp";
+  }
+  switch (normalized) {
+    case "lsp":
+    case "retain":
+    case "recall":
+    case "reflect":
+    case "memory_edit":
+      return normalized;
+  }
   if (normalized.includes("str_replace") || normalized.includes("replace_editor") || toolNameHasPart(normalized, "edit")) return "edit";
   if (toolNameHasPart(normalized, "read") || toolNameHasPart(normalized, "cat")) return "read";
   if (toolNameHasPart(normalized, "write") || toolNameHasPart(normalized, "save")) return "write";
@@ -1439,8 +1492,12 @@ function getToolIconKind(toolName: string): ToolIconKind {
   return "generic";
 }
 
-function ToolBlockIcon({ toolName, isError }: { toolName: string; isError: boolean }) {
-  const kind = getToolIconKind(toolName);
+function ToolBlockIcon({ toolName, mcpLabel, isError }: {
+  toolName: string;
+  mcpLabel?: McpToolLabel | null;
+  isError: boolean;
+}) {
+  const kind = getToolIconKind(toolName, mcpLabel);
   const color = isError ? "var(--danger)" : TOOL_ICON_COLORS[kind];
 
   return (
@@ -1550,6 +1607,36 @@ function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
           <rect x="1.75" y="2.25" width="10.5" height="9.5" rx="1.15" />
           <circle cx="4.8" cy="5.1" r="1" />
           <path d="m2.6 10 2.6-2.7 1.8 1.8 1.45-1.45 2.95 2.95" />
+        </>
+      );
+    case "lsp":
+      return (
+        <>
+          <path d="m3.8 3.7-2.9 3.3 2.9 3.3m6.4-6.6 2.9 3.3-2.9 3.3M7 4.2v1.3m0 3v1.3M4.5 7h1m3 0h1" />
+          <circle cx="7" cy="7" r="1.5" />
+        </>
+      );
+    case "retain":
+    case "recall":
+    case "reflect":
+    case "memory_edit":
+      return (
+        <>
+          <path d="M2.15 2h4.4v10L4.35 10l-2.2 2V2Z" />
+          {kind === "retain" && <path d="M10.65 4.8v4.4m-2.2-2.2h4.4" />}
+          {kind === "recall" && <><circle cx="10.15" cy="6.45" r="1.65" /><path d="m11.35 7.65 1.5 1.5" /></>}
+          {kind === "reflect" && <path d="M10.65 4.25c.25 1.7.95 2.45 2.45 2.75-1.5.3-2.2 1.05-2.45 2.75-.25-1.7-.95-2.45-2.45-2.75 1.5-.3 2.2-1.05 2.45-2.75Z" />}
+          {kind === "memory_edit" && <path d="m8.45 8.05 3.1-3.1 1.25 1.25-3.1 3.1-1.65.4.4-1.65Z" />}
+        </>
+      );
+    case "mcp":
+      return <svg width="14" height="14" viewBox="0 0 24 24" strokeWidth="2"><PlugGlyph /></svg>;
+    case "gitnexus-impact":
+      return (
+        <>
+          <path d="M1.35 2.5h3.1l1.8 1.8v7.2h-4.9V2.5Zm3.1 0v1.8h1.8M2.85 6.35h1.85M2.85 8.45h1.85" />
+          <circle cx="8.25" cy="7" r=".55" fill="currentColor" stroke="none" />
+          <path d="M9.25 5.15a2.15 2.15 0 0 1 0 3.7m1.2-5.1a3.9 3.9 0 0 1 0 6.5" />
         </>
       );
     case "generic":
@@ -1688,10 +1775,6 @@ function ConsoleOutputPreview({
   local?: boolean;
 }) {
   const { isDark } = useTheme();
-  const { t } = useI18n();
-  const normalizedLines = normalizeCustomPanelLines(output.split(/\r?\n/));
-  const outputLines = normalizedLines.length === 1 && normalizedLines[0] === "" ? [] : normalizedLines;
-  const statusLabel = pending ? t("chat.runningCommand") : isError ? "failed" : "";
 
   return (
     <div className={`shell-output-preview${isError ? " is-error" : ""}`}>
@@ -1726,46 +1809,114 @@ function ConsoleOutputPreview({
         {local && <span className="shell-local-label">local</span>}
       </div>
 
-      <div className="shell-output-panel">
-        <div className="shell-output-divider">
-          <span className="shell-output-label">Output</span>
-          {statusLabel && <span className={`shell-output-status${isError ? " is-error" : pending ? " is-pending" : ""}`}>{statusLabel}</span>}
-        </div>
-        <div className="shell-output-body" aria-live={pending ? "polite" : undefined}>
-          {outputLines.length === 0 && !pending && (
-            <span className="shell-output-empty">{t("i18n.noOutput")}</span>
-          )}
-          {outputLines.map((line, lineIndex) => {
-            const plainLine = stripAnsi(line).trimStart();
-            const lineClass = isError || /^(?:error|fatal|failed|failure|✖|x\b)/i.test(plainLine)
-              ? "is-error"
-              : /^(?:warning|warn|!)/i.test(plainLine)
-              ? "is-warning"
-              : /^(?:success|passed|ok\b|✓|\+)/i.test(plainLine)
-              ? "is-success"
-              : "";
-            return (
-              <div key={lineIndex} className={`shell-output-line ${lineClass}`.trim()}>
-                {parseAnsiLine(line).map((segment, segmentIndex) => (
-                  Object.keys(segment.style).length > 0
-                    ? <span key={segmentIndex} style={segment.style}>{segment.text}</span>
-                    : <span key={segmentIndex}>{segment.text}</span>
-                ))}
-                {line === "" ? "\u00a0" : null}
-              </div>
-            );
-          })}
-          {pending && (
-            <span className="shell-output-pending" aria-label={t("chat.runningCommand")}>▋</span>
-          )}
-        </div>
-      </div>
+      <ShellOutput output={output} pending={pending} isError={isError} />
 
       {duration !== undefined && (
         <div className="shell-output-footer">{formatToolDuration(duration)}</div>
       )}
     </div>
   );
+}
+
+function ShellOutput({ output, pending = false, isError, showLabel = true }: {
+  output: string;
+  pending?: boolean;
+  isError: boolean;
+  showLabel?: boolean;
+}) {
+  const { t } = useI18n();
+  const normalizedLines = normalizeCustomPanelLines(output.split(/\r?\n/));
+  const outputLines = normalizedLines.length === 1 && normalizedLines[0] === "" ? [] : normalizedLines;
+  const statusLabel = pending ? t("chat.runningCommand") : isError ? "failed" : "";
+  return (
+    <div className="shell-output-panel">
+      {(showLabel || statusLabel) && <div className="shell-output-divider">
+        {showLabel && <span className="shell-output-label">{t("session.output")}</span>}
+        {statusLabel && <span className={`shell-output-status${isError ? " is-error" : pending ? " is-pending" : ""}`}>{statusLabel}</span>}
+      </div>}
+      <div className="shell-output-body" aria-live={pending ? "polite" : undefined}>
+        {outputLines.length === 0 && !pending && (
+          <span className="shell-output-empty">{t("i18n.noOutput")}</span>
+        )}
+        {outputLines.map((line, lineIndex) => {
+          const plainLine = stripAnsi(line).trimStart();
+          const lineClass = isError || /^(?:error|fatal|failed|failure|✖|x\b)/i.test(plainLine)
+            ? "is-error"
+            : /^(?:warning|warn|!)/i.test(plainLine)
+            ? "is-warning"
+            : /^(?:success|passed|ok\b|✓|\+)/i.test(plainLine)
+            ? "is-success"
+            : "";
+          return (
+            <div key={lineIndex} className={`shell-output-line ${lineClass}`.trim()}>
+              {parseAnsiLine(line).map((segment, segmentIndex) => (
+                Object.keys(segment.style).length > 0
+                  ? <span key={segmentIndex} style={segment.style}>{segment.text}</span>
+                  : <span key={segmentIndex}>{segment.text}</span>
+              ))}
+              {line === "" ? "\u00a0" : null}
+            </div>
+          );
+        })}
+        {pending && (
+          <span className="shell-output-pending" aria-label={t("chat.runningCommand")}>▋</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MountedToolCards({ callId, dispatches, output, isError, hasFinalTiming, duration }: {
+  callId: string;
+  dispatches: readonly ToolDispatch[];
+  output: string;
+  isError: boolean;
+  hasFinalTiming: boolean;
+  duration?: number;
+}) {
+  const { t } = useI18n();
+  const single = dispatches.length === 1;
+  return (
+    <div className="shell-tool-commands">
+      {dispatches.map(({ tool, mode, args, inner, exitCode }, index) => {
+        const dispatchId = `${callId}:cmd:${index}`;
+        const failed = (hasFinalTiming || isError) && exitCode !== 0;
+        const facts = [
+          mode === "execute" ? inlineToolResult(tool, inner, t) : "",
+          failed ? t("terminal.exitCode", { code: exitCode }) : "",
+        ].filter(Boolean).join(" · ");
+        return (
+          <ToolCard
+            key={dispatchId}
+            callId={dispatchId}
+            toolName={tool}
+            mcpLabel={mcpToolLabel(tool, inner)}
+            target={mode === "help" ? t("chat.toolHelp") : inlineToolTarget(tool, args)}
+            facts={facts}
+            isError={failed || (single && isError)}
+            duration={single ? duration : undefined}
+          >
+            {(expanded) => expanded && <>
+              {mode === "execute" && args && Object.keys(args).length > 0 && <ShellToolArguments args={args} />}
+              {single && <ShellOutput output={output} isError={isError} />}
+            </>}
+          </ToolCard>
+        );
+      })}
+      {!single && (
+        <ToolCard callId={callId} toolName="bash" label={t("session.output")} isError={isError} duration={duration}>
+          {(expanded) => expanded && <ShellOutput output={output} isError={isError} showLabel={false} />}
+        </ToolCard>
+      )}
+    </div>
+  );
+}
+
+function ShellToolArguments({ args }: { args: Record<string, unknown> }) {
+  const fields = toolFieldsOfInput(args);
+  return <div className="shell-tool-arguments">
+    {fields ? <ToolFieldRows fields={fields} /> : <pre>{JSON.stringify(args, null, 2)}</pre>}
+  </div>;
 }
 
 

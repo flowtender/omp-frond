@@ -4,8 +4,8 @@
 // split back into the server's names: `docs.v2` / `search.pages` and
 // `docs_v2` / `search_pages` sanitize alike, and either part may hold `__`. pi's TUI labels them `server/tool` from the tool
 // definition; the browser has those names only in a result's details
-// (`{ server, tool }`). Without a result a call keeps its registered name,
-// which is also the name codemode scripts call it by.
+// (legacy `{ server, tool }` or the SDK bridge's `{ serverName, mcpToolName }`).
+// Without a result a call keeps its registered name.
 
 /** Larger results are shown as the server sent them. */
 const PRETTY_JSON_MAX_CHARS = 200_000;
@@ -23,8 +23,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** The server and tool an MCP call's result names, or null when there is none to go by. */
 export function mcpToolLabel(toolName: string, details?: unknown): McpToolLabel | null {
   if (!toolName.startsWith(MCP_TOOL_PREFIX) || !isRecord(details)) return null;
-  const { server, tool } = details;
-  return typeof server === "string" && typeof tool === "string" && server && tool ? { server, tool } : null;
+  for (const [server, tool] of [[details.serverName, details.mcpToolName], [details.server, details.tool]]) {
+    if (typeof server === "string" && typeof tool === "string" && server && tool) return { server, tool };
+  }
+  return null;
 }
 
 /**

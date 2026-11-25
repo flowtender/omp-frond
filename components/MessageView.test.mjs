@@ -503,6 +503,72 @@ test("renders shell blocks as themed terminal content", () => {
   assert.match(html, /components\/MessageView\.tsx/);
 });
 
+test("shows ordered shell dispatches without assigning shared output to an inner tool", () => {
+  const gitnexus = "mcp__gitnexus_impact";
+  const output = "Usage: mcp__gitnexus_impact\nshared pipeline output";
+  const impact = { target: { name: "root" }, risk: "LOW", summary: { direct: 2 } };
+  const details = {
+    toolCommands: [
+      { tool: gitnexus, mode: "help", exitCode: 0 },
+      { tool: "lsp", mode: "execute", exitCode: 0, args: { action: "references", file: "src/main.ts", line: 9, symbol: "root" }, inner: { serverName: "tsserver" } },
+      {
+        tool: gitnexus, mode: "execute", exitCode: 0, args: { direction: "upstream" },
+        inner: { serverName: "gitnexus", mcpToolName: "impact", rawContent: [{ type: "text", text: `${JSON.stringify(impact)}\n\n---\n**Next:** review callers` }] },
+      },
+    ],
+  };
+  const render = () => renderMessage(
+    { role: "assistant", content: [{ type: "toolCall", toolCallId: "shell", toolName: "bash", input: { command: `${gitnexus} --help; lsp references; ${gitnexus} upstream | head` } }] },
+    { toolResults: new Map([["shell", { role: "toolResult", content: [{ type: "text", text: output }], details }]]) },
+  );
+  const html = render();
+
+  const help = html.indexOf(">Help</span>");
+  const references = html.indexOf(">references · src/main.ts:9 · root</span>");
+  const gitnexusResult = html.indexOf(">root · Risk: LOW · Direct callers: 2</span>");
+  assert.ok(help !== -1 && help < references && references < gitnexusResult);
+  assert.match(html, />tsserver<\/span>/);
+  assert.equal(html.match(/<button type="button" aria-expanded="false"/g)?.length, 4);
+  assert.doesNotMatch(html, /--help;|shared pipeline output|>direction<\/td>/);
+  setToolCallExpanded("shell:cmd:2", true);
+  setToolCallExpanded("shell", true);
+  try {
+    const expanded = render();
+    assert.match(expanded, />direction<\/td>.*>upstream<\/td>/);
+    assert.match(expanded, /title="mcp__gitnexus_impact"[^>]*><span[^>]*>gitnexus\/<\/span>impact<\/span>/);
+    assert.equal(expanded.match(/shared pipeline output/g)?.length, 1);
+    assert.doesNotMatch(expanded, /--help;/);
+  } finally {
+    setToolCallExpanded("shell:cmd:2", false);
+    setToolCallExpanded("shell", false);
+  }
+});
+
+test("a single help card discloses help output, never the bash command", () => {
+  const render = () => renderMessage(
+    { role: "assistant", content: [{ type: "toolCall", toolCallId: "help", toolName: "bash", input: { command: "lsp --help" } }] },
+    { toolResults: new Map([["help", { role: "toolResult", content: [{ type: "text", text: "List language servers" }], details: { toolCommands: [{ tool: "lsp", mode: "help", exitCode: 0 }] } }]]) },
+  );
+  assert.doesNotMatch(render(), /--help|List language servers/);
+  setToolCallExpanded("help:cmd:0", true);
+  try {
+    const html = render();
+    assert.match(html, /aria-expanded="true"[^>]*>.*List language servers/);
+    assert.doesNotMatch(html, /--help/);
+  } finally {
+    setToolCallExpanded("help:cmd:0", false);
+  }
+});
+
+test("shows a memory result summary without requiring the tool card to be opened", () => {
+  const html = renderMessage(
+    { role: "assistant", content: [{ type: "toolCall", toolCallId: "memory", toolName: "retain", input: { items: [{ content: "a preference" }] } }] },
+    { toolResults: new Map([["memory", { role: "toolResult", content: [{ type: "text", text: "Raw memory response" }], details: { count: 2 } }]]) },
+  );
+  assert.match(html, />Stored: 2<\/span>/);
+  assert.doesNotMatch(html, /Raw memory response/);
+});
+
 test("uses i/title in the standard header for grep, read, write, glob, and eval blocks", () => {
   const cases = [
     ["read", "i", "Verifico bridge startSessionReplay e campionamento", { i: "Verifico bridge startSessionReplay e campionamento", path: "lib/main.dart" }, "lib/main.dart"],
@@ -543,6 +609,13 @@ test("shows an operation icon beside every standard tool label", () => {
     ["edit", "edit", "var(--warning)"],
     ["eval", "eval", "var(--accent-hover)"],
     ["functions.task", "task", "var(--accent)"],
+    ["lsp", "lsp", "var(--accent)"],
+    ["retain", "retain", "var(--warning)"],
+    ["recall", "recall", "var(--accent)"],
+    ["reflect", "reflect", "var(--accent-hover)"],
+    ["memory_edit", "memory_edit", "var(--warning)"],
+    ["mcp__docs__search", "mcp", "var(--accent-hover)"],
+    ["mcp__gitnexus_impact", "gitnexus-impact", "var(--accent)"],
     ["unknown_tool", "generic", "var(--text-dim)"],
   ];
 
@@ -566,6 +639,24 @@ test("shows an operation icon beside every standard tool label", () => {
     assert.ok(html.slice(iconPosition, iconEnd).includes(`color:${themeColor}`), `expected ${toolName} icon to use ${themeColor}`);
     assert.ok(iconPosition < toolPosition, `expected ${iconKind} icon before ${toolName}`);
   }
+});
+
+test("mounted GitNexus impact uses the impact glyph when the SDK name has a suffix", () => {
+  const html = renderMessage(
+    { role: "assistant", content: [{ type: "toolCall", toolCallId: "impact", toolName: "bash", input: {} }] },
+    { toolResults: new Map([["impact", {
+      role: "toolResult",
+      content: [],
+      isError: true,
+      details: { toolCommands: [{
+        tool: "mcp__gitnexus__impact_6b8ae1c0",
+        mode: "execute",
+        exitCode: 1,
+        inner: { serverName: "gitnexus", mcpToolName: "impact" },
+      }] },
+    }]]) },
+  );
+  assert.match(html, /data-tool-icon="gitnexus-impact" style="[^"]*color:var\(--danger\)"/);
 });
 
 

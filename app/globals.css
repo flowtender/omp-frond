@@ -1505,6 +1505,37 @@ pre, code {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.shell-tool-commands {
+  display: grid;
+  gap: 4px;
+}
+/* Shell output embedded inside the shared transcript tool card. */
+.shell-tool-commands .shell-output-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  font-family: var(--font-mono);
+}
+.shell-tool-arguments {
+  padding: 4px 8px 6px;
+  border-top: 1px solid var(--border);
+  max-height: 240px;
+  overflow: auto;
+}
+.shell-tool-arguments > pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inline-tool-facts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.inline-tool-facts[title] {
+  overflow-wrap: anywhere;
+}
 .shell-output-panel {
   padding: 0 0 8px;
   background: var(--tool-bg);
