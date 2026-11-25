@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useId, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { ModelRolesPanel } from "./ModelRolesPanel";
 import { SearchableSelect } from "./SearchableSelect";
 import { openExternal } from "@/lib/open-external";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
@@ -140,7 +139,6 @@ type ModelCatalogState =
   | { phase: "error"; message: string };
 
 type Selection =
-  | { type: "roles" }
   | { type: "provider"; name: string }
   | { type: "model"; providerName: string; index: number }
   | { type: "oauth"; providerId: string }
@@ -153,7 +151,6 @@ function readRememberedSelection(): Selection | null {
     const value: unknown = JSON.parse(raw);
     if (value === null || typeof value !== "object") return null;
     const selection = value as Record<string, unknown>;
-    if (selection.type === "roles") return { type: "roles" };
     if (selection.type === "provider" && typeof selection.name === "string") {
       return { type: "provider", name: selection.name };
     }
@@ -1870,8 +1867,8 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsChanged, enabledModels }: {
-  onClose: () => void; embedded?: boolean; cwd?: string | null; onModelsChanged?: () => void;
+export function ModelsConfig({ onClose, embedded = false, onModelsChanged, enabledModels }: {
+  onClose: () => void; embedded?: boolean; onModelsChanged?: () => void;
   /** Owned by the settings dialog, which shows the new-model count on its Models tab. */
   enabledModels: EnabledModelsController;
 }) {
@@ -1884,7 +1881,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
   // would not contain the file's providers, and a save replaces the whole file.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
-  const [selection, setSelection] = useState<Selection | null>(readRememberedSelection() ?? { type: "roles" });
+  const [selection, setSelection] = useState<Selection | null>(readRememberedSelection);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   /** Set once the provider lists have answered; until then an overrides-only entry may be a managed provider's. */
@@ -1921,10 +1918,6 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
     refreshAuthProviders();
     refreshEnabledModels();
   }, [refreshAuthProviders, refreshEnabledModels]);
-  const refreshRoleAssignments = useCallback(() => {
-    refreshEnabledModels();
-    onModelsChanged?.();
-  }, [refreshEnabledModels, onModelsChanged]);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -2152,9 +2145,6 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
   // Resolve current detail
   const detailContent = (() => {
     if (!selection) return null;
-    if (selection.type === "roles") {
-      return <ModelRolesPanel cwd={cwd ?? null} onRolesChanged={refreshRoleAssignments} />;
-    }
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
@@ -2211,18 +2201,6 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
           {/* Left: tree */}
           <ConfigSidebar>
             <ConfigSidebarList>
-              {/* omp routes work by role; keep that the first thing in the panel. */}
-              <ConfigSidebarItem
-                active={selection?.type === "roles"}
-                onClick={() => setSelection({ type: "roles" })}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-muted)", flexShrink: 0 }}>
-                  <line x1="4" y1="7" x2="20" y2="7" /><circle cx="9" cy="7" r="2.2" />
-                  <line x1="4" y1="17" x2="20" y2="17" /><circle cx="15" cy="17" r="2.2" />
-                </svg>
-                <ConfigSidebarText className="is-grow">{t("roles.title")}</ConfigSidebarText>
-              </ConfigSidebarItem>
-              <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;

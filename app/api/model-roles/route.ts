@@ -6,13 +6,14 @@ import type { ModelRoleSettingsResponse } from "@/lib/api-types";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { getOmpRuntime, getSettingsForCwd } from "@/lib/omp-runtime";
-import { listModelRoles, writeModelRole, type ModelRoleScope } from "@/lib/model-roles";
+import { listModelRoles, listRoleModelPool, writeModelRole, type ModelRoleScope } from "@/lib/model-roles";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
-async function requireAllowedCwd(rawCwd: string | null): Promise<{ cwd: string } | { error: NextResponse }> {
-  if (!rawCwd) return { error: NextResponse.json({ error: "cwd required" }, { status: 400 }) };
+/** An absent cwd reads the global roles only, as a settings dialog opened without a project does. */
+async function requireAllowedCwd(rawCwd: string | null): Promise<{ cwd: string | undefined } | { error: NextResponse }> {
+  if (!rawCwd) return { cwd: undefined };
   const cwd = resolve(rawCwd);
   const allowedRoots = await getAllowedFileRoots();
   if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
@@ -21,7 +22,8 @@ async function requireAllowedCwd(rawCwd: string | null): Promise<{ cwd: string }
   return { cwd };
 }
 
-// GET /api/model-roles?cwd=<path> — every role omp knows, with its assignment.
+// GET /api/model-roles[?cwd=<path>] — every role omp knows, with its assignment.
+// A role's candidates follow the Models tab's enabledModels filters.
 export async function GET(req: Request) {
   const result = await requireAllowedCwd(new URL(req.url).searchParams.get("cwd"));
   if ("error" in result) return result.error;
@@ -29,9 +31,8 @@ export async function GET(req: Request) {
   try {
     const { modelRegistry } = await getOmpRuntime();
     const settings = await getSettingsForCwd(result.cwd);
-    const available = modelRegistry.getAvailable("all");
-    const roles = listModelRoles(settings, available);
-    const models = available.map((model) => ({
+    const roles = listModelRoles(settings, modelRegistry.getAvailable("all"));
+    const pool = (await listRoleModelPool(modelRegistry, settings)).map((model) => ({
       model,
       candidate: {
         selector: `${model.provider}/${model.id}`,
@@ -42,7 +43,7 @@ export async function GET(req: Request) {
     }));
     const candidates = Object.fromEntries(roles.filter((role) => !role.hidden).map(({ role }) => {
       const { accepts } = getRoleInfo(role, settings);
-      return [role, models.filter(({ model }) => accepts(model)).map(({ candidate }) => candidate)];
+      return [role, pool.filter(({ model }) => accepts(model)).map(({ candidate }) => candidate)];
     }));
     return NextResponse.json({ roles, candidates } satisfies ModelRoleSettingsResponse);
   } catch (error) {
@@ -79,6 +80,9 @@ export async function PUT(req: Request) {
     const role = body.role?.trim();
     if (!role) return NextResponse.json({ error: "role required" }, { status: 400 });
     const scope: ModelRoleScope = body.scope === "project" ? "project" : "global";
+    if (scope === "project" && !result.cwd) {
+      return NextResponse.json({ error: "cwd required to write a project's roles" }, { status: 400 });
+    }
     const selector = typeof body.selector === "string" ? body.selector.trim() : undefined;
 
     const runtime = await getOmpRuntime();

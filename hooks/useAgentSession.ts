@@ -18,7 +18,7 @@ import type {
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { stripAnsi } from "@/lib/ansi";
-import { agentStatusUrl, canApplySessionIdentity, isPromptRejectedError, sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
+import { agentStatusUrl, canApplySessionIdentity, isPromptRejectedError, sendAgentCommand, sendConfirmingCacheLoss, type RuntimeSessionBinding } from "@/lib/agent-client";
 import { rememberSessionContinuation, clearSessionContinuation } from "@/lib/workspace-memory";
 import { getDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
@@ -42,7 +42,7 @@ import { runHintAction } from "@/lib/session-run-hint";
 import { useChatScrollMode } from "@/hooks/useChatScrollMode";
 import type { SessionComposerSnapshot } from "@/lib/session-composer";
 import type { WebSessionAccent } from "@/lib/omp-theme";
-import type { PromptCacheReport } from "@/lib/prompt-cache-shared";
+import type { PromptCacheLossWarning, PromptCacheReport } from "@/lib/prompt-cache-shared";
 
 export interface SessionData {
   runtimeId?: string;
@@ -290,6 +290,11 @@ export interface UseAgentSessionOptions {
   onToolsReport?: (markdown: string) => void;
   /** Holds the initial chat scroll until an external anchor resolves. */
   deferInitialScroll?: boolean;
+  /**
+   * Asked before a model, thinking-level or reload change the server holds
+   * back because it would discard the chat's warm prompt cache; true goes ahead.
+   */
+  confirmPromptCacheLoss?: (warning: PromptCacheLossWarning) => Promise<boolean>;
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -470,6 +475,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   } = opts;
   const deferInitialScroll = opts.deferInitialScroll ?? false;
   const sessionRunning = opts.sessionRunning === true;
+  const confirmPromptCacheLossRef = useRef(opts.confirmPromptCacheLoss);
+  confirmPromptCacheLossRef.current = opts.confirmPromptCacheLoss;
+  /** Sends a cache-breaking command, asking first while the chat's cache is warm; false when the user kept it. */
+  const sendAskingCacheLoss = useCallback((sid: string, command: Record<string, unknown>) => sendConfirmingCacheLoss(
+    (confirmCacheLoss) => sendAgentCommand(sid, confirmCacheLoss ? { ...command, confirmCacheLoss } : command, runtimeIdRef),
+    (warning) => confirmPromptCacheLossRef.current?.(warning) ?? Promise.resolve(true),
+  ), []);
   const chatScrollMode = useChatScrollMode();
 
   const isNew = session === null && newSessionCwd !== null;
@@ -2392,7 +2404,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setCurrentModelOverride(target);
     setModelSwitching(true);
     try {
-      await sendAgentCommand(sid, { type: "set_model", provider, modelId }, runtimeIdRef);
+      if (!await sendAskingCacheLoss(sid, { type: "set_model", provider, modelId })) {
+        setCurrentModelOverride(previousOverride);
+        return;
+      }
       // Pi persists model_change synchronously. Reload the canonical session so
       // the model, thinking level, and active leaf all advance together.
       modelSwitchPendingRef.current = false;
@@ -2412,7 +2427,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       modelSwitchPendingRef.current = false;
       setModelSwitching(false);
     }
-  }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel]);
+  }, [addNotice, currentModelOverride, isNew, loadSession, sendAskingCacheLoss, setNewSessionModel]);
 
   /**
    * Switch the session onto the model configured for one of omp's roles.
@@ -2441,12 +2456,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current ?? (isNew ? await ensuringNewSessionRef.current : null);
     if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_role_model", role }, runtimeIdRef);
+      if (!await sendAskingCacheLoss(sid, { type: "set_role_model", role })) return;
       if (!isNew) await loadSession(sessionIdRef.current ?? sid);
     } catch (e) {
       console.error("Failed to set role model:", e);
     }
-  }, [isNew, loadSession, modelRoles, setNewSessionModel]);
+  }, [isNew, loadSession, modelRoles, sendAskingCacheLoss, setNewSessionModel]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -2599,7 +2614,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         case "reload": {
           if (!sid) return complete({ handled: true, error: "No active session to reload" });
-          await sendAgentCommand(sid, { type: "reload" }, runtimeIdRef);
+          if (!await sendAskingCacheLoss(sid, { type: "reload" })) return { handled: true };
           await Promise.all([
             loadSession(sid, false, true),
             loadTools(sid),
@@ -2739,7 +2754,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, appendCommandOutput, ensureEventsConnected, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, onOpenSettings, onSessionStatsPanelOpen, onToolsReport, promoteNewSession, resolveCommandSession, scheduleEventStreamClose, slashCommandsForMcp]);
+  }, [addNotice, appendCommandOutput, ensureEventsConnected, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, onOpenSettings, onSessionStatsPanelOpen, onToolsReport, promoteNewSession, resolveCommandSession, scheduleEventStreamClose, sendAskingCacheLoss, slashCommandsForMcp]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -2832,14 +2847,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_thinking_level", level }, runtimeIdRef);
+      // A kept cache leaves the level as it was; the reload below shows it again.
+      await sendAskingCacheLoss(sid, { type: "set_thinking_level", level });
       await loadSession(sid);
     } catch (e) {
       console.error("Failed to set thinking level:", e);
       addNotice({ type: "error", message: "Failed to set thinking level" });
       await loadSession(sid);
     }
-  }, [isNew, loadSession, addNotice]);
+  }, [isNew, loadSession, addNotice, sendAskingCacheLoss]);
 
   // The selectors' star is the explicit Ctrl+S equivalent: it saves the global
   // default new sessions start with and also selects it for this chat. This

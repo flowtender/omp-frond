@@ -1,3 +1,4 @@
+import { PROMPT_CACHE_WARM_CODE, type PromptCacheLossWarning } from "./prompt-cache-shared";
 import { clearSessionContinuation } from "./workspace-memory";
 
 // Client-side helper for POST /api/agent/[id].
@@ -15,9 +16,37 @@ export class AgentCommandError extends Error {
     public readonly status: number,
     public readonly code?: string,
     public readonly accepted?: boolean,
+    /** Set when the command was held back because it would discard a warm prompt cache. */
+    public readonly cacheLoss?: PromptCacheLossWarning,
   ) {
     super(message);
     this.name = "AgentCommandError";
+  }
+}
+
+/** The warning of a command held back because it would discard a warm prompt cache. */
+export function promptCacheLossOf(error: unknown): PromptCacheLossWarning | undefined {
+  return error instanceof AgentCommandError && error.code === PROMPT_CACHE_WARM_CODE ? error.cacheLoss : undefined;
+}
+
+/**
+ * Run `send` unconfirmed; when the server holds it back for a warm prompt
+ * cache, ask `confirm` and run it again confirmed. Resolves false when the
+ * user kept the cache, so nothing ran.
+ */
+export async function sendConfirmingCacheLoss(
+  send: (confirmCacheLoss: boolean) => Promise<unknown>,
+  confirm: (warning: PromptCacheLossWarning) => Promise<boolean>,
+): Promise<boolean> {
+  try {
+    await send(false);
+    return true;
+  } catch (error) {
+    const warning = promptCacheLossOf(error);
+    if (!warning) throw error;
+    if (!await confirm(warning)) return false;
+    await send(true);
+    return true;
   }
 }
 
@@ -72,6 +101,7 @@ export async function sendAgentCommand<T = unknown>(
     error?: string;
     code?: string;
     accepted?: boolean;
+    cacheLoss?: PromptCacheLossWarning;
     sessionId?: string;
     runtimeId?: string;
   };
@@ -90,6 +120,7 @@ export async function sendAgentCommand<T = unknown>(
       res.status,
       body.code,
       body.accepted,
+      body.cacheLoss,
     );
   }
   if (runtime && runtime.current === runtimeId && body.sessionId && body.runtimeId) {

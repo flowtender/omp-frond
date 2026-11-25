@@ -1693,11 +1693,13 @@
 
 
 
-/* Project trust dialog (components/ProjectTrustDialog.tsx). It sits above
+/* Project trust dialog (components/ProjectTrustDialog.tsx), whose look the
+   prompt-cache warning (components/PromptCacheLossDialog.tsx) shares. It sits above
    Settings (z-index 1000), which opens it too, keeps clear of the notch and
    the home indicator, and only its body scrolls, so a long MCP server list
    never pushes the buttons or the trust error off the screen. */
-.project-trust-backdrop {
+.project-trust-backdrop,
+.confirm-dialog-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1100;
@@ -1708,7 +1710,8 @@
   background: rgba(0, 0, 0, 0.4);
 }
 
-.project-trust-dialog {
+.project-trust-dialog,
+.confirm-dialog {
   display: flex;
   flex-direction: column;
   width: 480px;
@@ -1722,11 +1725,13 @@
 }
 
 /* Focus moves to the dialog itself when it opens (tabIndex -1); it is not a control, so no ring. */
-.project-trust-dialog:focus {
+.project-trust-dialog:focus,
+.confirm-dialog:focus {
   outline: none;
 }
 
-.project-trust-body {
+.project-trust-body,
+.confirm-dialog-body {
   display: flex;
   flex: 1 1 auto;
   gap: 12px;
@@ -1736,23 +1741,27 @@
   overscroll-behavior: contain;
 }
 
-.project-trust-icon {
+.project-trust-icon,
+.confirm-dialog-icon {
   flex-shrink: 0;
   margin-top: 1px;
 }
 
-.project-trust-content {
+.project-trust-content,
+.confirm-dialog-content {
   flex: 1;
   min-width: 0;
 }
 
-.project-trust-title {
+.project-trust-title,
+.confirm-dialog-title {
   color: var(--text);
   font-size: 15px;
   font-weight: 700;
 }
 
-.project-trust-text {
+.project-trust-text,
+.confirm-dialog-text {
   margin-top: 7px;
   color: var(--text-muted);
   font-size: 12px;
@@ -1797,7 +1806,8 @@
   overflow-wrap: anywhere;
 }
 
-.project-trust-footer {
+.project-trust-footer,
+.confirm-dialog-footer {
   display: flex;
   flex-shrink: 0;
   justify-content: flex-end;
@@ -1806,7 +1816,8 @@
   border-top: 1px solid var(--border);
 }
 
-.project-trust-button {
+.project-trust-button,
+.confirm-dialog-button {
   height: 32px;
   padding: 0 12px;
   border: 1px solid var(--border);
@@ -1821,7 +1832,8 @@
   cursor: not-allowed;
 }
 
-.project-trust-button.is-primary {
+.project-trust-button.is-primary,
+.confirm-dialog-button.is-primary {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-contrast);

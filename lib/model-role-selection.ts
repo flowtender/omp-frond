@@ -45,3 +45,16 @@ export function formatModelRoleSelector(selector: string, level: ModelRoleThinki
   const base = isModelRoleThinkingLevel(suffix) ? selector.slice(0, separator) : selector;
   return level === "inherit" ? base : `${base}:${level}`;
 }
+
+/**
+ * The levels a model preset may set as `defaultThinkingLevel` (omp accepts
+ * `auto` or an effort there, never `off` or `inherit`), after `keep` for a
+ * preset that leaves the setting alone.
+ */
+export const MODEL_PRESET_THINKING_LEVELS = ["keep", "auto", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+export type ModelPresetThinkingLevel = typeof MODEL_PRESET_THINKING_LEVELS[number];
+
+export function toModelPresetThinkingLevel(level: string | undefined): ModelPresetThinkingLevel {
+  return MODEL_PRESET_THINKING_LEVELS.find((candidate) => candidate !== "keep" && candidate === level) ?? "keep";
+}

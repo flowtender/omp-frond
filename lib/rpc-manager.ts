@@ -48,15 +48,16 @@ import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import { resolveSessionSystemPrompts } from "./session-system-prompt";
 import { readDefaultModelRole } from "./model-roles";
 import { getOmpRuntime, getSettingsForCwd } from "./omp-runtime";
-import { livePromptCacheReport } from "./prompt-cache";
-import type { PromptCacheReport } from "./prompt-cache-shared";
+import { assertPromptCacheLossConfirmed, livePromptCacheReport } from "./prompt-cache";
+import type { PromptCacheChange, PromptCacheReport } from "./prompt-cache-shared";
+import { defaultRoleThinkingLevel } from "./model-presets";
 import { PRESET_FULL } from "./tool-presets";
 import { readSubagentRun } from "./subagents";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "./omp-types";
 import { markModelsSeen } from "./seen-models";
 import { modelRef } from "./enabled-models-runtime";
-import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./omp-types";
+import type { AgentSessionLike, ExtensionUiContextLike, ModelLike, ToolInfo } from "./omp-types";
 import { GoalModeController } from "./goal-mode";
 import { formDataFromState, loadFormMedia, parseFormDialogState, prepareFormDialog, type FormDialogAnswer, type FormMediaSource } from "./form-dialog";
 import type {
@@ -1189,6 +1190,28 @@ export class AgentSessionWrapper {
     return this.chatOnly || this.forceEmptySystemPrompt;
   }
 
+  /** What moving this session to `next` would change in its prompt cache key; undefined when nothing would. */
+  promptCacheChangeFor(next: { model?: ModelLike; thinkingLevel?: string }): PromptCacheChange | undefined {
+    const current = this.inner.model;
+    if (next.model && (current?.provider !== next.model.provider || current?.id !== next.model.id)) {
+      return {
+        kind: "model",
+        from: current ? current.name ?? current.id : "no model",
+        to: next.model.name ?? next.model.id,
+      };
+    }
+    const currentLevel = this.inner.configuredThinkingLevel() ?? "off";
+    if (next.thinkingLevel !== undefined && next.thinkingLevel !== currentLevel) {
+      return { kind: "thinking", from: currentLevel, to: next.thinkingLevel };
+    }
+    return undefined;
+  }
+
+  /** Throws `PromptCacheLossError` when `change` would discard a warm cache the request did not confirm losing. */
+  confirmPromptCacheLoss(change: PromptCacheChange | undefined, confirmed: boolean): void {
+    assertPromptCacheLossConfirmed(this.inner, change, confirmed);
+  }
+
   /** Apply a coding tool selection in place, keeping the fork's goal-mode and prompt rules. */
   async setActiveToolSelection(toolNames: string[]): Promise<void> {
     this.setForceEmptySystemPrompt(toolNames.length === 0);
@@ -1501,6 +1524,7 @@ export class AgentSessionWrapper {
         // inside the SDK before we ever get a chance to report "model not found".
         const model = this.inner.modelRegistry.find(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
+        this.confirmPromptCacheLoss(this.promptCacheChangeFor({ model }), command.confirmCacheLoss === true);
         // Reselecting an unchanged model writes nothing.
         if (isDeepStrictEqual(this.inner.model, model)) {
           return { id: model.id, provider: model.provider, ...(role ? { role } : {}) };
@@ -1530,10 +1554,30 @@ export class AgentSessionWrapper {
         const role = command.role as string;
         const model = this.inner.resolveRoleModel(role);
         if (!model) throw new Error(`No model configured for role "${role}"`);
+        this.confirmPromptCacheLoss(this.promptCacheChangeFor({ model }), command.confirmCacheLoss === true);
         await this.inner.setModel(model, role);
         invalidateModelsCache();
         invalidateSessionListCache();
         return { id: model.id, provider: model.provider, role };
+      }
+
+      case "apply_model_roles": {
+        // Settings › Model roles › Activate rewrote the role setup on disk: re-read it and
+        // switch to the default role, as omp's `/modelpreset switch` does. The route asked
+        // about a warm cache before writing anything.
+        await this.inner.settings.reloadFromDisk();
+        const resolved = this.inner.resolveRoleModelWithThinking("default");
+        if (!resolved.model) throw new Error(`No model configured for role "default"`);
+        await this.inner.setModel(resolved.model, "default");
+        const thinkingLevel = defaultRoleThinkingLevel(
+          resolved,
+          typeof command.thinkingLevel === "string" ? command.thinkingLevel : undefined,
+          getSetting<string>(this.inner.settings, "defaultThinkingLevel"),
+        );
+        if (thinkingLevel) this.inner.setThinkingLevel(thinkingLevel);
+        invalidateModelsCache();
+        invalidateSessionListCache();
+        return { provider: resolved.model.provider, modelId: resolved.model.id };
       }
 
       case "fork": {
@@ -1611,6 +1655,7 @@ export class AgentSessionWrapper {
 
       case "set_thinking_level": {
         const level = command.level as string;
+        this.confirmPromptCacheLoss(this.promptCacheChangeFor({ thinkingLevel: level }), command.confirmCacheLoss === true);
         this.inner.setThinkingLevel(level);
         // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
         // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
@@ -1750,6 +1795,7 @@ export class AgentSessionWrapper {
         if (this.isSessionRunningForReplacement()) {
           throw new Error("Wait for the current response to finish before reloading.");
         }
+        this.confirmPromptCacheLoss({ kind: "reload" }, command.confirmCacheLoss === true);
         if (this.extensionUiAbortController.signal.aborted) {
           this.extensionUiAbortController = new AbortController();
         }

@@ -22,6 +22,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { FormDialog } from "./FormDialog";
 import { ToolReportDialog } from "./ToolReportDialog";
+import { usePromptCacheLossDialog } from "./PromptCacheLossDialog";
 import { AnsiText } from "./AnsiText";
 import { OmpWordmark } from "./OmpWordmark";
 import { useI18n } from "@/hooks/useI18n";
@@ -297,6 +298,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   });
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
   const [toolsReport, setToolsReport] = useState<string | null>(null);
+  const cacheLoss = usePromptCacheLossDialog();
 
   const {
     loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
@@ -332,6 +334,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings, onToolsReport: setToolsReport,
     deferInitialScroll: Boolean(pendingScrollRestore),
+    confirmPromptCacheLoss: cacheLoss.confirm,
   });
   // Only whether a reply is streaming and has content yet: the chunks themselves
   // re-render StreamingReply alone.
@@ -1128,6 +1131,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {cacheLoss.dialog}
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

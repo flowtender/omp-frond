@@ -21,7 +21,14 @@ import { cfgProvidersCacheRetention } from "@oh-my-pi/pi-coding-agent/session/se
 import type { PromptCacheStatus } from "@oh-my-pi/pi-coding-agent/modes/view-model/status-line/host";
 import { parseModelString, splitUpstreamRouting } from "@oh-my-pi/pi-coding-agent/config/model-selector";
 import { getOmpRuntime, getSettingsForCwd } from "./omp-runtime";
-import type { PromptCacheInfo, PromptCacheReport } from "./prompt-cache-shared";
+import {
+  PROMPT_CACHE_WARM_CODE,
+  promptCacheViewAt,
+  type PromptCacheChange,
+  type PromptCacheInfo,
+  type PromptCacheLossWarning,
+  type PromptCacheReport,
+} from "./prompt-cache-shared";
 import { sessionPathKey } from "./session-path";
 
 /** The part of omp's `ModelRegistry` the inference reads. */
@@ -152,13 +159,53 @@ function toPromptCacheInfo({ state, reason, inferred, tier, touchedAt, ttlMs, wa
   return { state, reason, inferred, tier, touchedAt, ttlMs, warming };
 }
 
+/** A live session's own warmer, as `AgentSession` exposes it. */
+export interface PromptCacheStatusSource {
+  getPromptCacheStatus?(nowMs?: number, nextTokens?: number): PromptCacheStatus | undefined;
+}
+
 /** What a live session's own warmer reports; null without a warmer or a cached reply. */
 export function livePromptCacheReport(
-  session: { getPromptCacheStatus?(nowMs?: number, nextTokens?: number): PromptCacheStatus | undefined },
+  session: PromptCacheStatusSource,
   nextTokens?: number,
 ): PromptCacheReport | null {
   const status = session.getPromptCacheStatus?.(Date.now(), nextTokens);
   return status ? { live: true, info: toPromptCacheInfo(status) } : null;
+}
+
+/**
+ * Thrown by a command that would break the session's warm prompt cache when
+ * the request did not confirm that loss (`confirmCacheLoss: true`). Nothing
+ * has run; the route answers `409` with `code: PROMPT_CACHE_WARM_CODE`.
+ */
+export class PromptCacheLossError extends Error {
+  constructor(readonly warning: PromptCacheLossWarning) {
+    super("This change would discard the session's warm prompt cache");
+    this.name = "PromptCacheLossError";
+  }
+}
+
+/** The JSON body of a command held back by `PromptCacheLossError`, for every route that runs one. */
+export function promptCacheLossBody(error: PromptCacheLossError) {
+  return { error: error.message, code: PROMPT_CACHE_WARM_CODE, accepted: false, cacheLoss: error.warning };
+}
+
+/**
+ * Refuse `change` while the live session's cache is warm and the request did
+ * not confirm the loss. A resumed session reports omp's own inference from its
+ * transcript, so a chat reopened within the cache's lifetime counts as warm.
+ */
+export function assertPromptCacheLossConfirmed(
+  session: PromptCacheStatusSource,
+  change: PromptCacheChange | undefined,
+  confirmed: boolean,
+): void {
+  if (!change || confirmed) return;
+  const report = livePromptCacheReport(session);
+  if (!report) return;
+  const view = promptCacheViewAt(report.info, Date.now());
+  if (view.state !== "warm") return;
+  throw new PromptCacheLossError({ change, ...(view.expiresAt !== undefined ? { expiresAt: view.expiresAt } : {}) });
 }
 
 // ---------------------------------------------------------------------------

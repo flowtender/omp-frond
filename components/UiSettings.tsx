@@ -18,7 +18,8 @@ import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement"
 import { headerLanguageSwitch, headerThemeSwitch } from "@/hooks/useHeaderControls";
 import { setPromptCacheIndicatorSettings, usePromptCacheIndicatorSettings } from "@/hooks/usePromptCacheIndicator";
 import type { PromptCacheIndicatorSource, PromptCacheIndicatorStyle } from "@/lib/prompt-cache-shared";
-import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
+import type { RuntimeSessionBinding } from "@/lib/agent-client";
+import { useSessionReload } from "@/hooks/useSessionReload";
 import type { ToolSettingsResponse } from "@/lib/api-types";
 import { setExpansionPreference, useExpansionPreference, type ExpansionKind, type ExpansionMode } from "@/lib/expansion-preference";
 import { setupPushSubscription } from "@/lib/push-client";
@@ -82,6 +83,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
+  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
   const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
   const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
   const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
@@ -149,11 +151,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
       const data = await response.json() as ToolSettingsResponse & { error?: string };
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
       setShellSettings(data);
-      if (sessionId) {
-        const binding = { current: runtimeId ?? null, onIdentity: onRuntimeIdentity };
-        await sendAgentCommand(sessionId, { type: "reload" }, binding);
-        onReloaded?.(binding.current);
-      }
+      await sessionReload.reload();
     } catch (cause) {
       setShellError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -185,6 +183,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
 
   return (
     <div className="settings-general">
+      {sessionReload.dialog}
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
         <div className="settings-chat-options">

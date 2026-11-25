@@ -92,3 +92,20 @@ export type PromptCacheReports = Readonly<Record<string, PromptCacheReport>>;
 export function keepSamePromptCacheReports(previous: PromptCacheReports, next: PromptCacheReports): PromptCacheReports {
   return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
 }
+
+/** A change the user asked for that would make the next request miss a warm prompt cache. */
+export type PromptCacheChange =
+  | { kind: "model"; from: string; to: string }
+  | { kind: "thinking"; from: string; to: string }
+  /** A reload may replace the tools or the system prompt; whether it does is known only afterwards. */
+  | { kind: "reload" };
+
+/** Why a cache-breaking command was held back for the user's confirmation. */
+export interface PromptCacheLossWarning {
+  change: PromptCacheChange;
+  /** When the warm entry lapses on its own; absent for one that never expires. */
+  expiresAt?: number;
+}
+
+/** `code` of a command the server held back because it would break a warm cache. */
+export const PROMPT_CACHE_WARM_CODE = "prompt_cache_warm";

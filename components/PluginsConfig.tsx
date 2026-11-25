@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
+import type { RuntimeSessionBinding } from "@/lib/agent-client";
+import { useSessionReload } from "@/hooks/useSessionReload";
 import type {
   PluginPackageInfo,
   PluginsResponse,
@@ -679,6 +680,7 @@ export function PluginsConfig({
     }
   }, [cwd, installScope, installSource, t]);
 
+  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
   const reloadSession = useCallback(async () => {
     if (!sessionId) return;
     setBusyKey("reload");
@@ -686,9 +688,7 @@ export function PluginsConfig({
     setActionMessage(null);
     setGroupStatus(null);
     try {
-      const binding = { current: runtimeId ?? null, onIdentity: onRuntimeIdentity };
-      await sendAgentCommand(sessionId, { type: "reload" }, binding);
-      onReloaded?.(binding.current);
+      if (!await sessionReload.reload()) return;
       await loadPlugins();
       setActionMessage(t("i18n.sessionReloaded"));
     } catch (err) {
@@ -696,7 +696,7 @@ export function PluginsConfig({
     } finally {
       setBusyKey(null);
     }
-  }, [loadPlugins, onReloaded, onRuntimeIdentity, runtimeId, sessionId, t]);
+  }, [loadPlugins, sessionId, sessionReload, t]);
 
   const addBusy = busyKey?.startsWith("install:") ?? false;
   const footerBusy = loading || busyKey !== null;
@@ -704,6 +704,7 @@ export function PluginsConfig({
   return (
     <ConfigPanelShell embedded={embedded} title={t("common.plugins")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
 
+        {sessionReload.dialog}
         {!projectResourcesLoaded && <ConfigTrustNotice message={t("trust.pluginsNotLoaded")} />}
 
         <ConfigSplitView>

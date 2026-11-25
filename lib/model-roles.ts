@@ -1,4 +1,4 @@
-import type { Settings } from "@oh-my-pi/pi-coding-agent";
+import type { ModelRegistry, Settings } from "@oh-my-pi/pi-coding-agent";
 import {
   getKnownRoleIds,
   getRoleInfo,
@@ -7,8 +7,11 @@ import {
   type ModelRole,
 } from "@oh-my-pi/pi-coding-agent/config/model-roles";
 import { resolveModelRoleValue } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { scopedRolePool } from "@oh-my-pi/pi-coding-agent/modes/view-model/overlays/model-browser";
 import type { Api, Model } from "@oh-my-pi/pi-ai";
 import type { ModelRoleAssignment, ModelRoleModelRef, ModelRoleScope } from "./api-types";
+import { resolveVisibleModels } from "./model-scope";
+import { getSetting } from "./omp-settings";
 
 export type { ModelRoleAssignment, ModelRoleModelRef, ModelRoleScope };
 
@@ -97,6 +100,16 @@ export function listModelRoles(
       ...(resolution?.warning ? { warning: resolution.warning } : {}),
     };
   });
+}
+
+/**
+ * Models a role may be assigned: the chat models the `enabledModels` filters
+ * leave visible, plus every available non-chat runner (keyless `local` and
+ * `web` models), which those filters do not scope — omp's `scopedRolePool`.
+ */
+export async function listRoleModelPool(modelRegistry: ModelRegistry, settings: Settings): Promise<Model<Api>[]> {
+  const { visible } = await resolveVisibleModels(modelRegistry, getSetting<string[]>(settings, "enabledModels"), settings);
+  return scopedRolePool(visible, modelRegistry);
 }
 
 /**

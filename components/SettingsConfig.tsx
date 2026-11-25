@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ModelsConfig } from "./ModelsConfig";
+import { ModelRolesConfig } from "./ModelRolesConfig";
 import { NewModelsBadge, useEnabledModels } from "./EnabledModelsSection";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -13,7 +14,8 @@ import { PlugGlyph } from "./PlugGlyph";
 import { refreshOmpTheme, useTheme } from "@/hooks/useTheme";
 import { refreshDisplaySettings } from "@/hooks/useDisplaySettings";
 import { useI18n } from "@/hooks/useI18n";
-import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
+import type { RuntimeSessionBinding } from "@/lib/agent-client";
+import { useSessionReload } from "@/hooks/useSessionReload";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ProjectChoice } from "@/lib/new-session-context";
 import { focusModalPanel, listenForPanelEscape } from "@/lib/stacked-dialog";
@@ -30,7 +32,7 @@ import type {
 } from "@/lib/settings-api";
 import styles from "./SettingsConfig.module.css";
 
-type SettingsSection = "ui" | "models" | "themes" | "skills" | "plugins" | "mcp" | "access" | `settings:${string}`;
+type SettingsSection = "ui" | "models" | "roles" | "themes" | "skills" | "plugins" | "mcp" | "access" | `settings:${string}`;
 
 /** OMP settings tabs that can be edited for one project as well as globally. */
 const PROJECT_SCOPED_TABS: Record<string, true> = { tools: true };
@@ -51,9 +53,11 @@ interface SettingsConfigProps {
   onReloaded?: (runtimeId: string | null) => void;
 }
 
-const CORE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string; requiresCwd?: boolean }> = [
-  { id: "ui", label: "settings.ui", icon: "ui" },
+/** `translated` labels are i18n keys; the rest are product terms shown as is. */
+const CORE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string; requiresCwd?: boolean; translated?: boolean }> = [
+  { id: "ui", label: "settings.ui", icon: "ui", translated: true },
   { id: "models", label: "Models", icon: "model" },
+  { id: "roles", label: "roles.title", icon: "roles", translated: true },
   { id: "themes", label: "Themes", icon: "theme" },
   { id: "skills", label: "Skills", icon: "skill", requiresCwd: true },
   { id: "plugins", label: "Plugins", icon: "plugin", requiresCwd: true },
@@ -64,6 +68,7 @@ const CORE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string; r
 const ICON_PATHS: Record<string, React.ReactNode> = {
   ui: <><path d="M20 7h-9M14 17H5"/><circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/></>,
   model: <><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 1v3m6-3v3M9 20v3m6-3v3M1 9h3m16 0h3M1 15h3m16 0h3"/></>,
+  roles: <><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.2"/><circle cx="15" cy="17" r="2.2"/></>,
   theme: <><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z"/></>,
   skill: <><path d="m12 3 8 4-8 4-8-4 8-4Z"/><path d="m4 12 8 4 8-4M4 17l8 4 8-4"/></>,
   plugin: <PlugGlyph />,
@@ -247,6 +252,12 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
   const [visitedProjectSections, setVisitedProjectSections] = useState(() => new Set([initialSection]));
   // Loaded with the dialog, not the Models section, so its entry can show the new-model count.
   const enabledModels = useEnabledModels(cwd, onModelsChanged);
+  const refreshEnabledModels = enabledModels.refresh;
+  // Role badges show in the Models tab and the chat's model picker.
+  const rolesChanged = useCallback(() => {
+    refreshEnabledModels();
+    onModelsChanged?.();
+  }, [refreshEnabledModels, onModelsChanged]);
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -403,20 +414,18 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
       setVisitedProjectSections((previous) => previous.has(next) ? previous : new Set(previous).add(next));
     }
   };
+  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
   const reloadActiveSession = useCallback(async () => {
-    if (!sessionId) return;
     setReloading(true);
     try {
-      const binding = { current: runtimeId ?? null, onIdentity: onRuntimeIdentity };
-      await sendAgentCommand(sessionId, { type: "reload" }, binding);
-      setNeedsReload(false);
-      onReloaded?.(binding.current);
+      // A kept cache leaves the notice up: the edits still wait for a reload.
+      if (await sessionReload.reload()) setNeedsReload(false);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       setReloading(false);
     }
-  }, [onReloaded, onRuntimeIdentity, runtimeId, sessionId]);
+  }, [sessionReload]);
   const selectedTab = settings?.tabs.find((tab) => tab.id === activeTab);
   const pageTitle = query.trim() ? `Search · ${filteredFields.length}` : selectedTab?.label ?? "Settings";
 
@@ -502,7 +511,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
           <nav className={styles.nav}>
             <div className={styles.navLabel}>Configuration</div>
             {CORE_SECTIONS.map((item) => {
-              const label = item.id === "ui" ? t(item.label) : item.label;
+              const label = item.translated ? t(item.label) : item.label;
               return <button key={item.id} type="button" className={styles.navButton} data-active={!searching && section === item.id} disabled={item.requiresCwd && !cwd} title={item.requiresCwd && !cwd ? `${label} requires a project` : label} onClick={() => selectSection(item.id)}><SettingsIcon kind={item.icon}/><span>{label}</span>{item.id === "models" && <NewModelsBadge controller={enabledModels} />}</button>;
             })}
             <div className={styles.navLabel}>OMP settings</div>
@@ -511,6 +520,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
           <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close} aria-label={t("i18n.close")}><span>{t("i18n.close")}</span><span aria-hidden="true">×</span></button></div>
         </aside>
         <main className={styles.content}>
+          {sessionReload.dialog}
           {cwd && visitedProjectSections.has("skills") && (
             <div className={styles.sectionHost} hidden={searching || section !== "skills"}>
               <SkillsConfig cwd={cwd} key={cwd} trust={projectTrust} embedded onClose={close} />
@@ -524,7 +534,8 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
           {searching ? renderGenericSettings()
             : projectSectionVisible ? null
             : section === "ui" ? <UiSettings sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />
-            : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} onModelsChanged={onModelsChanged} enabledModels={enabledModels} />
+            : section === "models" ? <ModelsConfig embedded onClose={close} onModelsChanged={onModelsChanged} enabledModels={enabledModels} />
+            : section === "roles" ? <ModelRolesConfig cwd={cwd ?? null} session={runtimeId ?? sessionId} onClose={close} onRolesChanged={rolesChanged} />
             : section === "themes" ? renderThemeSection()
             : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} />
             : section === "access" ? <AccessConfig />
@@ -545,6 +556,7 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
+  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
 
   const load = useCallback(async () => {
     try {
@@ -611,11 +623,7 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
       const result = await response.json() as { error?: string };
       if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
       await load();
-      if (sessionId) {
-        const binding = { current: runtimeId ?? null, onIdentity: onRuntimeIdentity };
-        await sendAgentCommand(sessionId, { type: "reload" }, binding);
-        onReloaded?.(binding.current);
-      }
+      await sessionReload.reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -639,6 +647,7 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
 
   return (
     <div className={styles.scrollContent}>
+      {sessionReload.dialog}
       <header className={styles.contentHeader}>
         <h2 className={styles.contentTitle}>MCP servers</h2>
         <p className={styles.contentDescription}>All MCP servers discovered by OMP are listed by scope and can be enabled or disabled here. Native OMP entries are editable; configurations owned by Claude, Codex, Gemini, plugins, or other providers remain read-only at their source.</p>

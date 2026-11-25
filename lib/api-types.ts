@@ -978,6 +978,61 @@ export interface ModelRoleSettingsResponse {
   candidates: Record<string, ModelRoleCandidate[]>;
 }
 
+/** The config layer that owns a model preset: omp reads the highest one whole, never merging same-name entries. */
+export type ModelPresetSource = "global" | "project" | "overlay" | "runtime";
+
+/**
+ * One of omp's model presets (`modelPresets.<name>`): a named snapshot of the
+ * role assignments and `defaultThinkingLevel`, saved and activated as a whole.
+ */
+export interface ModelPresetView {
+  name: string;
+  source: ModelPresetSource;
+  /** The current role setup matches this preset (omp's `findActiveModelPreset`). */
+  active: boolean;
+  /** Role id → omp model-role selector. */
+  modelRoles: Record<string, string>;
+  /** Role id → `provider/modelId` its selector resolves to among the available models. */
+  resolved: Record<string, string>;
+  /** Absent in a preset that leaves the default thinking level alone. */
+  defaultThinkingLevel?: string;
+  /** Why omp cannot read the entry; `modelRoles` is empty then. */
+  invalid?: string;
+}
+
+export interface ModelPresetsResponse {
+  presets: ModelPresetView[];
+}
+
+type ModelPresetProvenance = ModelRoleAssignment["provenance"];
+
+/** A role whose effective assignment differs from the preset after activating it: another layer decides it. */
+export interface ModelPresetShadowedRole {
+  role: string;
+  /** The preset's selector; absent when the preset leaves the role unset. */
+  expected?: string;
+  /** The selector that won instead; absent when the role ended up unset. */
+  actual?: string;
+  source: ModelPresetProvenance;
+}
+
+export interface ModelPresetShadowedThinking {
+  expected: string;
+  actual?: string;
+  source: ModelPresetProvenance;
+}
+
+export interface ModelPresetActivateResponse {
+  roles: ModelRoleAssignment[];
+  presets: ModelPresetView[];
+  shadowed: ModelPresetShadowedRole[];
+  shadowedThinking?: ModelPresetShadowedThinking;
+  /** The open chat's new model, when one was open and switched. */
+  live?: { provider: string; modelId: string };
+  /** The roles were saved, but the open chat could not switch to the new default. */
+  liveError?: string;
+}
+
 export interface OmpWebReleaseInfo {
   version: string;
   tagName: string;

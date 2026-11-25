@@ -107,7 +107,9 @@ app/api/
   default-cwd/route.ts            POST create ~/omp-cwd-YYYYMMDD
   files/[...path]/route.ts        GET file contents for viewer | POST uploads
   home/route.ts                   GET user home directory
-  model-roles/route.ts            GET/PUT omp's modelRoles record
+  model-roles/route.ts            GET/PUT omp's modelRoles record (candidates follow enabledModels)
+  model-presets/route.ts          GET/POST/PUT/DELETE omp's modelPresets (saved in the global config)
+  model-presets/activate/route.ts POST write a preset into the role setup + switch the open chat
   models/route.ts                 GET { models, modelList, defaultModel, roles }
   models/enabled/route.ts         GET/PUT enabledModels switches (minimal pattern edits) + new-model tags
   models-config/route.ts          GET/PUT — read/write ~/.omp/agent/models.yml
@@ -143,7 +145,9 @@ lib/
   markdown.ts          shared markdown helpers
   enabled-models.ts    pure minimal-edit editor for enabledModels patterns
   enabled-models-runtime.ts  omp SDK adapter for it: per-pattern resolution, config.yml read/write
-  model-roles.ts       omp's model roles, read/written for the browser
+  model-roles.ts       omp's model roles, read/written for the browser; the role candidate pool
+  model-presets.ts     omp's model presets: list, create, edit, delete, activate into a scope
+  model-preset-http.ts request helpers shared by the model-presets routes
   model-display-name.ts  short model name for the composer, copying the TUI status line's rule
   model-family.ts      a model's vendor read off its id, for the second icon on the model chip
   model-scope.ts       enabledModels resolution shared by UI and startup
@@ -181,7 +185,9 @@ components/
   BranchNavigator.tsx in-session branch switcher
   MarkdownBody.tsx    markdown renderer
   ModelsConfig.tsx    modal for providers/auth (opened from sidebar bottom)
-  ModelRolesPanel.tsx per-role model assignment inside that modal
+  ModelRolesConfig.tsx Settings › Model roles: current roles + presets list (draft, Apply; Activate per row)
+  ModelRoleRows.tsx   per-role model picker + thinking strip, shared by roles and preset drafts
+  PromptCacheLossDialog.tsx asks before a model/thinking/reload change discards a warm prompt cache
   EnabledModelsSection.tsx per-model enabledModels switches + controller hook + new-model badge
   PluginsConfig.tsx   modal for installed omp plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
@@ -194,6 +200,7 @@ components/
 hooks/
   useAgentSession.ts  messages + streaming + SSE + fork/navigate/reconciliation logic
   useAudio.ts         completion sound + browser AudioContext unlock
+  useSessionReload.ts settings panels' session reload, asking first while the chat's cache is warm
   usePromptCacheIndicator.ts  prompt-cache marker settings (localStorage)
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
@@ -235,6 +242,11 @@ records the role** so the transcript matches what `/model` writes in the TUI.
 
 An explicit model pick in the browser is persisted as `modelRoles.default`
 (`lib/startup-preferences.ts`), which is the same slot the TUI writes.
+
+Settings › Model roles edits both the live role setup and omp's model presets
+(`modelPresets.<name>`; see `docs/agents/models.md`, Model roles and presets).
+Role candidates follow the Models tab's `enabledModels` filters for chat models;
+non-chat runners stay listed (omp's `scopedRolePool`).
 
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.

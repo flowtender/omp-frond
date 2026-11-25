@@ -357,6 +357,7 @@ app/
     files/          # file listing, reading, upload, preview, and watching
     home/           # current user home directory
     model-roles/    # read/write omp's modelRoles (default/smol/slow/plan/…)
+    model-presets/  # omp's model presets: list, save, edit, delete, activate
     models/         # available models, default model, thinking levels, roles
     models-config/  # read/write models.yml and test models
     plugins/        # omp plugin install/remove/enable/disable
@@ -372,7 +373,7 @@ components/
   ChatInput.tsx       # input bar, model/role/tools/thinking/compact/slash controls
   MessageView.tsx     # message, thinking, tool call/result rendering
   ModelsConfig.tsx    # provider and auth configuration panel
-  ModelRolesPanel.tsx # per-role model assignment
+  ModelRolesConfig.tsx # Model roles settings tab: role assignment and presets
   SkillsConfig.tsx    # skill management panel
   FileExplorer.tsx    # file tree
   FileViewer.tsx      # source, diff, image, audio, PDF, DOCX preview
@@ -381,6 +382,7 @@ lib/
   directory-browser.ts # directory normalization and safe listing helpers
   http-dispatcher.ts  # HTTP(S) proxy setup for server-side fetch
   model-roles.ts      # omp's model roles, read and written for the browser
+  model-presets.ts    # omp's model presets, edited and activated from the browser
   model-scope.ts      # enabledModels resolution shared by UI and startup
   omp-runtime.ts      # shared Settings + AuthStorage + ModelRegistry
   omp-types.ts        # structural view of omp's AgentSession

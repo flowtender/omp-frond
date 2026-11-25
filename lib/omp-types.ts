@@ -44,6 +44,7 @@ export interface SlashCommandInfo {
 export interface ModelLike {
   id: string;
   provider: string;
+  name?: string;
 }
 
 export interface ToolInfo {
@@ -213,6 +214,7 @@ export interface AgentSessionLike {
   getAsyncJobSnapshot?(): AsyncJobSnapshot | null;
   setModel(model: ModelLike, role?: string, options?: { selector?: string; thinkingLevel?: string; persist?: boolean }): Promise<{ switched: boolean }>;
   resolveRoleModel(role: string): ModelLike | undefined;
+  resolveRoleModelWithThinking(role: string): { model: ModelLike | undefined; thinkingLevel?: string; explicitThinkingLevel: boolean };
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
   branch(entryId: string): Promise<{ cancelled: boolean }>;
   setThinkingLevel(level: string | undefined, persist?: boolean): void;
