@@ -1546,6 +1546,10 @@ pre, code {
   white-space: pre-wrap;
   color: var(--danger);
 }
+.async-result-cards {
+  display: grid;
+  gap: 6px;
+}
 .task-tool-raw-output > summary {
   cursor: pointer;
   color: var(--text-muted);

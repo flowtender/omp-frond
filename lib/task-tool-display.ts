@@ -1,9 +1,10 @@
 import { shellToolDispatches } from "./inline-tool-display";
-import type { AgentMessage, ToolResultMessage } from "./types";
+import type { AgentMessage, CustomMessage, ToolResultMessage } from "./types";
 
 type TaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
 
-interface TaskResultCard {
+export interface TaskResultCard {
+  tool?: "bash" | "task" | "eval";
   id: string;
   label: string;
   target: string;
@@ -11,6 +12,11 @@ interface TaskResultCard {
   durationMs?: number;
   output: string;
   error?: string;
+}
+
+interface AsyncResultCard extends TaskResultCard {
+  tool: "bash" | "task" | "eval";
+  agentId: string;
 }
 
 const deferredCards = Symbol("deferred task result cards");
@@ -109,6 +115,41 @@ function taskOriginIds(details: unknown): string[] {
   return ids;
 }
 
+/** Split omp's delivery report only when its ordered headings agree with the job metadata. */
+export function asyncResultCards(message: CustomMessage): readonly AsyncResultCard[] {
+  if (message.customType !== "async-result") return [];
+  const jobs = record(message.details)?.jobs;
+  if (!Array.isArray(jobs) || jobs.length === 0) return [];
+  const report = typeof message.content === "string" ? message.content
+    : message.content.flatMap(block => block.type === "text" ? [block.text] : []).join("\n");
+  const start = /^<system-notice>\r?\n/.exec(report);
+  const end = /\r?\n<\/system-notice>\s*$/.exec(report);
+  if (!start || !end) return [];
+  const content = report.slice(start[0].length, end.index);
+  const headings = jobs.length === 1
+    ? [...content.matchAll(/^Background job (\S+?)(?: \(([^\n]*)\))? has completed\.\r?\n(?:Resume your work using the result below\.\r?\n)?/g)]
+    : [...content.matchAll(/^── Job (\S+)(?: \(([^\n]*)\))? ──\r?\n/gm)];
+  if (headings.length !== jobs.length) return [];
+  const cards: AsyncResultCard[] = [];
+  for (const [index, value] of jobs.entries()) {
+    const job = record(value);
+    const heading = headings[index];
+    if (!job || typeof job.jobId !== "string" || job.jobId !== heading[1]) return [];
+    const jobStatus = status(job.status);
+    const tool = job.type;
+    if (!jobStatus || (tool !== "bash" && tool !== "task" && tool !== "eval")) return [];
+    const agentId = text(job.agentId) || job.jobId;
+    const body = content.slice(heading.index + heading[0].length, headings[index + 1]?.index).replace(/\r?\n$/, "");
+    const envelope = tool === "task" ? taskEnvelope(body.trim(), agentId) : undefined;
+    cards.push({ id: job.jobId, agentId, tool,
+      label: envelope?.label || (tool === "task" ? agentId : tool),
+      target: heading[2] || text(job.label) || (tool === "task" ? "" : job.jobId),
+      status: envelope?.cancelled ? "cancelled" : jobStatus, durationMs: duration(job.durationMs),
+      output: envelope?.output ?? body, error: envelope?.error });
+  }
+  return cards;
+}
+
 /** Pair a later omp async delivery with its spawning call without changing transcript messages. */
 export function attachDeferredTaskResults(results: Map<string, ToolResultMessage>, messages: readonly AgentMessage[]): void {
   const origins = new Map<string, { result: ToolResultMessage; slot: number }>();
@@ -128,26 +169,12 @@ export function attachDeferredTaskResults(results: Map<string, ToolResultMessage
     if (origins.size === 0 || message.role !== "custom" || message.customType !== "async-result" || !message.display) continue;
     const jobs = record(message.details)?.jobs;
     if (!Array.isArray(jobs) || !jobs.some(value => record(value)?.type === "task")) continue;
-    const report = (typeof message.content === "string" ? message.content : message.content.map(value => value.type === "text" ? value.text : "").join("\n")).trim();
-    const noticeEnd = "\n</system-notice>";
-    if (!report.startsWith("<system-notice>\n") || !report.endsWith(noticeEnd)) continue;
-    const content = report.slice(0, -noticeEnd.length);
-    // The SDK formats a single job with a prose header, and starts every batch item on its own heading line.
-    const sections = jobs.length === 1 ? [content.replace(/^<system-notice>\nBackground job [^\n]*\n(?:Resume your work using the result below\.\n)?/, "")]
-      : content.split(/^── Job (\S+)(?: \([^\n]*\))? ──\r?\n/gm).slice(1);
-    if (sections.length !== (jobs.length === 1 ? 1 : jobs.length * 2)) continue;
-    jobs.forEach((value, index) => {
-      const job = record(value);
-      if (!job || job.type !== "task" || typeof job.jobId !== "string") return;
-      if (jobs.length > 1 && sections[index * 2] !== job.jobId) return;
-      const jobStatus = status(job.status);
-      const agentId = text(job.agentId) || job.jobId;
-      const origin = origins.get(job.jobId) ?? origins.get(agentId);
-      if (!origin || !jobStatus || jobStatus === "running" || jobStatus === "pending") return;
-      const body = sections[jobs.length === 1 ? 0 : index * 2 + 1].trim();
-      const envelope = taskEnvelope(body, agentId);
+    for (const card of asyncResultCards(message)) {
+      if (card.tool !== "task" || card.status === "running" || card.status === "pending") continue;
+      const origin = origins.get(card.id) ?? origins.get(card.agentId);
+      if (!origin) continue;
       const current = results.get(origin.result.toolCallId) as ToolResultWithCards | undefined;
-      if (!current) return;
+      if (!current) continue;
       const bySlot = current[deferredCards] ?? new Map<number, TaskResultCard[]>();
       if (!current[deferredCards]) {
         const decorated: ToolResultWithCards = { ...current, [deferredCards]: bySlot };
@@ -155,9 +182,7 @@ export function attachDeferredTaskResults(results: Map<string, ToolResultMessage
       }
       const cards = bySlot.get(origin.slot) ?? [];
       if (!bySlot.has(origin.slot)) bySlot.set(origin.slot, cards);
-      cards.push({ id: job.jobId, label: envelope?.label || agentId, target: text(job.label),
-        status: envelope?.cancelled ? "cancelled" : jobStatus, durationMs: duration(job.durationMs),
-        output: envelope?.output ?? body, error: envelope?.error });
-    });
+      cards.push(card);
+    }
   }
 }

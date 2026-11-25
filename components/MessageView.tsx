@@ -31,7 +31,7 @@ import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
 import { mcpToolLabel, prettyMcpResultText, type McpToolLabel } from "@/lib/mcp-tool-display";
 import { inlineToolResult, inlineToolTarget, shellToolDispatches, type ToolDispatch } from "@/lib/inline-tool-display";
-import { taskToolCards } from "@/lib/task-tool-display";
+import { asyncResultCards, taskToolCards, type TaskResultCard } from "@/lib/task-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import { getTranscriptNotices } from "@/lib/transcript-notices";
 import { TRANSCRIPT_NOTICE_WARNING_COLOR, transcriptNoticeText } from "@/components/TranscriptNotices";
@@ -1387,22 +1387,7 @@ function TaskResultOutput({ callId, tool, result, details = result?.details, slo
   return (
     <div className="task-tool-output">
       <span className="shell-output-label">{t("session.output")}</span>
-      {cards.map((card, index) => {
-        const id = `${callId}:result:${card.id}:${index}`;
-        const failed = card.status === "failed";
-        const error = card.error && card.error !== card.output ? card.error : "";
-        return (
-          <ToolCard key={id} callId={id} toolName="task" label={card.label} target={card.target}
-            facts={t(TASK_STATUS_LABELS[card.status])} duration={card.durationMs} isError={failed}>
-            {(expanded) => expanded && <div className="task-tool-result">
-              {error && <p className="task-tool-result-error">{error}</p>}
-              {card.output
-                ? <MarkdownBody className="markdown-custom-message">{card.output}</MarkdownBody>
-                : !error && <span className="shell-output-empty">{t("i18n.noOutput")}</span>}
-            </div>}
-          </ToolCard>
-        );
-      })}
+      <JobResultCards callId={callId} cards={cards} />
       {output.trim() && children && !(isRecord(details) && details.kind === "pi-web-subagent") && (
         <details className="task-tool-raw-output">
           <summary>{t("chat.rawToolOutput")}</summary>
@@ -1411,6 +1396,32 @@ function TaskResultOutput({ callId, tool, result, details = result?.details, slo
       )}
     </div>
   );
+}
+
+function JobResultCards({ callId, cards, cwd, onOpenFile }: {
+  callId: string;
+  cards: readonly TaskResultCard[];
+  cwd?: string;
+  onOpenFile?: (filePath: string, page?: number) => void;
+}) {
+  const { t } = useI18n();
+  return cards.map((card, index) => {
+    const id = `${callId}:result:${card.id}:${index}`;
+    const failed = card.status === "failed";
+    const error = card.error && card.error !== card.output ? card.error : "";
+    const tool = card.tool ?? "task";
+    return (
+      <ToolCard key={id} callId={id} toolName={tool} label={card.label} target={card.target}
+        facts={t(TASK_STATUS_LABELS[card.status])} duration={card.durationMs} isError={failed}>
+        {(expanded) => expanded && <div className="task-tool-result">
+          {error && <p className="task-tool-result-error">{error}</p>}
+          {tool !== "task" ? <ShellOutput output={card.output} isError={failed} showLabel={false} />
+            : card.output ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{card.output}</MarkdownBody>
+              : !error && <span className="shell-output-empty">{t("i18n.noOutput")}</span>}
+        </div>}
+      </ToolCard>
+    );
+  });
 }
 
 function ToolCard({ callId, toolName, label, mcpLabel, isError, target, facts, duration, count = 0, action, children }: {
@@ -2559,9 +2570,10 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const [copied, setCopied] = useState(false);
   const text = getMessageText(message.content);
   const images = getMessageImages(message.content);
+  const jobCards = asyncResultCards(message);
   const hasDetails = message.details !== undefined;
   const detailsText = hasDetails ? safeJson(message.details) : "";
-  const title = formatCustomType(message.customType);
+  const title = jobCards.length ? t("backgroundJobs.results") : formatCustomType(message.customType);
   const time = formatTime(message.timestamp);
 
   const copyContent = () => {
@@ -2616,7 +2628,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
             <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650, flexShrink: 0 }}>
               {title}
             </span>
-            {!contentExpanded && text && (
+            {!contentExpanded && text && jobCards.length === 0 && (
               <span style={{ color: "var(--text-dim)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                 {text.slice(0, 300).replace(/\s+/g, " ").trim()}
               </span>
@@ -2649,7 +2661,15 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                   })}
                 </div>
               )}
-              {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
+              {jobCards.length > 0 ? (
+                <div className="async-result-cards">
+                  <JobResultCards callId={`async:${message.timestamp ?? ""}`} cards={jobCards} cwd={cwd} onOpenFile={onOpenFile} />
+                  <details className="task-tool-raw-output">
+                    <summary>{t("chat.rawToolOutput")}</summary>
+                    <PairedResult text={text} isEmpty={false} isError={false} />
+                  </details>
+                </div>
+              ) : text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
             </div>
 
             <div

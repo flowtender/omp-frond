@@ -332,6 +332,7 @@ export const enLocale: LocalePlugin = {
     "subagents.noTranscript": "The subagent has not written any transcript messages yet.",
     "subagents.transcriptUnavailable": "Live transcript is not available yet. Retrying while the subagent runs.",
     "backgroundJobs.title": "Background jobs",
+    "backgroundJobs.results": "Background job results",
     "backgroundJobs.activityTitle": "Session activity",
     "backgroundJobs.running": "Running",
     "backgroundJobs.completed": "Completed",

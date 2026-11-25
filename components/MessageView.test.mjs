@@ -412,6 +412,60 @@ Unrelated shell output
   assert.doesNotMatch(renderMessage(message, { toolResults }), /Find the parser|Parser located/);
 });
 
+test("an async notice shows separate expandable job cards without an originating tool call", (t) => {
+  t.after(clearExpandedToolCalls);
+  const message = {
+    role: "custom", customType: "async-result", display: true, timestamp: 456,
+    details: { jobs: [
+      { jobId: "build-job", type: "bash", status: "failed", label: "Build", durationMs: 3600 },
+      { jobId: "review-job", agentId: "reviewer", type: "task", status: "completed", durationMs: 800 },
+    ] },
+    content: `<system-notice>
+2 background jobs have completed. Resume your work using the results below.
+
+── Job build-job (bun run compile) ──
+  failure: <missing>
+── Job review-job (Review changes) ──
+<task-result id="reviewer" agent="review" status="completed" duration="800ms">
+<output>
+**No issues**
+</output>
+</task-result>
+</system-notice>`,
+  };
+  const collapsed = renderMessage(message);
+  assert.match(collapsed, /Background job results/);
+  assert.match(collapsed, /bun run compile.*Failed.*3\.6s/);
+  assert.match(collapsed, /review.*Review changes.*Completed.*0\.8s/);
+  assert.doesNotMatch(collapsed, /class="shell-output-line|<strong>No issues<\/strong>/);
+  setToolCallExpanded("async:456:result:build-job:0", true);
+  const shellExpanded = renderMessage(message);
+  assert.match(shellExpanded, /class="shell-output-line is-error"><span>  failure: &lt;missing&gt;<\/span>/);
+  assert.doesNotMatch(shellExpanded, /<strong>No issues<\/strong>/);
+  setToolCallExpanded("async:456:result:review-job:1", true);
+  assert.match(renderMessage(message), /<strong>No issues<\/strong>/);
+});
+
+test("a single async job keeps its command title and falls back if the report no longer matches", (t) => {
+  t.after(clearExpandedToolCalls);
+  const message = {
+    role: "custom", customType: "async-result", display: true, timestamp: 789,
+    details: { jobs: [{ jobId: "test-job", type: "bash", status: "completed", label: "Old title" }] },
+    content: `<system-notice>
+Background job test-job (bun test (unit)) has completed.
+Resume your work using the result below.
+1 test passed
+</system-notice>`,
+  };
+  setToolCallExpanded("async:789:result:test-job:0", true);
+  const html = renderMessage(message);
+  assert.match(html, /bun test \(unit\).*Completed/);
+  assert.match(html, /class="shell-output-line"><span>1 test passed<\/span>/);
+  const fallback = renderMessage({ ...message, content: "Legacy result without a job heading" });
+  assert.match(fallback, /Legacy result without a job heading/);
+  assert.doesNotMatch(fallback, /Background job results/);
+});
+
 test("wait shows each task's status and readable output without discarding other jobs' raw output", (t) => {
   t.after(clearExpandedToolCalls);
   const call = { type: "toolCall", toolName: "wait", toolCallId: "wait-tasks", input: {} };
