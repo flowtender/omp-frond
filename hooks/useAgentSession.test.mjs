@@ -165,21 +165,6 @@ test("rehydrates handoff as busy without misreporting compaction", () => {
   );
 });
 
-test("lets a user scroll pause auto-follow mid-stream", () => {
-  const scrollHandlerSource = source.slice(
-    source.indexOf("const handleScrollPositionChange"),
-    source.indexOf("  // Load session on mount"),
-  );
-
-  // The auto-follow effect refreshes the programmatic-scroll window on every
-  // streaming chunk, so gating every scroll event on it made the follow flag
-  // impossible to clear while the model was producing output.
-  assert.match(scrollHandlerSource, /const userDriven = Date\.now\(\) <= userScrollIntentUntilRef\.current/);
-  assert.match(scrollHandlerSource, /if \(!userDriven && Date\.now\(\) < ignoreProgrammaticScrollUntilRef\.current\) return/);
-  assert.match(scrollHandlerSource, /distanceFromBottom <= AUTO_FOLLOW_BOTTOM_THRESHOLD_PX\)\s*\{\s*setAutoFollow\(true\)/);
-  assert.match(scrollHandlerSource, /if \(userDriven\) \{\s*setAutoFollow\(false\)/);
-});
-
 test("exposes a paused-follow flag and a jump-to-bottom action", () => {
   // The ref drives the scroll effects and the state drives the button; one
   // writer keeps them from drifting apart.

@@ -23,7 +23,7 @@ import { rememberSessionContinuation, clearSessionContinuation } from "@/lib/wor
 import { getDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
 import { userMessageKey } from "@/lib/prompt-recovery";
-import { shouldShowScrollToLatest } from "@/lib/chat-lazy-load";
+import { isScrollAtTail, shouldShowScrollToLatest } from "@/lib/chat-lazy-load";
 import { isNestedToolExecutionEvent } from "@/lib/agent-event-wire";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
@@ -312,9 +312,7 @@ function asConcreteThinkingLevel(value: unknown): ConcreteThinkingLevel | null {
     : null;
 }
 
-const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
 const USER_SCROLL_INTENT_MS = 1200;
-const AUTO_FOLLOW_BOTTOM_THRESHOLD_PX = 72;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -634,10 +632,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Whether content growth keeps the log pinned to its tail: set by the initial
   // jump, cleared when the user scrolls away or a jump targets a message.
   const stickToTailRef = useRef(false);
-  const ignoreProgrammaticScrollUntilRef = useRef(0);
   // Forward reference: handleSend/executeBash are declared above setAutoFollow.
   const setAutoFollowRef = useRef<(following: boolean) => void>(() => {});
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
@@ -2924,8 +2920,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     stickToTailRef.current = true;
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    const container = scrollContainerRef.current;
+    container?.scrollTo({ top: container.scrollHeight, behavior });
   }, []);
 
   // Jump to a search hit or branch row: the clicked message becomes the top
@@ -2937,7 +2933,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     initialScrollDoneRef.current = true;
     pendingScrollToUserRef.current = false;
     setAutoFollowRef.current(false);
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
     container.scrollTo({
       top: element.getBoundingClientRect().top
         - container.getBoundingClientRect().top
@@ -2957,7 +2952,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
     const targetTop = Math.min(Math.max(0, elAbsTop - 16), maxScrollTop);
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
     container.scrollTo({ top: targetTop, behavior: "auto" });
   }, []);
 
@@ -2979,32 +2973,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleScrollPositionChange = useCallback(() => {
     const watched = scrollContainerRef.current;
-    if (watched) {
-      const { scrollTop, clientHeight, scrollHeight } = watched;
-      const shouldShow = shouldShowScrollToLatest(scrollTop, clientHeight, scrollHeight);
-      setShowScrollToBottom((previous) => (previous === shouldShow ? previous : shouldShow));
-    }
-    if (watched && Date.now() <= userScrollIntentUntilRef.current) {
-      const distanceFromBottom = watched.scrollHeight - watched.scrollTop - watched.clientHeight;
-      stickToTailRef.current = distanceFromBottom <= AUTO_FOLLOW_BOTTOM_THRESHOLD_PX;
-    }
-    if (!agentRunningRef.current && !bashRunningRef.current) return;
-    const container = watched;
-    if (!container) return;
-    // The auto-follow effect refreshes the programmatic-scroll window on every
-    // streaming chunk, so during a stream it is always open. Honour a scroll
-    // the user actually drove (wheel/touch/pointer/keys) regardless of it,
-    // otherwise following could never be paused mid-turn.
-    const userDriven = Date.now() <= userScrollIntentUntilRef.current;
-    if (!userDriven && Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom <= AUTO_FOLLOW_BOTTOM_THRESHOLD_PX) {
-      setAutoFollow(true);
-      return;
-    }
-    if (userDriven) {
-      setAutoFollow(false);
-    }
+    if (!watched) return;
+    const { scrollTop, clientHeight, scrollHeight } = watched;
+    setShowScrollToBottom(shouldShowScrollToLatest(scrollTop, clientHeight, scrollHeight));
+    if (Date.now() > userScrollIntentUntilRef.current) return;
+    const atTail = isScrollAtTail(scrollTop, clientHeight, scrollHeight, 1);
+    stickToTailRef.current = atTail;
+    setAutoFollow(atTail);
   }, [setAutoFollow]);
 
   const displayedSessionIdRef = useRef(session?.id);
@@ -3134,11 +3109,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
     container.addEventListener("wheel", markUserScrollIntent, { passive: true });
     container.addEventListener("touchstart", markUserScrollIntent, { passive: true });
+    container.addEventListener("touchmove", markUserScrollIntent, { passive: true });
     container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
     return () => {
       container.removeEventListener("pointerdown", markUserScrollIntent);
       container.removeEventListener("wheel", markUserScrollIntent);
       container.removeEventListener("touchstart", markUserScrollIntent);
+      container.removeEventListener("touchmove", markUserScrollIntent);
       container.removeEventListener("scroll", handleScrollPositionChange);
     };
   }, [messages.length, loading, handleScrollPositionChange, markUserScrollIntent]);
@@ -3148,7 +3125,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const container = scrollContainerRef.current;
     if (!container) return;
     const frame = requestAnimationFrame(() => {
-      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+      if (!completionScrollAllowedRef.current) return;
       container.scrollTo({ top: container.scrollHeight, behavior: "instant" });
     });
     return () => cancelAnimationFrame(frame);
@@ -3291,7 +3268,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     autoFollowPaused, resumeAutoFollow,
     goalStatus,
     // Refs
-    sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
+    sessionIdRef, eventSourceRef, scrollContainerRef,
     lastUserMsgRef,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange, handleRoleModelChange,

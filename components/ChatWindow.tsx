@@ -312,7 +312,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     editEntryId,
     showScrollToBottom,
     goalStatus,
-    sessionIdRef, messagesEndRef, scrollContainerRef,
+    sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange, handleRoleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
@@ -1450,8 +1450,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             )}
 
             <div ref={promptAnchorSpacerRef} aria-hidden="true" />
-
-            <div ref={messagesEndRef} />
             </div>
           </div>
         </div>
