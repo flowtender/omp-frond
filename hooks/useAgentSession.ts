@@ -33,6 +33,7 @@ import type {
   StreamingStore,
 } from "@/lib/streaming-message";
 import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
+import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import type { ContextUsage, GoalStatusInfo, SessionStatsInfo, SlashCommandInfo } from "@/lib/omp-types";
 import type { ModelRoleAssignment } from "@/lib/api-types";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
@@ -532,7 +533,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   // The level saved as `defaultThinkingLevel`, starred in the reasoning menu.
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
-  const [toolPreset, setToolPreset] = useState<ToolPreset>("default");
+  const [toolPreset, setToolPreset] = useState<ToolPreset>(() => isNew ? getPreferredToolPreset() : "configured");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [effectiveThinkingLevel, setEffectiveThinkingLevel] = useState<string | undefined>();
   const [composerStatus, setComposerStatus] = useState<Pick<SessionComposerSnapshot, "source" | "shimmer" | "modelRole">>();
@@ -1250,7 +1251,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return promise;
   }, [closeEvents]);
 
-  const ensureEventsConnected = useCallback(async (sid: string) => {
+  const resolveCommandSession = useCallback(async (sid: string) => {
     if (!mountedRef.current) throw new Error("Session is no longer active");
     const requestedRuntimeId = runtimeIdRef.current;
     if (requestedRuntimeId) {
@@ -1279,6 +1280,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         sid = sessionIdRef.current ?? sid;
       }
     }
+    return sid;
+  }, [followRuntimeState, followSessionIdentity]);
+
+  const ensureEventsConnected = useCallback(async (sid: string) => {
+    if (!mountedRef.current) throw new Error("Session is no longer active");
+    if (runtimeIdRef.current) sid = await resolveCommandSession(sid);
     if (!mountedRef.current) throw new Error("Session is no longer active");
     const current = eventSourceRef.current;
     if (current && eventSourceSessionIdRef.current === sid
@@ -1307,7 +1314,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (eventConnectionAttemptRef.current?.source === result.source) eventConnectionAttemptRef.current = null;
     result.source.close();
     throw new EventStreamConnectionError(result.status);
-  }, [connectEvents, followRuntimeState, followSessionIdentity]);
+  }, [connectEvents, resolveCommandSession]);
 
   // The retry counter re-runs the discovery effect after a failed attempt, so a
   // run still reported as running is followed again.
@@ -2897,17 +2904,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const dismissCompactError = useCallback(() => setCompactError(null), []);
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
-    const toolNames = getToolNamesForPreset(preset);
-    setToolPresetState(preset);
-    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-    if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_tools", toolNames }, runtimeIdRef);
-      if (!isNew) await loadSession(sessionIdRef.current ?? sid);
+      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+      if (sid) {
+        const targetId = await resolveCommandSession(sid);
+        await sendAgentCommand(targetId, { type: "set_tools", toolNames: getToolNamesForPreset(preset) }, runtimeIdRef);
+      } else if (!isNew) {
+        return;
+      }
+      setPreferredToolPreset(preset);
+      setToolPresetState(preset);
+      if (!isNew && sid) await loadSession(sessionIdRef.current ?? sid);
     } catch (e) {
-      console.error("Failed to set tools:", e);
+      addNotice({ type: "error", message: `Failed to change tools: ${e instanceof Error ? e.message : String(e)}` });
     }
-  }, [isNew, loadSession, setToolPresetState]);
+  }, [addNotice, isNew, loadSession, resolveCommandSession, setToolPresetState]);
 
   // Single writer for the follow flag so the ref (read by the scroll effects)
   // and the state (read by the jump-to-bottom button) never drift apart.

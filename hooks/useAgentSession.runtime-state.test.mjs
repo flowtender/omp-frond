@@ -211,6 +211,7 @@ test("a superseded preflight keeps the new runtime for the event handshake", asy
     h.bindings.eventSourceRef.current = source;
     return { source, status: "connected" };
   };
+  h.bindings.resolveCommandSession = callback("resolveCommandSession", h.bindings);
   const connecting = callback("ensureEventsConnected", h.bindings)("b");
   installNewRuntime(h);
   pending.resolve(response({ running: false, state: { sessionId: "b" } }));
