@@ -69,20 +69,24 @@ function renderCode(props) {
   );
 }
 
-test("CodeBlock renders the same numbered lines without tokens until the Prism languages load", () => {
-  const html = renderCode({ code: "const x = 1;\nlet y = 2;", lang: "javascript" });
-
-  assert.doesNotMatch(html, /class="token/);
-  assert.equal(html.match(/react-syntax-highlighter-line-number/g)?.length, 2);
-  assert.match(html, /const x = 1;/);
-});
-
 test("CodeBlock highlights code when not streaming", async () => {
   await loadPrismLanguages();
   const html = renderCode({ code: "const x = 1;", lang: "javascript" });
 
   assert.match(html, /class="token/);
   assert.match(html, /const/);
+  assert.match(html, /class="markdown-code-block omp-syntax"/);
+  assert.doesNotMatch(html, /class="token[^"]*" style=/);
+
+  const json = renderCode({ code: '{ "x": 1 }', lang: "json" });
+  assert.match(json, /class="markdown-code-block omp-syntax language-json"/);
+  assert.match(json, /class="token/);
+});
+
+test("oversized code fences remain plain", () => {
+  const html = renderCode({ code: "const x = 1;\n".repeat(3_000), lang: "javascript" });
+  assert.doesNotMatch(html, /class="token/);
+  assert.match(html, /const x = 1;/);
 });
 
 test("CodeBlock owns the pre background without a competing shorthand", () => {

@@ -4,10 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, 
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import ReactMarkdown from "react-markdown";
-import { useTheme } from "@/hooks/useTheme";
 import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import {
   DOCX_PREVIEW_MAX_BYTES,
@@ -63,6 +60,7 @@ interface FileData {
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
+const SOURCE_HIGHLIGHT_MAX_CHARS = 32_000;
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
   preview: "Preview",
@@ -75,19 +73,6 @@ const FILE_CODE_STYLE: CSSProperties = {
   fontSize: 13,
   lineHeight: 1.6,
 };
-
-// Prism's light theme colors <pre> with backgroundColor, its dark theme with
-// the background shorthand. The source view sets backgroundColor itself and the
-// dark theme's shorthand is dropped, as CodeBlock does: a theme switch then never
-// makes React remove one beside the other (it warned, and the view lost its
-// background).
-const fileViewerDarkTheme = {
-  ...vscDarkPlus,
-  'pre[class*="language-"]': {
-    ...vscDarkPlus['pre[class*="language-"]'],
-  },
-};
-delete fileViewerDarkTheme['pre[class*="language-"]'].background;
 
 // `lineHeight` is FILE_CODE_STYLE's 13px * 1.6, so both columns share one line
 // box; a code-font change must move it with fontSize.
@@ -1153,7 +1138,6 @@ function TextFileViewer({
   onStateChange,
   watchEnabled = true,
 }: Props) {
-  const { isDark } = useTheme();
   const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
@@ -1430,18 +1414,18 @@ function TextFileViewer({
   const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   // A partly loaded HTML file previews whole, so Load more belongs to its source view.
   const showLoadMore = !!data?.truncated && !(isHtml && effectiveDisplayMode === "preview");
-  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
+  const useLightweightSource = (sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES || viewerContent.length > SOURCE_HIGHLIGHT_MAX_CHARS)
     && !(effectiveDisplayMode === "diff" && hasGitDiff)
     && !(effectiveDisplayMode === "preview" && hasPreview);
   // react-syntax-highlighter rebuilds every token element on each render, which
   // costs hundreds of milliseconds on large files. Cache the rendered trees so
   // unrelated re-renders (panel open/close, selection changes) reuse them as-is.
   const highlightedSource = useMemo(
-    () => (
+    () => sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES || viewerContent.length > SOURCE_HIGHLIGHT_MAX_CHARS ? null : (
       <SyntaxHighlighter
-        className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
+        className={`omp-syntax file-source-view${wrapLines ? " is-wrapped" : ""}${language === "json" ? " language-json" : ""}`}
         language={language === "text" || !prismReady ? "plaintext" : language}
-        style={isDark ? fileViewerDarkTheme : vs}
+        useInlineStyles={false}
         showLineNumbers
         lineNumberStyle={{
           ...FILE_PINNED_LINE_NUMBER_STYLE,
@@ -1472,7 +1456,7 @@ function TextFileViewer({
         {viewerContent}
       </SyntaxHighlighter>
     ),
-    [isDark, language, prismReady, viewerContent, wrapLines],
+    [language, prismReady, sourceLines.length, viewerContent, wrapLines],
   );
   const lightweightSourceLines = useMemo(
     () => useLightweightSource ? sourceLines.map((line, lineIndex) => (

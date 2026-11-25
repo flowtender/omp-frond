@@ -32,6 +32,7 @@ import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounde
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { hasParentDirectorySegment } from "@/lib/path-security";
 import { readTextPreviewChunk } from "@/lib/text-preview";
+import { fileLanguage } from "@/lib/file-language";
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -40,42 +41,6 @@ const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
-
-// The source view highlights every language here but text, pdf and word with
-// the Prism grammar of that name (refractor/all); a name it lacks renders
-// plain. "html" and "markdown" also turn on FileViewer's Preview, so templates
-// that are not pages take "markup". `.m` stays plain: Objective-C and MATLAB
-// both use it.
-const EXT_TO_LANGUAGE: Record<string, string> = {
-  ts: "typescript", tsx: "tsx", mts: "typescript", cts: "typescript",
-  js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript",
-  py: "python", rb: "ruby", php: "php", lua: "lua", pl: "perl", r: "r",
-  go: "go", rs: "rust", java: "java", kt: "kotlin", kts: "kotlin", swift: "swift",
-  scala: "scala", groovy: "groovy", gradle: "groovy", dart: "dart", zig: "zig",
-  c: "c", cpp: "cpp", h: "c", hpp: "cpp", cs: "csharp", mm: "objectivec",
-  ex: "elixir", exs: "elixir", hs: "haskell", ml: "ocaml", clj: "clojure", nix: "nix",
-  html: "html", htm: "html", vue: "markup", svelte: "markup", astro: "markup",
-  css: "css", scss: "scss", less: "less",
-  json: "json", jsonl: "json", yaml: "yaml", yml: "yaml",
-  toml: "toml", ini: "ini", cfg: "ini", properties: "properties",
-  xml: "xml", md: "markdown", mdx: "markdown", tex: "latex",
-  sh: "bash", bash: "bash", zsh: "bash", fish: "bash",
-  ps1: "powershell", psm1: "powershell", bat: "batch", cmd: "batch",
-  sql: "sql", graphql: "graphql", gql: "graphql", proto: "protobuf",
-  dockerfile: "dockerfile", tf: "hcl", hcl: "hcl", diff: "diff", patch: "diff",
-  env: "bash", gitignore: "bash", txt: "text",
-  pdf: "pdf", docx: "word",
-};
-
-function getLanguage(filePath: string): string {
-  const base = path.basename(filePath).toLowerCase();
-  // Special full-name matches
-  if (base === "dockerfile" || base.startsWith("dockerfile.")) return "dockerfile";
-  if (base === ".env" || base.startsWith(".env.")) return "bash";
-  if (base === "makefile" || base === "gnumakefile") return "makefile";
-  const ext = base.split(".").pop() ?? "";
-  return EXT_TO_LANGUAGE[ext] ?? "text";
-}
 
 function parseFileRequestType(value: string): FileRequestType | null {
   return FILE_REQUEST_TYPE_SET.has(value) ? (value as FileRequestType) : null;
@@ -528,7 +493,7 @@ export async function GET(
         return NextResponse.json({ error: "Invalid text preview offset" }, { status: 400 });
       }
       const chunk = readTextPreviewChunk(filePath, stat.size, offset);
-      const language = getLanguage(filePath);
+      const language = fileLanguage(filePath);
       return NextResponse.json({ ...chunk, language, size: stat.size });
     }
 
@@ -550,7 +515,7 @@ export async function GET(
       const documentMime = getDocumentMime(filePath);
       return NextResponse.json({
         size: stat.size,
-        language: getLanguage(filePath),
+        language: fileLanguage(filePath),
         mime: imageMime || audioMime || videoMime || documentMime || "text/plain",
         previewKind: documentPreviewKind(filePath),
       });

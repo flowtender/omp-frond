@@ -19,6 +19,7 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
     return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, filePath = "/tmp/file.txt") => {
       const isDelimitedTablePath = (path) => /\\.(csv|tsv)$/i.test(path);
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
+      const SOURCE_HIGHLIGHT_MAX_CHARS = 32_000;
       const HTML_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
       const FILE_LINE_NUMBER_STYLE = {};
       ${calculations}
@@ -29,6 +30,7 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
   const large = { content: "line\n".repeat(1_000), language: "text" };
 
   assert.equal(render({ ...large, content: "line\n".repeat(999) }, "source"), null);
+  assert.equal(render({ content: "x".repeat(32_001), language: "javascript" }, "source").length, 1);
   assert.equal(render(large, "diff", true), null);
   assert.equal(render(large, "source", true, true), null);
   for (const language of ["html", "markdown"]) {
@@ -94,17 +96,23 @@ test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT
     return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, filePath = "/tmp/file.txt") => {
       const isDelimitedTablePath = (path) => /\.(csv|tsv)$/i.test(path);
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
+      const SOURCE_HIGHLIGHT_MAX_CHARS = 32_000;
       const HTML_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
       const FILE_LINE_NUMBER_STYLE = gutterStyle;
       const FILE_PINNED_LINE_NUMBER_STYLE = pinnedStyle;
       // Stand-ins for what the highlighted element only passes on.
-      const [usePrismLanguages, SyntaxHighlighter, SourceCodeRenderer, isDark, vs, fileViewerDarkTheme, FILE_CODE_STYLE] = [() => true, "pre", "span", false, {}, {}, {}];
+      const [usePrismLanguages, SyntaxHighlighter, SourceCodeRenderer, FILE_CODE_STYLE] = [() => true, "pre", "span", {}];
       ${calculations}
       return { lightweightSourceLines, highlightedSource };
     };
   `, { compilerOptions: { jsx: ts.JsxEmit.React } });
   const render = new Function("React", "useMemo", "gutterStyle", "pinnedStyle", outputText)(React, (calculate) => calculate(), gutterStyle, pinnedStyle);
-  const { lightweightSourceLines: rows, highlightedSource } = render({ content: "line\n".repeat(1_000), language: "text" }, "source");
+  const { lightweightSourceLines: rows } = render({ content: "line\n".repeat(1_000), language: "text" }, "source");
+  const { highlightedSource } = render({ content: "line\n".repeat(999), language: "json" }, "source");
+  assert.equal(highlightedSource.props.useInlineStyles, false);
+  assert.match(highlightedSource.props.className, /\bomp-syntax\b/);
+  assert.match(highlightedSource.props.className, /\blanguage-json\b/);
+  assert.equal(render({ content: "line\n".repeat(1_000), language: "json" }, "source").highlightedSource, null);
   const numberStyle = rows[0].props.children[0].props.style;
   // The Diff view's first row number, with every row an added line.
   const diffView = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "DiffView");
