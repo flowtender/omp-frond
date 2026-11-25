@@ -9,6 +9,7 @@ import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/exte
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks, type DisplayOptions } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
+import { attachDeferredTaskResults } from "@/lib/task-tool-display";
 import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
@@ -902,6 +903,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         map.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);
       }
     }
+    attachDeferredTaskResults(map, messages);
     return map;
   }, [activeToolResults, messages]);
   // Same idea for the copies a grouped turn passes MessageView (see getFinalAnswerViews).

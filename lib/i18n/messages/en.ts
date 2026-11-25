@@ -548,6 +548,7 @@ export const enLocale: LocalePlugin = {
     "chat.waitingModel": "Waiting for model...",
     "chat.runningCommand": "Running command...",
     "chat.toolHelp": "Help",
+    "chat.rawToolOutput": "Raw output",
     "chat.toolMemoriesStored": "Stored: {count}",
     "chat.toolImpactRisk": "Risk: {risk}",
     "chat.toolImpactDirect": "Direct callers: {count}",

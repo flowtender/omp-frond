@@ -1,4 +1,5 @@
 import type { AgentMessage, ToolResultMessage } from "@/lib/types";
+import { attachDeferredTaskResults } from "@/lib/task-tool-display";
 
 /** One page of `GET /api/sessions/[id]/context`, or what the viewer holds. */
 export interface SubagentTranscript {
@@ -16,6 +17,7 @@ export function buildToolResultsMap(messages: readonly AgentMessage[]): Map<stri
   for (const message of messages) {
     if (message.role === "toolResult") map.set(message.toolCallId, message);
   }
+  attachDeferredTaskResults(map, messages);
   return map;
 }
 

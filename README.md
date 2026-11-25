@@ -18,6 +18,8 @@ It is not a separate agent: omp-web runs omp's own SDK in-process, against the s
 
 This fork, `flowtender/omp-frond`, tracks three UI upstreams: [agegr/pi-web](https://github.com/agegr/pi-web) (the original UI), [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) (the OMP adaptation), and [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) (an OMP fork with a newer pi-web integration). The OMP SDK ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) is an exact pinned package dependency, not a branch to merge. Branch roles and update workflows are documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
 
+Expand a task or subagent tool call to see its result cards, with status, duration when available, and formatted output. Deferred completions are linked back to the task that started them; results collected by `wait` also appear in that tool's output.
+
 
 ## Quick Start
 

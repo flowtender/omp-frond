@@ -14,6 +14,7 @@ const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 const { parseUnifiedPatch } = await jiti.import("@/lib/patch");
+const { buildToolResultsMap } = await jiti.import("./subagent-viewer-state.ts");
 const {
   CompactionSummaryDetails,
   MessageView,
@@ -366,6 +367,69 @@ test("renders subagents as standard tool calls with only an extra side-panel but
     onOpenSubagent() {},
   });
   assert.doesNotMatch(ordinaryHtml, /View sub-agent work in side panel/);
+});
+
+test("a deferred completion goes under the mounted task that started it, not its batch siblings", (t) => {
+  t.after(clearExpandedToolCalls);
+  const call = { type: "toolCall", toolName: "bash", toolCallId: "mounted-tasks", input: { command: "task; task" } };
+  const task = (jobId, agentId) => ({ tool: "task", mode: "execute", exitCode: 0, inner: {
+    results: [], progress: [{ id: agentId }], async: { type: "task", jobId, state: "running" },
+  } });
+  const result = {
+    role: "toolResult", toolName: "bash", toolCallId: call.toolCallId,
+    content: [{ type: "text", text: "Spawned agents" }],
+    details: { toolCommands: [task("first-job", "first-agent"), task("other-job", "other-agent")] },
+  };
+  const notice = {
+    role: "custom", customType: "async-result", display: true,
+    details: { jobs: [
+      { jobId: "shell-job", type: "bash", status: "completed" },
+      { jobId: "renamed-job", agentId: "first-agent", type: "task", status: "completed", label: "Find the parser", durationMs: 2300 },
+    ] },
+    content: `<system-notice>
+2 background jobs have completed. Resume your work using the results below.
+
+── Job shell-job (echo) ──
+Unrelated shell output
+── Job renamed-job (Find the parser) ──
+<task-result id="first-agent" agent="explore" status="completed" duration="2.3s">
+<output>
+**Parser located**
+</output>
+</task-result>
+</system-notice>`,
+  };
+  const message = { role: "assistant", provider: "test", model: "test", content: [call] };
+  const toolResults = buildToolResultsMap([result, notice]);
+  setToolCallExpanded("mounted-tasks:cmd:0", true);
+  setToolCallExpanded("mounted-tasks:cmd:1", true);
+  assert.doesNotMatch(renderMessage(message, { toolResults }), /Parser located/);
+  setToolCallExpanded("mounted-tasks:cmd:0:result:renamed-job:0", true);
+  const html = renderMessage(message, { toolResults });
+  assert.match(html, /explore.*Find the parser.*Completed.*2\.3s.*<strong>Parser located<\/strong>/);
+  assert.doesNotMatch(html, /Unrelated shell output|&lt;task-result/);
+  setToolCallExpanded("mounted-tasks:cmd:0", false);
+  assert.doesNotMatch(renderMessage(message, { toolResults }), /Find the parser|Parser located/);
+});
+
+test("wait shows each task's status and readable output without discarding other jobs' raw output", (t) => {
+  t.after(clearExpandedToolCalls);
+  const call = { type: "toolCall", toolName: "wait", toolCallId: "wait-tasks", input: {} };
+  const result = {
+    role: "toolResult", toolName: "wait", toolCallId: call.toolCallId,
+    content: [{ type: "text", text: "Non-task console output" }],
+    details: { op: "wait", jobs: [
+      { id: "review", type: "task", status: "failed", intent: "Review the change", durationMs: 4900, errorText: "Provider timed out" },
+      { id: "shell", type: "bash", status: "completed" },
+    ] },
+  };
+  setToolCallExpanded("wait-tasks", true);
+  setToolCallExpanded("wait-tasks:result:review:0", true);
+  const html = renderMessage({ role: "assistant", provider: "test", model: "test", content: [call] }, {
+    toolResults: buildToolResultsMap([result]),
+  });
+  assert.match(html, /review.*Review the change.*Failed.*4\.9s.*Provider timed out/);
+  assert.match(html, /<summary>Raw output<\/summary>.*Non-task console output/);
 });
 
 test("a tool card shows the run time pi recorded, else the timestamps' difference, never a tiny one", () => {

@@ -1526,6 +1526,30 @@ pre, code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.task-tool-output {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+.task-tool-result {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  max-height: 400px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.task-tool-result-error {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  color: var(--danger);
+}
+.task-tool-raw-output > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
 .inline-tool-facts {
   min-width: 0;
   overflow: hidden;

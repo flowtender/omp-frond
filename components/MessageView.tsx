@@ -31,6 +31,7 @@ import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
 import { mcpToolLabel, prettyMcpResultText, type McpToolLabel } from "@/lib/mcp-tool-display";
 import { inlineToolResult, inlineToolTarget, shellToolDispatches, type ToolDispatch } from "@/lib/inline-tool-display";
+import { taskToolCards } from "@/lib/task-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import { getTranscriptNotices } from "@/lib/transcript-notices";
 import { TRANSCRIPT_NOTICE_WARNING_COLOR, transcriptNoticeText } from "@/components/TranscriptNotices";
@@ -1242,6 +1243,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
       return <MountedToolCards
         callId={block.toolCallId}
         dispatches={dispatches}
+        result={result}
         output={resultText ?? ""}
         isError={isError}
         hasFinalTiming={isRecord(result?.details) && typeof result.details.wallTimeMs === "number"}
@@ -1351,15 +1353,63 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
             diff={resultDiff}
           />
         ) : (!resultIsEmpty || resultImages.length === 0) && (
-          <PairedResult
-            text={resultText ?? ""}
-            isEmpty={resultIsEmpty}
-            isError={isError}
-          />
+          <TaskResultOutput callId={block.toolCallId} tool={block.toolName} result={result} output={resultText ?? ""}>
+            <PairedResult text={resultText ?? ""} isEmpty={resultIsEmpty} isError={isError} />
+          </TaskResultOutput>
         )
       )}
       </>}
     </ToolCard>
+  );
+}
+
+const TASK_STATUS_LABELS = {
+  pending: "backgroundJobs.running",
+  running: "backgroundJobs.running",
+  completed: "backgroundJobs.completed",
+  failed: "backgroundJobs.failed",
+  cancelled: "backgroundJobs.cancelled",
+  interrupted: "agentSwitcher.status.interrupted",
+} as const;
+
+function TaskResultOutput({ callId, tool, result, details = result?.details, slot, output = "", children }: {
+  callId: string;
+  tool: string;
+  result?: ToolResultMessage;
+  details?: unknown;
+  slot?: number;
+  output?: string;
+  children?: ReactNode;
+}) {
+  const { t } = useI18n();
+  const cards = taskToolCards(tool, details, output, result, slot);
+  if (cards.length === 0) return children;
+  return (
+    <div className="task-tool-output">
+      <span className="shell-output-label">{t("session.output")}</span>
+      {cards.map((card, index) => {
+        const id = `${callId}:result:${card.id}:${index}`;
+        const failed = card.status === "failed";
+        const error = card.error && card.error !== card.output ? card.error : "";
+        return (
+          <ToolCard key={id} callId={id} toolName="task" label={card.label} target={card.target}
+            facts={t(TASK_STATUS_LABELS[card.status])} duration={card.durationMs} isError={failed}>
+            {(expanded) => expanded && <div className="task-tool-result">
+              {error && <p className="task-tool-result-error">{error}</p>}
+              {card.output
+                ? <MarkdownBody className="markdown-custom-message">{card.output}</MarkdownBody>
+                : !error && <span className="shell-output-empty">{t("i18n.noOutput")}</span>}
+            </div>}
+          </ToolCard>
+        );
+      })}
+      {output.trim() && children && !(isRecord(details) && details.kind === "pi-web-subagent") && (
+        <details className="task-tool-raw-output">
+          <summary>{t("chat.rawToolOutput")}</summary>
+          {children}
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -1866,9 +1916,10 @@ function ShellOutput({ output, pending = false, isError, showLabel = true }: {
   );
 }
 
-function MountedToolCards({ callId, dispatches, output, isError, hasFinalTiming, duration }: {
+function MountedToolCards({ callId, dispatches, result, output, isError, hasFinalTiming, duration }: {
   callId: string;
   dispatches: readonly ToolDispatch[];
+  result?: ToolResultMessage;
   output: string;
   isError: boolean;
   hasFinalTiming: boolean;
@@ -1898,7 +1949,11 @@ function MountedToolCards({ callId, dispatches, output, isError, hasFinalTiming,
           >
             {(expanded) => expanded && <>
               {mode === "execute" && args && Object.keys(args).length > 0 && <ShellToolArguments args={args} />}
-              {single && <ShellOutput output={output} isError={isError} />}
+              {mode === "execute" ? (
+                <TaskResultOutput callId={dispatchId} tool={tool} details={inner} result={result} slot={index} output={single ? output : ""}>
+                  {single && <ShellOutput output={output} isError={isError} />}
+                </TaskResultOutput>
+              ) : single && <ShellOutput output={output} isError={isError} />}
             </>}
           </ToolCard>
         );
