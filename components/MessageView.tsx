@@ -1410,6 +1410,12 @@ function JobResultCards({ callId, cards, cwd, onOpenFile }: {
     const failed = card.status === "failed";
     const error = card.error && card.error !== card.output ? card.error : "";
     const tool = card.tool ?? "task";
+    if (tool === "bash") {
+      return <ConsoleOutputPreview key={id} command={card.target} output={card.output}
+        pending={card.status === "pending" || card.status === "running"} isError={failed}
+        duration={card.durationMs} status={card.status === "cancelled" || card.status === "interrupted"
+          ? t(TASK_STATUS_LABELS[card.status]) : undefined} />;
+    }
     return (
       <ToolCard key={id} callId={id} toolName={tool} label={card.label} target={card.target}
         facts={t(TASK_STATUS_LABELS[card.status])} duration={card.durationMs} isError={failed}>
@@ -1827,6 +1833,7 @@ function ConsoleOutputPreview({
   isError,
   duration,
   local,
+  status,
 }: {
   command: string;
   output: string;
@@ -1834,6 +1841,7 @@ function ConsoleOutputPreview({
   isError: boolean;
   duration?: number;
   local?: boolean;
+  status?: string;
 }) {
   const { isDark } = useTheme();
 
@@ -1872,8 +1880,10 @@ function ConsoleOutputPreview({
 
       <ShellOutput output={output} pending={pending} isError={isError} />
 
-      {duration !== undefined && (
-        <div className="shell-output-footer">{formatToolDuration(duration)}</div>
+      {(status || duration !== undefined) && (
+        <div className="shell-output-footer">
+          {status}{status && duration !== undefined ? " · " : ""}{duration !== undefined && formatToolDuration(duration)}
+        </div>
       )}
     </div>
   );

@@ -412,7 +412,7 @@ Unrelated shell output
   assert.doesNotMatch(renderMessage(message, { toolResults }), /Find the parser|Parser located/);
 });
 
-test("an async notice shows separate expandable job cards without an originating tool call", (t) => {
+test("an async notice keeps the highlighted shell command and output open beside a collapsed task", (t) => {
   t.after(clearExpandedToolCalls);
   const message = {
     role: "custom", customType: "async-result", display: true, timestamp: 456,
@@ -423,7 +423,7 @@ test("an async notice shows separate expandable job cards without an originating
     content: `<system-notice>
 2 background jobs have completed. Resume your work using the results below.
 
-── Job build-job (bun run compile) ──
+── Job build-job (printf '%s\\n' "$VALUE" && bun run compile) ──
   failure: <missing>
 ── Job review-job (Review changes) ──
 <task-result id="reviewer" agent="review" status="completed" duration="800ms">
@@ -433,21 +433,22 @@ test("an async notice shows separate expandable job cards without an originating
 </task-result>
 </system-notice>`,
   };
-  const collapsed = renderMessage(message);
-  assert.match(collapsed, /Background job results/);
-  assert.match(collapsed, /bun run compile.*Failed.*3\.6s/);
-  assert.match(collapsed, /review.*Review changes.*Completed.*0\.8s/);
-  assert.doesNotMatch(collapsed, /class="shell-output-line|<strong>No issues<\/strong>/);
-  setToolCallExpanded("async:456:result:build-job:0", true);
-  const shellExpanded = renderMessage(message);
-  assert.match(shellExpanded, /class="shell-output-line is-error"><span>  failure: &lt;missing&gt;<\/span>/);
-  assert.doesNotMatch(shellExpanded, /<strong>No issues<\/strong>/);
+  const html = renderMessage(message);
+  assert.match(html, /Background job results/);
+  assert.match(html, /class="shell-output-preview is-error"/);
+  const command = html.match(/class="shell-command-code"[^>]*>(.*?)<\/span><\/span><\/div>/s)?.[1];
+  assert.ok(command);
+  assert.match(command, /style="color:[^"]+"/);
+  assert.match(textOf(command), /printf '%s\\n' "\$VALUE" && bun run compile/);
+  assert.match(html, /class="shell-output-footer">3\.6s<\/div>/);
+  assert.match(html, /class="shell-output-line is-error"><span>  failure: &lt;missing&gt;<\/span>/);
+  assert.match(html, /review.*Review changes.*Completed.*0\.8s/);
+  assert.doesNotMatch(html, /<strong>No issues<\/strong>/);
   setToolCallExpanded("async:456:result:review-job:1", true);
   assert.match(renderMessage(message), /<strong>No issues<\/strong>/);
 });
 
-test("a single async job keeps its command title and falls back if the report no longer matches", (t) => {
-  t.after(clearExpandedToolCalls);
+test("a single async job keeps its command and falls back if the report no longer matches", () => {
   const message = {
     role: "custom", customType: "async-result", display: true, timestamp: 789,
     details: { jobs: [{ jobId: "test-job", type: "bash", status: "completed", label: "Old title" }] },
@@ -457,9 +458,8 @@ Resume your work using the result below.
 1 test passed
 </system-notice>`,
   };
-  setToolCallExpanded("async:789:result:test-job:0", true);
   const html = renderMessage(message);
-  assert.match(html, /bun test \(unit\).*Completed/);
+  assert.match(textOf(html), /bun test \(unit\)/);
   assert.match(html, /class="shell-output-line"><span>1 test passed<\/span>/);
   const fallback = renderMessage({ ...message, content: "Legacy result without a job heading" });
   assert.match(fallback, /Legacy result without a job heading/);

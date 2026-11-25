@@ -20,7 +20,7 @@ This fork, `flowtender/omp-frond`, tracks three UI upstreams: [agegr/pi-web](htt
 
 Expand a task or subagent tool call to see its result cards, with status, duration when available, and formatted output. Deferred completions are linked back to the task that started them; results collected by `wait` also appear in that tool's output.
 
-**Background job results** notices also show one collapsible card per job, even if the originating call isn't in view. Shell output stays console-formatted, subagent output uses Markdown, and **Raw output** preserves the original report.
+**Background job results** notices show each job even if the originating call isn't in view. Bash jobs use the same open console as regular bash calls, with the recorded command syntax-highlighted and wrapped. Subagent results remain collapsible and use Markdown. **Raw output** preserves the original report.
 
 
 ## Quick Start
