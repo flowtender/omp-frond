@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { compactModelName } from "@/lib/model-display-name";
 import { SelectorRow } from "./SelectorRow";
+import { modelIconProviders, ProviderIcon } from "./ProviderIcon";
 
 export interface ModelSelectorOption {
   provider: string;
@@ -85,6 +87,8 @@ export function ModelSelector({
   const currentName = selectedLabel ?? (value
     ? options.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
     : emptyLabel ?? (options.length > 0 ? "Select model" : "No models"));
+  const triggerName = variant === "toolbar" ? compactModelName(currentName) : currentName;
+  const vendorIcons = value ? modelIconProviders(value.provider, value.modelId) : [];
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -152,9 +156,7 @@ export function ModelSelector({
     : {
         display: "flex",
         alignItems: "center",
-        justifyContent: isMobile ? "flex-start" : undefined,
         gap: 6,
-        width: isMobile ? "100%" : undefined,
         maxWidth: isMobile ? "100%" : 220,
         height: 32,
         padding: isMobile ? "8px 10px" : "8px 12px",
@@ -187,7 +189,7 @@ export function ModelSelector({
     <div
       ref={rootRef}
       className={`model-selector is-${variant}${locked ? " is-disabled" : ""}`}
-      style={{ position: "relative", width: variant === "field" || isMobile ? "100%" : undefined, minWidth: 0, flex: variant === "toolbar" && isMobile ? "1 1 auto" : undefined }}
+      style={{ position: "relative", width: variant === "field" ? "100%" : undefined, minWidth: 0, flex: variant === "toolbar" && isMobile ? "0 1 auto" : undefined }}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         event.preventDefault();
@@ -232,6 +234,8 @@ export function ModelSelector({
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }} aria-hidden="true">
             <path d="M21 12a9 9 0 1 1-2.64-6.36" />
           </svg>
+        ) : vendorIcons.length > 0 ? (
+          vendorIcons.map((id) => <ProviderIcon key={id} id={id} size={13} />)
         ) : (
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
             <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -242,7 +246,7 @@ export function ModelSelector({
             <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
           </svg>
         )}
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentName}</span>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>{triggerName}</span>
         {variant === "field" && (
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)" }}>
             <polyline points="6 9 12 15 18 9" />

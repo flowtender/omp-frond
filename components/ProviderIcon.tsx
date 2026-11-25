@@ -1,3 +1,5 @@
+import { modelFamilyProvider } from "@/lib/model-family";
+
 const PROVIDER_ICONS: Record<string, { symbol: string; color: boolean }> = {
   anthropic: { symbol: "anthropic", color: false },
   openai: { symbol: "openai", color: false },
@@ -42,7 +44,24 @@ const PROVIDER_ICONS: Record<string, { symbol: string; color: boolean }> = {
   perplexity: { symbol: "perplexity", color: true },
   together: { symbol: "together", color: true },
   grok: { symbol: "grok", color: false },
+  strata: { symbol: "strata", color: true },
+  meta: { symbol: "meta", color: true },
+  "muse-code": { symbol: "meta", color: true },
 };
+
+/**
+ * Icons for a model chip: the provider's, then the model vendor's when it
+ * differs (Claude through Copilot shows both). Ids without an icon are left
+ * out, so the list may be empty.
+ */
+export function modelIconProviders(provider: string, modelId: string): string[] {
+  const familyProvider = modelFamilyProvider(modelId);
+  const providerSymbol = PROVIDER_ICONS[provider]?.symbol;
+  const familySymbol = familyProvider ? PROVIDER_ICONS[familyProvider]?.symbol : undefined;
+  const icons = providerSymbol ? [provider] : [];
+  if (familyProvider && familySymbol && familySymbol !== providerSymbol) icons.push(familyProvider);
+  return icons;
+}
 
 export function ProviderIcon({ id, size }: { id: string; size: number }) {
   const icon = PROVIDER_ICONS[id];

@@ -688,6 +688,7 @@ export const enLocale: LocalePlugin = {
     "chat.saveDefaultThinking": "Use and save as default reasoning level",
     "chat.defaultThinking": "Default reasoning level for new chats",
     "chat.moreControls": "More controls",
+    "chat.moreControlsShort": "More",
     "chat.collapseControls": "Collapse controls",
     "chat.shell": "Shell",
     "terminal.title": "Terminal",

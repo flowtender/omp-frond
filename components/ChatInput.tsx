@@ -370,6 +370,25 @@ export function stacksComposerLayout(compact: boolean, isMobile: boolean, isStre
   return compact || (isMobile && isStreaming);
 }
 
+/** Labels in the controls row that cut themselves short with an ellipsis. */
+const TRUNCATING_CONTROL_LABELS = ".chat-composer-value, .model-selector.is-toolbar > button > span";
+
+/**
+ * Width a controls group takes with none of its labels cut short: from its
+ * first child's left edge to its last child's right edge, plus whatever each
+ * truncated label is hiding.
+ */
+function untruncatedGroupWidth(group: HTMLElement): number {
+  const children = Array.from(group.children);
+  if (children.length === 0) return 0;
+  const span = children[children.length - 1].getBoundingClientRect().right - children[0].getBoundingClientRect().left;
+  let hidden = 0;
+  for (const label of group.querySelectorAll<HTMLElement>(TRUNCATING_CONTROL_LABELS)) {
+    hidden += Math.max(0, label.scrollWidth - label.clientWidth);
+  }
+  return span + hidden;
+}
+
 const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "custom", "mcp_prompt", "prompt", "file", "skill"];
 
 const SLASH_SOURCE_GROUP_LABEL_KEYS: Record<SlashCommandSource, string> = {
@@ -705,6 +724,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  // Mobile only: whether thinking, compact and sound fit beside the model
+  // chips without cutting them short; otherwise they wait behind "More".
+  const [controlsFitInline, setControlsFitInline] = useState(true);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
@@ -737,6 +759,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
+  const controlsRowRef = useRef<HTMLDivElement>(null);
+  const controlsLeftRef = useRef<HTMLDivElement>(null);
+  const controlsClusterRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1794,6 +1819,33 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (!isMobile) setControlsMenuOpen(false);
   }, [isMobile]);
 
+  // The cluster keeps its full width while collapsed (hidden, not removed),
+  // so this measures the same thing in both states and cannot flip-flop.
+  const measureControlsFit = useCallback(() => {
+    const row = controlsRowRef.current;
+    const left = controlsLeftRef.current;
+    const cluster = controlsClusterRef.current;
+    if (!row || !left || !cluster) return;
+    const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+    const fits = untruncatedGroupWidth(left) + gap + cluster.getBoundingClientRect().width <= row.clientWidth;
+    setControlsFitInline(fits);
+    if (fits) setControlsMenuOpen(false);
+  }, []);
+
+  // Labels change with the model, role, reasoning level and run state; a
+  // layout read per render is cheaper than tracking every one of them.
+  useLayoutEffect(() => {
+    if (isMobile) measureControlsFit();
+  });
+
+  useEffect(() => {
+    const row = controlsRowRef.current;
+    if (!isMobile || !row) return;
+    const observer = new ResizeObserver(measureControlsFit);
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [isMobile, compact, measureControlsFit]);
+
 
 
   return (
@@ -2343,11 +2395,44 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 ? "rgba(234,179,8,0.4)"
                 : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
               borderRadius: compact ? 0 : 14,
-              padding: compact ? 0 : isMobile ? "6px 6px 6px 12px" : "10px 10px 10px 14px",
+              padding: compact ? 0 : isMobile ? "6px 6px" : "10px 10px 10px 8px",
               boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
+          <div style={{ flex: stackedComposer ? "none" : 1, minWidth: 0, display: "flex", alignItems: "flex-start", gap: isMobile ? 2 : 4 }}>
+          {!compact && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title={t("chat.attachFiles")}
+              aria-label={t("chat.attachFiles")}
+              style={{
+                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                // Centred on the first line of text and stays there as the draft grows.
+                width: 32, height: 32, padding: 0, margin: "-4px 0",
+                background: "none", border: "none",
+                borderRadius: 9,
+                color: attachedImages.length ? "var(--accent)" : "var(--text-muted)",
+                cursor: "pointer",
+                opacity: 1,
+                transition: "background 0.12s, color 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--bg-hover)";
+                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "none";
+                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-muted)";
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </button>
+          )}
           <textarea
             ref={textareaRef}
             className="chat-input-textarea"
@@ -2383,7 +2468,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }
             rows={1}
             style={{
-              flex: stackedComposer ? "none" : 1,
+              flex: 1,
               minWidth: 0,
               width: "100%",
               background: "none",
@@ -2399,6 +2484,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               overflow: "auto",
             }}
           />
+          </div>
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
@@ -2506,7 +2592,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         )}
 
         {/* Bottom bar: left | center (context) | right */}
-        {!compact && <div className="chat-input-controls" data-composer-source={composerSource} data-shimmer={busyShimmer} style={{
+        {!compact && <div ref={controlsRowRef} className="chat-input-controls" data-composer-source={composerSource} data-shimmer={busyShimmer} style={{
           "--composer-accent-dark": sessionAccent?.dark,
           "--composer-accent-light": sessionAccent?.light,
           marginTop: isMobile ? 4 : 8,
@@ -2516,36 +2602,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           gap: 6,
         } as React.CSSProperties}>
 
-          {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
-          <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-             title={t("chat.attachFiles")}
-              style={{
-                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                width: 32, height: 32, padding: 0,
-                background: "none", border: "none",
-                borderRadius: 9,
-                color: attachedImages.length ? "var(--accent)" : "var(--text-muted)",
-                cursor: "pointer",
-                opacity: 1,
-                transition: "background 0.12s, color 0.12s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "none";
-                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-muted)";
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
-            </button>
+          {/* LEFT: model selector (idle) or steer/followup toggle (streaming) */}
+          <div ref={controlsLeftRef} style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             {/* Model selector - visible always, disabled while the session or switch is busy */}
             {(modelOptions.length > 0 || model || modelError || roleRows.length > 0) && (onModelChange || onRoleModelChange) && (
               <>
@@ -2566,7 +2624,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   separate chip so picking "Fast" or "Architect" applies that
                   role's model in one click. */}
               {roleRows.length > 0 && onRoleModelChange && (
-                <div ref={rolesDropdownRef} style={{ position: "relative", minWidth: 0 }}>
+                <div ref={rolesDropdownRef} style={{ position: "relative", minWidth: 0, flexShrink: 0 }}>
                   <button
                     onClick={() => setRolesDropdownOpen((v) => !v)}
                     disabled={isStreaming}
@@ -2697,11 +2755,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             position: "relative",
             marginLeft: isMobile ? 0 : "auto",
           }}>
-            {isMobile && (
+            {isMobile && !controlsFitInline && (
               <button
                 type="button"
-                 title={controlsMenuOpen ? undefined : t("chat.moreControls")}
-                 aria-label={t("chat.moreControls")}
+                title={controlsMenuOpen ? undefined : t("chat.moreControls")}
+                aria-label={t("chat.moreControls")}
                 aria-expanded={controlsMenuOpen}
                 aria-hidden={controlsMenuOpen || undefined}
                 tabIndex={controlsMenuOpen ? -1 : undefined}
@@ -2712,7 +2770,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  width: "100%",
+                  gap: 4,
                   height: 32,
                   padding: "8px 10px",
                   background: "none",
@@ -2722,6 +2780,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   cursor: controlsMenuOpen ? "default" : "pointer",
                   fontSize: 12,
                   fontWeight: 500,
+                  whiteSpace: "nowrap",
                   visibility: controlsMenuOpen ? "hidden" : "visible",
                   pointerEvents: controlsMenuOpen ? "none" : "auto",
                   transition: "background 0.12s, color 0.12s",
@@ -2737,14 +2796,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   e.currentTarget.style.color = "var(--text-muted)";
                 }}
               >
-                {t("chat.moreControls")}
+                {t("chat.moreControlsShort")}
+                <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="2" y1="7" x2="11" y2="7" />
+                  <polyline points="7.5 3 12 7 7.5 11" />
+                </svg>
               </button>
             )}
-            <div style={{
-              display: isMobile ? (controlsMenuOpen ? "flex" : "none") : "flex",
+            {/* Collapsed but closed, the cluster stays laid out (hidden) so
+                measureControlsFit can keep reading its width. */}
+            <div ref={controlsClusterRef} inert={isMobile && !controlsFitInline && !controlsMenuOpen} style={{
+              display: "flex",
               alignItems: "center",
               gap: isMobile ? 1 : 2,
-              ...(isMobile ? {
+              ...(isMobile && !controlsFitInline ? {
                 position: "absolute",
                 right: 0,
                 bottom: 0,
@@ -2759,10 +2824,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 background: "color-mix(in srgb, var(--bg-panel) 92%, var(--bg))",
                 boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
                 backdropFilter: "blur(10px)",
+                visibility: controlsMenuOpen ? "visible" : "hidden",
               } : null),
             }}>
             {onThinkingLevelChange && (
-              <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
+              // On a phone the list hangs from the controls' right edge (the row's, or the
+              // "More" popover's), which keeps it on screen wherever this button sits.
+              <div ref={thinkingDropdownRef} style={{ position: isMobile ? "static" : "relative" }}>
                 <button
                   onClick={() => setThinkingDropdownOpen((v) => !v)}
                   title={isStreaming
@@ -2796,12 +2864,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     <line x1="7" y1="18" x2="12" y2="18" />
                     <line x1="8" y1="21" x2="11" y2="21" />
                   </svg>
-                  {(!isMobile || controlsMenuOpen) && <span className="chat-composer-value" style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
+                  <span className="chat-composer-value" style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>
                 </button>
                 {thinkingDropdownOpen && (
                   <div style={{
                     position: "absolute", bottom: "calc(100% + 6px)",
-                    ...(isMobile ? { left: 0 } : { right: 0 }),
+                    right: 0,
+                    maxWidth: "calc(100vw - 32px)",
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 180,
@@ -2884,12 +2953,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                    aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
                 >
                   {isCompacting ? (
-                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
+                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg><span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span></>
                   ) : (
                     <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
                       <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
-                    </svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compact")}</span>}</>
+                    </svg><span style={{ whiteSpace: "nowrap" }}>{t("chat.compact")}</span></>
                   )}
                 </button>
               </div>

@@ -143,6 +143,8 @@ lib/
   enabled-models.ts    pure minimal-edit editor for enabledModels patterns
   enabled-models-runtime.ts  omp SDK adapter for it: per-pattern resolution, config.yml read/write
   model-roles.ts       omp's model roles, read/written for the browser
+  model-display-name.ts  short model name for the composer, copying the TUI status line's rule
+  model-family.ts      a model's vendor read off its id, for the second icon on the model chip
   model-scope.ts       enabledModels resolution shared by UI and startup
   npx.ts               npx runner used by skill install
   omp-runtime.ts       shared Settings + AuthStorage + ModelRegistry
