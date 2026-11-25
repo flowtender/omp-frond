@@ -632,6 +632,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [goalStatus, setGoalStatus] = useState<GoalStatusInfo | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   const userScrollIntentUntilRef = useRef(0);
+  // Whether content growth keeps the log pinned to its tail: set by the initial
+  // jump, cleared when the user scrolls away or a jump targets a message.
+  const stickToTailRef = useRef(false);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
   // Forward reference: handleSend/executeBash are declared above setAutoFollow.
   const setAutoFollowRef = useRef<(following: boolean) => void>(() => {});
@@ -2915,6 +2918,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   setAutoFollowRef.current = setAutoFollow;
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    stickToTailRef.current = true;
     ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
@@ -2922,6 +2926,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Jump to a search hit or branch row: the clicked message becomes the top
   // of the viewport, and follow stays paused until the user resumes it.
   const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
+    stickToTailRef.current = false;
     const container = scrollContainerRef.current;
     if (!container) return;
     initialScrollDoneRef.current = true;
@@ -2940,6 +2945,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // A freshly sent prompt opens at the top of the viewport instead of the
   // usual bottom-anchored follow.
   const scrollUserMsgToTop = useCallback(() => {
+    stickToTailRef.current = false;
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
     if (!container || !el) return;
@@ -2972,6 +2978,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const { scrollTop, clientHeight, scrollHeight } = watched;
       const shouldShow = shouldShowScrollToLatest(scrollTop, clientHeight, scrollHeight);
       setShowScrollToBottom((previous) => (previous === shouldShow ? previous : shouldShow));
+    }
+    if (watched && Date.now() <= userScrollIntentUntilRef.current) {
+      const distanceFromBottom = watched.scrollHeight - watched.scrollTop - watched.clientHeight;
+      stickToTailRef.current = distanceFromBottom <= AUTO_FOLLOW_BOTTOM_THRESHOLD_PX;
     }
     if (!agentRunningRef.current && !bashRunningRef.current) return;
     const container = watched;
@@ -3156,6 +3166,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       scrollToBottom(agentRunningRef.current || bashRunningRef.current ? "instant" : "smooth");
     }
   }, [messages.length, agentRunning, bashRunning, scrollToBottom, scrollUserMsgToTop, promptAnchorActive]);
+
+  // Images, markdown and tool output grow after the first paint, which pushes
+  // the tail out of view. Stay pinned to it until the user scrolls away.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const content = container?.firstElementChild;
+    if (!container || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (stickToTailRef.current) scrollToBottom("instant");
+    });
+    observer.observe(content);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [messages.length, loading, scrollToBottom]);
 
   // Load the model list with bounded retries; loadModels exposes each failure.
   useEffect(() => {
