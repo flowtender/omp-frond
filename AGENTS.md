@@ -464,47 +464,40 @@ theme) and `light` — so the browser and the TUI read as one product.
 `--font-mono` is a system stack on purpose: a local-first tool must not fetch a
 font from a CDN at build or at runtime.
 
+## choosing when to use gitnexus
+
+for a local change with known callers, use the language server for definitions, references, and renames. verify the affected behavior with focused tests. a graph query is not a prerequisite to editing or committing.
+
+use the gitnexus cli when tracing an unfamiliar flow across components, changing a shared contract, or planning a refactor whose callers are unclear. from the repo root, use `gitnexus list` to confirm the checkout and `gitnexus status` to check index freshness. use `gitnexus query` to find flows and `gitnexus impact` to find callers worth inspecting; confirm the relevant paths in source. a high risk rating is a reason to inspect those paths, not a verdict on the proposed change. zero callers or an unknown rating is not proof that nothing depends on a symbol.
+
+this project policy takes precedence over workflow rules in generated gitnexus notes and skills. refresh the index with `node .gitnexus/run.cjs analyze --index-only` unless you intend to regenerate those files.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **omp-web** (2786 symbols, 7305 relationships, 233 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **omp-frond**.
 
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
-
-## Always Do
-
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-
-## Never Do
-
-- NEVER edit a function, class, or method without first running `impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit changes without running `detect_changes()` to check affected scope.
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
 ## Resources
 
 | Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/omp-web/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/omp-web/clusters` | All functional areas |
-| `gitnexus://repo/omp-web/processes` | All execution flows |
-| `gitnexus://repo/omp-web/process/{name}` | Step-by-step execution trace |
+| --- | --- |
+| `gitnexus://repo/omp-frond/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/omp-frond/clusters` | All functional areas |
+| `gitnexus://repo/omp-frond/processes` | All execution flows |
+| `gitnexus://repo/omp-frond/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 
 | Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
 
