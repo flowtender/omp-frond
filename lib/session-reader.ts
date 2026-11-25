@@ -6,7 +6,7 @@ import {
 import { Tokenizer } from "@oh-my-pi/pi-agent-core";
 import type { AgentMessage as OmpAgentMessage } from "@oh-my-pi/pi-agent-core";
 import { calculatePromptTokens, hasContextTokenUsage } from "@oh-my-pi/pi-agent-core/compaction";
-import { parseModelString, splitUpstreamRouting } from "@oh-my-pi/pi-tui/overlays/model-selector";
+import { parseModelString, splitUpstreamRouting } from "@oh-my-pi/pi-coding-agent/config/model-selector";
 import { closeSync, existsSync, fstatSync, openSync, readSync, statSync } from "fs";
 import { join, normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";

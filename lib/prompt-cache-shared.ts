@@ -3,7 +3,7 @@
  * The server ships a `PromptCacheInfo`; the browser re-reads it against its own
  * clock, because an entry lapses without any event to announce it.
  */
-import type { PromptCacheColdReason, PromptCacheStatus, PromptCacheWarming } from "@oh-my-pi/pi-tui/status-line/host";
+import type { PromptCacheColdReason, PromptCacheStatus, PromptCacheWarming } from "@oh-my-pi/pi-coding-agent/modes/view-model/status-line/host";
 
 export type { PromptCacheColdReason, PromptCacheWarming };
 

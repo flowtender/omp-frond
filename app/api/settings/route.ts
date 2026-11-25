@@ -12,7 +12,7 @@ import {
   isSettingTab,
   SETTING_TABS,
   TAB_GROUPS,
-  TAB_METADATA,
+  SETTINGS_PAGES,
   findSetting,
   getSetting,
   isSettingConfigured,
@@ -169,7 +169,7 @@ export async function GET(req: Request) {
     }
 
     const response: SettingsResponse = {
-      tabs: SETTING_TABS.map((id) => ({ id, label: TAB_METADATA[id].label, groups: [...TAB_GROUPS[id]] })),
+      tabs: SETTING_TABS.map((id) => ({ id, label: SETTINGS_PAGES[id].label, groups: [...TAB_GROUPS[id]] })),
       fields,
       availableThemes,
       theme,

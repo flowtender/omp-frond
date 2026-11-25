@@ -1,6 +1,6 @@
 import type { OAuthAccountIdentity, UsageLimit, UsageReport } from "@oh-my-pi/pi-ai";
 import { limitMatchesActiveAccount, reportMatchesActiveAccount } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/active-oauth-account";
-import { bankedResetCreditExpiryMs, summarizeUsageResetCredits } from "@oh-my-pi/pi-tui/overlays/usage-display";
+import { bankedResetCreditExpiryMs, summarizeUsageResetCredits } from "@oh-my-pi/pi-coding-agent/session/usage-display";
 import { getOmpRuntime } from "./omp-runtime";
 import type { ProviderUsageResets, ProviderUsageSummary, ProviderUsageWindow, ProviderUsageWindowId } from "./provider-usage-types";
 

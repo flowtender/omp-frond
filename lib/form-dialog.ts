@@ -1,6 +1,6 @@
-import { choiceValue, fieldQuestions, textValue, type HtmlFormData } from "@oh-my-pi/pi-tui/html-form/data";
-import { loadMedia, svgMedia, type Media } from "@oh-my-pi/pi-tui/media";
-import { parseHtmlForm, type FormBlock as SdkFormBlock, type HtmlForm } from "@oh-my-pi/pi-tui/html-form/parse";
+import { choiceValue, fieldQuestions, textValue, type HtmlFormData } from "@oh-my-pi/pi-coding-agent/tools/html-form/data";
+import { loadMedia, svgMedia, type Media } from "./form-media";
+import { parseHtmlForm, type FormBlock as SdkFormBlock, type HtmlForm } from "@oh-my-pi/pi-coding-agent/tools/html-form/parse";
 import { isRecord } from "@oh-my-pi/pi-utils";
 import type { FormBlock, FormDialogForm, FormDialogState } from "./form-dialog-types";
 
@@ -109,7 +109,7 @@ export function parseFormDialogState(json: string): FormDialogState | undefined 
   };
 }
 
-/** A form picture's bytes: loaded with the SDK's loader (URL, data URI or path from the session cwd, size-capped). */
+/** A form picture's bytes (URL, data URI or path from the session cwd, size-capped). */
 export function loadFormMedia(source: FormMediaSource, cwd: string, signal?: AbortSignal): Promise<Media> {
-  return source.kind === "svg" ? Promise.resolve(svgMedia(source.markup)) : loadMedia(source.src, { cwd, signal });
+  return source.kind === "svg" ? Promise.resolve(svgMedia(source.markup)) : loadMedia(source.src, cwd, signal);
 }

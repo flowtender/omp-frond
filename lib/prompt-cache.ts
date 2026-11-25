@@ -18,8 +18,8 @@ import {
 } from "@oh-my-pi/pi-coding-agent/session/cache-warmer";
 import { promptCacheStatus, type ObservedPromptCacheEntry } from "@oh-my-pi/pi-coding-agent/session/prompt-cache-status";
 import { cfgProvidersCacheRetention } from "@oh-my-pi/pi-coding-agent/session/settings";
-import type { PromptCacheStatus } from "@oh-my-pi/pi-tui/status-line/host";
-import { parseModelString, splitUpstreamRouting } from "@oh-my-pi/pi-tui/overlays/model-selector";
+import type { PromptCacheStatus } from "@oh-my-pi/pi-coding-agent/modes/view-model/status-line/host";
+import { parseModelString, splitUpstreamRouting } from "@oh-my-pi/pi-coding-agent/config/model-selector";
 import { getOmpRuntime, getSettingsForCwd } from "./omp-runtime";
 import type { PromptCacheInfo, PromptCacheReport } from "./prompt-cache-shared";
 import { sessionPathKey } from "./session-path";

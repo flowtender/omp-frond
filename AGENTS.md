@@ -138,6 +138,7 @@ lib/
   file-paths.ts        client/server path encoding helpers
   form-dialog.ts       ask form: SDK parse -> browser shape, browser state -> form data, picture loading
   form-dialog-types.ts client-safe wire types of the ask form
+  form-media.ts        ask form pictures: <img src> loader (10 MB cap, 10 s fetch timeout) + standalone <svg>
   file-upload-client.ts browser upload to /api/files, shared by explorer and chat drops
   markdown.ts          shared markdown helpers
   enabled-models.ts    pure minimal-edit editor for enabledModels patterns
@@ -319,14 +320,18 @@ implements `formDialog` and `components/FormDialog.tsx` draws the form.
   shape (`lib/form-dialog-types.ts`): no raw HTML reaches the browser, so nothing the
   model writes can run there. `<svg>` and `<img>` become numbered `media` blocks.
 - Pictures come from `GET /api/agent/[id]/form-media/[token]/[index]`: the server loads
-  them with the SDK's `loadMedia`/`svgMedia` (`@oh-my-pi/pi-tui/media`; URL, data URI or path from the
-  session cwd, 10 MB cap) and serves bytes with a sandboxing CSP. The browser never
-  contacts a host the model chose. The token exists only while the dialog is open.
+  them with `lib/form-media.ts` (URL, data URI, or a path resolved from the session cwd
+  by the SDK's `resolveReadPath`; 10 MB cap, 10 s fetch timeout) and serves bytes with a
+  sandboxing CSP. SDK 19.2 has no exported loader: its form's own (`ui/forms/html-form/media.ts`)
+  registers pi-tui blobs and rasterizes SVG for the terminal, while the browser draws SVG
+  itself. The browser never contacts a host the model chose. The token exists only while
+  the dialog is open.
 - The browser answers with its raw control state (`FormDialogState`); the server turns
   it into form data with the SDK's `choiceValue`/`textValue`, so the TUI and the
-  browser agree on what a form submits. Validation is the browser's own constraint
-  validation (`required`, `min`/`max`, `pattern`, ...), plus a required check for
-  choice groups.
+  browser agree on what a form submits. As in the TUI (SDK >= 19.2), rules never block
+  Submit: the form is `noValidate`, and once the user leaves a field its broken answer
+  is flagged (the browser's constraint message for text, a required check for choice
+  groups) but still sent.
 - `ask.timeout` is the user's setting; unset, the form is not timed. When set, the
   browser submits its live values at the deadline (`timedOut`); the server's timer
   runs `FORM_TIMEOUT_GRACE_MS` later and submits the form's defaults if no browser

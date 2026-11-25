@@ -2,8 +2,8 @@ import { cfgMotionResolved } from "@oh-my-pi/pi-coding-agent/modes/settings";
 import { getModelMatchPreferences, pickDefaultAvailableModel, resolveAllowedModels, resolveModelRoleValue } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import { cfgDefaultThinkingLevel } from "@oh-my-pi/pi-coding-agent/session/settings";
 import type { ModelRegistry, Settings } from "@oh-my-pi/pi-coding-agent";
-import { newSessionThinkingLevel, parseConfiguredThinkingLevel, resolveConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
-import type { ShimmerMode } from "@oh-my-pi/pi-tui/theme/shimmer";
+import { newSessionThinkingLevel, parseConfiguredThinkingLevel, resolveConfiguredThinkingLevel } from "@oh-my-pi/pi-coding-agent/thinking/levels";
+import type { ShimmerMode } from "@oh-my-pi/pi-tui/text/shimmer";
 import type { AgentSessionLike } from "./omp-types";
 import { readSessionToolSelection } from "./session-tool-selection";
 import { getPresetFromToolNames, type ToolPreset } from "./tool-presets";
@@ -18,7 +18,8 @@ export type SessionComposerSnapshot = SessionModelSelection & {
   source: "restored" | "live";
   toolPreset: ToolPreset;
   toolNames: string[] | null;
-  shimmer: ShimmerMode;
+  /** omp's `cfgMotionResolved` shimmer: a mode, or "disabled" when motion effects are off. */
+  shimmer: ShimmerMode | "disabled";
 };
 
 export async function readRestoredComposer(

@@ -1,17 +1,17 @@
 import { isDeepStrictEqual } from "node:util";
 import { getSetting } from "@/lib/omp-settings";
-import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
+import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-coding-agent/utils/render-utils";
 import { CompactionCancelledError } from "@oh-my-pi/pi-agent-core/compaction";
 import {
   applyResolvedSystemPromptInputs,
   createAgentSession,
   type CreateAgentSessionOptions,
   discoverSessionExtensionPaths,
+  ensureTheme,
   getAgentDir,
-  initTheme,
   SessionManager,
-  Theme,
 } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionTheme, ExtensionUiFactory } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/render-types";
 import { type ExtensionUISelectItem, getExtensionUISelectOptionLabel } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { buildAvailableSlashCommands } from "@oh-my-pi/pi-coding-agent/slash-commands/available-commands";
 import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
@@ -25,8 +25,9 @@ import {
   RpcSubagentRegistry,
 } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
-import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
-import { buildToolsMarkdown } from "@oh-my-pi/pi-tui/prompt/tools-markdown";
+import { KeybindingsManager } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
+import { buildToolsMarkdown } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/tools-markdown";
+import { PLAIN_THEME } from "@oh-my-pi/pi-tui/theme/plain";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
@@ -70,7 +71,7 @@ import type {
   SessionEntry,
   SubagentSnapshot,
 } from "./types";
-import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { createHeadlessExtensionUiHost, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 
 // ============================================================================
 // Types
@@ -102,8 +103,6 @@ type ExtensionWidgetComponent = {
   render: (width: number) => unknown;
   dispose?: () => void;
 };
-
-type ExtensionWidgetFactory = (tui: HeadlessCustomUiTui, theme: Theme) => unknown;
 
 type ActiveExtensionWidget = {
   key: string;
@@ -137,7 +136,6 @@ type HostSessionManagerLike = {
 
 type ActiveCustomUi = {
   component: CustomUiComponent;
-  width: number;
   resolve: (value: unknown) => void;
   settled: boolean;
 };
@@ -223,35 +221,16 @@ const CODING_TOOL_NAMES: Record<string, true> = Object.fromEntries(
   PRESET_FULL.map((name) => [name, true]),
 );
 
-// Extensions require a complete Theme, while the web UI applies its own styling.
-class PlainTextTheme extends Theme {
-  constructor() {
-    super(
-      { thinkingXhigh: "" } as ConstructorParameters<typeof Theme>[0],
-      { statusLineBg: "" } as ConstructorParameters<typeof Theme>[1],
-      "truecolor",
-      "unicode",
-      {},
-    );
-  }
-
-  override fg(...[, text]: Parameters<Theme["fg"]>): string { return text; }
-  override bg(...[, text]: Parameters<Theme["bg"]>): string { return text; }
-  override bold(text: string): string { return text; }
-  override italic(text: string): string { return text; }
-  override underline(text: string): string { return text; }
-  override inverse(text: string): string { return text; }
-  override strikethrough(text: string): string { return text; }
-  override getFgAnsi(): string { return ""; }
-  override getBgAnsi(): string { return ""; }
-  override getThinkingBorderColor(): (text: string) => string {
-    return (text) => text;
-  }
-  override getBashModeBorderColor(): (text: string) => string { return (text) => text; }
-}
-
-const PLAIN_TEXT_THEME = new PlainTextTheme();
-const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
+// Extensions require a complete theme, while the web UI applies its own styling.
+const PLAIN_TEXT_THEME: ExtensionTheme = {
+  ...PLAIN_THEME,
+  bold: (text) => text,
+  italic: (text) => text,
+  underline: (text) => text,
+  strikethrough: (text) => text,
+  inverse: (text) => text,
+};
+const CUSTOM_UI_KEYBINDINGS = KeybindingsManager.inMemory();
 
 const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -2241,20 +2220,20 @@ export class AgentSessionWrapper {
 
   private setExtensionWidgetFactory(
     key: string,
-    factory: ExtensionWidgetFactory,
+    factory: ExtensionUiFactory,
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void {
     const hadPrevious = this.extensionWidgets.has(key) || this.activeExtensionWidgets.has(key);
     const generation = this.clearExtensionWidget(key, hadPrevious);
     if (this.extensionWidgetGenerations.get(key) !== generation) return;
-    const tui = createHeadlessCustomUiTui(() => {
+    const host = createHeadlessExtensionUiHost(() => {
       const active = this.activeExtensionWidgets.get(key);
       if (active?.generation === generation) this.renderExtensionWidget(active);
-    }, DEFAULT_CUSTOM_UI_COLUMNS);
+    });
 
     let component: unknown;
     try {
-      component = factory(tui, PLAIN_TEXT_THEME);
+      component = factory(host, PLAIN_TEXT_THEME);
     } catch (error) {
       this.failExtensionWidget(key, generation, error, hadPrevious);
       return;
@@ -2290,21 +2269,10 @@ export class AgentSessionWrapper {
     this.renderExtensionWidget(active);
   }
 
-  private getCustomUiWidth(options: unknown): number {
-    if (!options || typeof options !== "object") return DEFAULT_CUSTOM_UI_COLUMNS;
-    const overlayOptions = (options as { overlayOptions?: unknown }).overlayOptions;
-    const resolved = typeof overlayOptions === "function" ? overlayOptions() : overlayOptions;
-    if (!resolved || typeof resolved !== "object") return DEFAULT_CUSTOM_UI_COLUMNS;
-    const width = (resolved as { width?: unknown }).width;
-    return typeof width === "number" && Number.isFinite(width)
-      ? Math.max(40, Math.min(140, Math.round(width)))
-      : 92;
-  }
-
   private emitCustomUiRender(id: string, custom: ActiveCustomUi): void {
     let lines: string[];
     try {
-      lines = custom.component.render(custom.width);
+      lines = custom.component.render(DEFAULT_CUSTOM_UI_COLUMNS);
     } catch (error) {
       lines = [`Extension custom UI render failed: ${error instanceof Error ? error.message : String(error)}`];
     }
@@ -2356,27 +2324,20 @@ export class AgentSessionWrapper {
     }
   }
 
-  private requestExtensionCustomUi<T>(
-    factory: unknown,
-    options?: unknown,
-  ): Promise<T> {
+  private requestExtensionCustomUi<T>(factory: unknown): Promise<T> {
     if (typeof factory !== "function") return Promise.resolve(undefined as T);
 
     const stopSignal = this.extensionUiAbortController.signal;
     if (stopSignal.aborted) return Promise.reject(stopSignal.reason);
 
     const id = randomUUID();
-    const width = this.getCustomUiWidth(options);
     const { promise, resolve, reject } = Promise.withResolvers<T>();
 
     let completed = false;
-    const tui = createHeadlessCustomUiTui(
-      () => {
-        const custom = this.activeCustomUis.get(id);
-        if (custom) this.emitCustomUiRender(id, custom);
-      },
-      width,
-    );
+    const host = createHeadlessExtensionUiHost(() => {
+      const custom = this.activeCustomUis.get(id);
+      if (custom) this.emitCustomUiRender(id, custom);
+    });
     const finish = (value: T) => {
       if (completed) return;
       completed = true;
@@ -2395,7 +2356,7 @@ export class AgentSessionWrapper {
     stopSignal.addEventListener("abort", onStop, { once: true });
 
     void Promise.resolve()
-      .then(() => completed ? undefined : factory(tui, PLAIN_TEXT_THEME, CUSTOM_UI_KEYBINDINGS, done))
+      .then(() => completed ? undefined : factory(host, PLAIN_TEXT_THEME, CUSTOM_UI_KEYBINDINGS, done))
       .then((component) => {
         if (completed) {
           try {
@@ -2411,7 +2372,6 @@ export class AgentSessionWrapper {
         }
         const custom: ActiveCustomUi = {
           component: component as CustomUiComponent,
-          width,
           resolve: (value) => finish(value as T),
           settled: false,
         };
@@ -2595,7 +2555,7 @@ export class AgentSessionWrapper {
         if (typeof content === "function") {
           this.setExtensionWidgetFactory(
             key,
-            content as unknown as ExtensionWidgetFactory,
+            content as unknown as ExtensionUiFactory,
             options,
           );
           return;
@@ -2633,7 +2593,7 @@ export class AgentSessionWrapper {
           title,
         } as ExtensionUiRequest as AgentEvent);
       },
-      custom: <T = unknown>(factory: unknown, options?: unknown) => this.requestExtensionCustomUi<T>(factory, options),
+      custom: <T = unknown>(factory: unknown) => this.requestExtensionCustomUi<T>(factory),
       pasteToEditor: (text) => {
         this.emit({
           type: "extension_ui_request",
@@ -2652,8 +2612,6 @@ export class AgentSessionWrapper {
       },
       getEditorText: () => "",
       addAutocompleteProvider: () => {},
-      setEditorComponent: () => {},
-      getEditorComponent: () => undefined,
       get theme() { return PLAIN_TEXT_THEME; },
       getAllThemes: () => [],
       getTheme: () => undefined,
@@ -3083,7 +3041,7 @@ export async function startRpcSession(
   }
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
-    await initTheme(false);
+    ensureTheme();
     const agentDir = getAgentDir();
     const sessionManager = sessionFile
       ? await SessionManager.open(sessionFile, undefined)

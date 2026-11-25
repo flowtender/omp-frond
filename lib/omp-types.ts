@@ -4,15 +4,15 @@ import type {
   SessionManager,
   Settings,
   SlashCommandInfo as OmpSlashCommandInfo,
-  Theme,
 } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionTheme } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/render-types";
 import type { AsyncJobManagerApi } from "@oh-my-pi/pi-coding-agent/async";
 import type { AsyncJobSnapshot } from "@oh-my-pi/pi-coding-agent/session/agent-session-types";
 import type { CompactOptions } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import type { GoalModeState } from "@oh-my-pi/pi-coding-agent/goals/state";
 import type { FormDialogAnswer } from "./form-dialog";
-import type { Goal } from "@oh-my-pi/pi-tui/tools/goal";
-import type { PromptCacheStatus } from "@oh-my-pi/pi-tui/status-line/host";
+import type { Goal } from "@oh-my-pi/pi-coding-agent/tools/details/goal";
+import type { PromptCacheStatus } from "@oh-my-pi/pi-coding-agent/modes/view-model/status-line/host";
 import type { ExtensionAskDialogQuestion, ExtensionAskDialogResult } from "./types";
 
 
@@ -143,9 +143,7 @@ export interface ExtensionUiContextLike {
   setEditorText(text: string): void;
   getEditorText(): string;
   addAutocompleteProvider(): void;
-  setEditorComponent(): void;
-  getEditorComponent(): undefined;
-  readonly theme: Theme;
+  readonly theme: ExtensionTheme;
   getAllThemes(): unknown[];
   getTheme(name: string): undefined;
   setTheme(theme: unknown): { success: boolean; error?: string };

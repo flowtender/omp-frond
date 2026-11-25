@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { FormBlock, FormChoiceField, FormDialogForm, FormDialogState, FormField, FormSpan, FormTextField } from "@/lib/form-dialog-types";
 
@@ -129,7 +129,9 @@ export function FormDialog({
   const fields = useMemo(() => fieldsOf(request.form), [request.form]);
   const [choices, setChoices] = useState(() => initialChoices(fields));
   const [texts, setTexts] = useState(() => initialTexts(fields));
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Like omp's TUI form: a broken answer is flagged once the user has left the field, and Submit sends it anyway.
+  const [left, setLeft] = useState<ReadonlySet<string>>(() => new Set());
+  const [textWarnings, setTextWarnings] = useState<Record<string, string>>({});
   const [now, setNow] = useState(() => Date.now());
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -162,30 +164,37 @@ export function FormDialog({
     };
   }, [request.expiresAt, onRespond]);
 
-  const choiceError = (field: FormChoiceField): string | undefined => {
-    if (!field.required) return undefined;
+  const choiceWarning = (field: FormChoiceField): string | undefined => {
+    if (!field.required || !left.has(field.name)) return undefined;
     const choice = choices[field.name];
     const answered = (choice?.checked.some((index) => !field.options[index]?.disabled) ?? false) || (choice?.other.trim() ?? "") !== "";
     if (answered) return undefined;
     return isArrayChoice(field) ? t("chat.formChooseAtLeastOne") : t("chat.formRequired");
   };
 
+  /** Record the browser's own constraint message for a text control (empty: valid). */
+  const setTextWarning = (name: string, message: string) => setTextWarnings((current) => {
+    if ((current[name] ?? "") === message) return current;
+    const next = { ...current };
+    if (message) next[name] = message;
+    else delete next[name];
+    return next;
+  });
+
+  const leaveField = (field: FormField, target: EventTarget) => {
+    setLeft((current) => (current.has(field.name) ? current : new Set(current).add(field.name)));
+    if (field.kind === "text" && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+      setTextWarning(field.name, target.validationMessage);
+    }
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const found: Record<string, string> = {};
-    for (const field of fields) {
-      if (field.kind !== "choice") continue;
-      const message = choiceError(field);
-      if (message) found[field.name] = message;
-    }
-    setErrors(found);
-    if (Object.keys(found).length > 0) return;
     onRespond({ value: JSON.stringify(toState(false)) });
   };
 
   const setChoice = (field: FormChoiceField, next: Partial<ChoiceState>) => {
     setChoices((current) => ({ ...current, [field.name]: { ...current[field.name], ...next } }));
-    setErrors((current) => (field.name in current ? Object.fromEntries(Object.entries(current).filter(([name]) => name !== field.name)) : current));
   };
 
   const toggleOption = (field: FormChoiceField, index: number) => {
@@ -266,7 +275,10 @@ export function FormDialog({
       minLength: field.minLength,
       maxLength: field.maxLength,
       "aria-label": field.question,
-      onChange: (event: { target: { value: string } }) => setTexts((current) => ({ ...current, [field.name]: event.target.value })),
+      onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setTexts((current) => ({ ...current, [field.name]: event.target.value }));
+        if (left.has(field.name)) setTextWarning(field.name, event.target.validationMessage);
+      },
       style: controlStyle,
     };
     return (
@@ -281,11 +293,11 @@ export function FormDialog({
 
   const fieldIndexes = useMemo(() => new Map(fields.map((field, index) => [field, index])), [fields]);
   const renderField = (field: FormField) => {
-    const error = field.kind === "choice" ? errors[field.name] : undefined;
+    const warning = field.kind === "choice" ? choiceWarning(field) : textWarnings[field.name];
     return (
-      <div>
+      <div onBlur={(event) => leaveField(field, event.target)}>
         {field.kind === "choice" ? renderChoice(field, fieldIndexes.get(field) ?? 0) : renderText(field)}
-        {error && <div role="alert" style={{ marginTop: 4, color: "var(--danger)", fontSize: 11 }}>{error}</div>}
+        {warning && <div role="status" style={{ marginTop: 4, color: "var(--warning)", fontSize: 11 }}>{warning}</div>}
       </div>
     );
   };
@@ -315,6 +327,7 @@ export function FormDialog({
         role="dialog"
         aria-modal="true"
         aria-label={t("chat.agentQuestion")}
+        noValidate
         onSubmit={submit}
         style={{
           display: "flex",

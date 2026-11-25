@@ -1,11 +1,11 @@
 import {
-  getAvailableThemes,
+  getAvailableThemesWithPaths,
   getThemeByName,
   getResolvedThemeColors,
   getThemeExportColors,
   isLightTheme,
-} from "@oh-my-pi/pi-tui/theme/theme";
-import { getSessionAccentHex } from "@oh-my-pi/pi-tui/theme/session-color";
+} from "@oh-my-pi/pi-coding-agent";
+import { sessionAccentHex } from "@oh-my-pi/pi-coding-agent/ui/status/accent";
 import { cfgStatusLineSessionAccent } from "@oh-my-pi/pi-coding-agent/modes/settings";
 import type { Settings } from "@oh-my-pi/pi-coding-agent";
 import type { WebThemeConfig, WebThemePalette } from "@/lib/settings-api";
@@ -128,8 +128,8 @@ export async function getWebThemeConfig(settings: Settings): Promise<WebThemeCon
 }
 
 export async function getAvailableWebThemes(): Promise<Array<{ name: string; colorScheme: "dark" | "light" }>> {
-  const names = await getAvailableThemes();
-  return names.map((name) => ({ name, colorScheme: isLightTheme(name) ? "light" : "dark" }));
+  const themes = await getAvailableThemesWithPaths();
+  return themes.map(({ name }) => ({ name, colorScheme: isLightTheme(name) ? "light" : "dark" }));
 }
 
 export type WebSessionAccent = { dark?: string; light?: string };
@@ -141,7 +141,7 @@ export async function getWebSessionAccent(name: string | undefined, settings: Se
     getThemeByName(getSetting<string>(settings, "theme.light") ?? "light"),
   ]);
   return {
-    dark: dark && getSessionAccentHex(name, dark.sessionAccentInputs),
-    light: light && getSessionAccentHex(name, light.sessionAccentInputs),
+    dark: dark && sessionAccentHex(dark, name),
+    light: light && sessionAccentHex(light, name),
   };
 }

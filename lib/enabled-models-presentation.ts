@@ -9,7 +9,7 @@ import {
   roleChipLabel,
   sortModelItems,
   type ModelBrowserItem,
-} from "@oh-my-pi/pi-tui/overlays/model-browser";
+} from "@oh-my-pi/pi-coding-agent/modes/view-model/overlays/model-browser";
 import type { EnabledModelsView } from "./enabled-models";
 
 /** Order the switch rows like omp's browser without changing the switch scope. */

@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
-import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
+import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-coding-agent/utils/render-utils";
 import type { Settings } from "@oh-my-pi/pi-coding-agent";
 import { formatRoleSelector } from "./model-roles";
 import { setSetting } from "@/lib/omp-settings";

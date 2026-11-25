@@ -9,9 +9,10 @@ import { type AnySetting, lookup } from "@oh-my-pi/pi-coding-agent/config/regist
 import { cfgSkills, type SkillsSettings } from "@oh-my-pi/pi-coding-agent/extensibility/settings";
 import type { Settings } from "@oh-my-pi/pi-coding-agent";
 import { isRecord } from "@oh-my-pi/pi-utils";
-import { SETTING_TABS, type AnyUiMetadata, type SettingTab } from "@oh-my-pi/pi-tui/overlays/settings-defs";
+import { SETTING_TABS, type AnyUiMetadata, type SettingTab } from "@oh-my-pi/pi-coding-agent/config/settings-defs";
 
-export { SETTING_TABS, TAB_GROUPS, TAB_METADATA, type SettingTab } from "@oh-my-pi/pi-tui/overlays/settings-defs";
+export { SETTING_TABS, TAB_GROUPS, type SettingTab } from "@oh-my-pi/pi-coding-agent/config/settings-defs";
+export { SETTINGS_PAGES } from "@oh-my-pi/pi-coding-agent/ui/overlays/settings/pages";
 
 export type SettingPath = string;
 
