@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { resolve } from "path";
+import { getRoleInfo } from "@oh-my-pi/pi-coding-agent/config/model-roles";
+import { getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
+import type { ModelRoleSettingsResponse } from "@/lib/api-types";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { getOmpRuntime, getSettingsForCwd } from "@/lib/omp-runtime";
 import { listModelRoles, writeModelRole, type ModelRoleScope } from "@/lib/model-roles";
-import { resolveVisibleModels } from "@/lib/model-scope";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { getSetting } from "@/lib/omp-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +29,22 @@ export async function GET(req: Request) {
   try {
     const { modelRegistry } = await getOmpRuntime();
     const settings = await getSettingsForCwd(result.cwd);
-    const { visible } = await resolveVisibleModels(modelRegistry, getSetting<string[]>(settings, "enabledModels"), settings);
-    return NextResponse.json({ roles: listModelRoles(settings, [...visible]) });
+    const available = modelRegistry.getAvailable("all");
+    const roles = listModelRoles(settings, available);
+    const models = available.map((model) => ({
+      model,
+      candidate: {
+        selector: `${model.provider}/${model.id}`,
+        provider: model.provider,
+        name: model.name || model.id,
+        thinkingLevels: [...getSupportedEfforts(model)],
+      },
+    }));
+    const candidates = Object.fromEntries(roles.filter((role) => !role.hidden).map(({ role }) => {
+      const { accepts } = getRoleInfo(role, settings);
+      return [role, models.filter(({ model }) => accepts(model)).map(({ candidate }) => candidate)];
+    }));
+    return NextResponse.json({ roles, candidates } satisfies ModelRoleSettingsResponse);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
@@ -78,9 +93,7 @@ export async function PUT(req: Request) {
     // instance; re-scope after the flush so project overrides are reflected in
     // the response and in the next modal load.
     const settings = await getSettingsForCwd(result.cwd);
-    const { modelRegistry } = runtime;
-    const { visible } = await resolveVisibleModels(modelRegistry, getSetting<string[]>(settings, "enabledModels"), settings);
-    return NextResponse.json({ roles: listModelRoles(settings, [...visible]) });
+    return NextResponse.json({ roles: listModelRoles(settings, runtime.modelRegistry.getAvailable("all")) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

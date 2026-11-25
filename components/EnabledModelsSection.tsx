@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { EnabledModelsView } from "@/lib/enabled-models";
 import {
@@ -375,6 +375,7 @@ export function EnabledModelsSection({
   }
 
   const shown = filterEnabledModels(provider.models, query);
+  const divider = shown[0]?.recent ? shown.findIndex((model) => !model.recent) : -1;
   const bulk = enabledModelsBulkActions(view, shown);
   const filtered = shown.length !== provider.models.length;
   const busy = pendingScope !== null || pendingRows.size > 0;
@@ -441,17 +442,22 @@ export function EnabledModelsSection({
       <div className="enabled-models-list">
         {shown.length === 0 ? (
           <div className="enabled-models-empty">{t("models.enabledNoMatches")}</div>
-        ) : shown.map((model) => {
+        ) : shown.map((model, index) => {
           const lastOne = isLastEnabledModel(view, model);
           const override = contextSettings?.overrides?.[model.id];
           const contextValue = override && typeof override === "object" && !Array.isArray(override)
             ? (override as Record<string, unknown>).contextWindow : undefined;
-          return (
-            <div key={model.ref} className="enabled-models-row">
+          const row = (
+            <div className="enabled-models-row">
               <span className="enabled-models-row-text">
                 <span className="enabled-models-row-name">
                   {model.name}
                   {model.isNew && <span className="enabled-models-new">{t("models.enabledNew")}</span>}
+                  {model.roles?.map((role) => (
+                    <span key={role.role} className="enabled-models-pin">
+                      {role.auto ? t("models.autoRole", { role: role.label }) : role.label}
+                    </span>
+                  ))}
                 </span>
                 <code className="enabled-models-row-id">{model.id}</code>
               </span>
@@ -479,6 +485,16 @@ export function EnabledModelsSection({
                 onChange={(checked) => controller.setModel(model.ref, checked)}
               />
             </div>
+          );
+          return (
+            <Fragment key={model.ref}>
+              {divider > 0 && (index === 0 || index === divider) && (
+                <div className="enabled-models-group">
+                  {t(index === 0 ? "models.rolesAndRecent" : "models.otherModels")}
+                </div>
+              )}
+              {row}
+            </Fragment>
           );
         })}
       </div>

@@ -82,6 +82,8 @@ export interface EnabledModelsModelView {
   thinkingPin?: string;
   /** First seen since omp-web last recorded the available models; cleared once switched or used. */
   isNew: boolean;
+  recent?: boolean;
+  roles?: { role: string; label: string; auto?: boolean }[];
 }
 
 export interface EnabledModelsProviderView {

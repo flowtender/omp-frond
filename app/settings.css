@@ -445,6 +445,18 @@
   border-top: 1px solid var(--border);
 }
 
+.enabled-models-group {
+  padding: 5px 9px;
+  border-block: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.enabled-models-row-name .enabled-models-pin {
+  margin-inline-start: 4px;
+}
+
 /* Eight digits wide (ch follows the phones' 16px form text), and no taller
    than the name and id beside it, so the row keeps its height. */
 .model-context-input {

@@ -21,6 +21,7 @@ import {
   writeEnabledModels,
   type EnabledModelsView,
 } from "@/lib/enabled-models-runtime";
+import { groupEnabledModelRows } from "@/lib/enabled-models-presentation";
 import { getOmpRuntime, getSettingsForCwd } from "@/lib/omp-runtime";
 import { oauthProvidersByCatalogId } from "@/lib/provider-listing-runtime";
 import { markModelsSeen, reconcileSeenModels } from "@/lib/seen-models";
@@ -60,7 +61,7 @@ async function buildView(context: RequestContext): Promise<EnabledModelsView> {
   const providerNames = new Map(
     [...oauthProvidersByCatalogId()].map(([providerId, login]) => [providerId, login.name]),
   );
-  return buildEnabledModelsView({
+  const view = buildEnabledModelsView({
     input,
     models: context.models,
     providerNames,
@@ -69,6 +70,9 @@ async function buildView(context: RequestContext): Promise<EnabledModelsView> {
     ...(readOnlyReason ? { readOnlyReason } : {}),
     ...(context.modelError ? { modelError: context.modelError } : {}),
   });
+  const { modelRegistry } = await getOmpRuntime();
+  groupEnabledModelRows(view, settings, modelRegistry, context.models);
+  return view;
 }
 
 /**

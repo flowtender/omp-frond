@@ -966,6 +966,18 @@ export interface ModelRoleAssignment {
   warning?: string;
 }
 
+export interface ModelRoleCandidate {
+  selector: string;
+  provider: string;
+  name: string;
+  thinkingLevels: string[];
+}
+
+export interface ModelRoleSettingsResponse {
+  roles: ModelRoleAssignment[];
+  candidates: Record<string, ModelRoleCandidate[]>;
+}
+
 export interface OmpWebReleaseInfo {
   version: string;
   tagName: string;

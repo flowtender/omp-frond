@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import type { ModelRoleAssignment, ModelRoleScope } from "@/lib/api-types";
+import type { ModelRoleAssignment, ModelRoleScope, ModelRoleSettingsResponse } from "@/lib/api-types";
 import {
   formatModelRoleSelector,
   getModelRoleThinkingLevel,
@@ -11,17 +11,6 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { SearchableSelect } from "./SearchableSelect";
 
-interface ModelEntry {
-  id: string;
-  name: string;
-  provider: string;
-}
-
-interface ModelsResponse {
-  modelList?: ModelEntry[];
-  thinkingLevels?: Record<string, string[]>;
-}
-
 interface Props {
   /** Working directory the roles are resolved against (project layer + model scope). */
   cwd: string | null;
@@ -30,10 +19,6 @@ interface Props {
 }
 
 const SCOPES: ModelRoleScope[] = ["global", "project"];
-
-function selectorFor(model: ModelEntry): string {
-  return `${model.provider}/${model.id}`;
-}
 
 /**
  * Assign a model to each of omp's roles.
@@ -47,8 +32,7 @@ function selectorFor(model: ModelEntry): string {
 export function ModelRolesPanel({ cwd, onRolesChanged }: Props) {
   const { t } = useI18n();
   const [roles, setRoles] = useState<ModelRoleAssignment[]>([]);
-  const [models, setModels] = useState<ModelEntry[]>([]);
-  const [thinkingLevels, setThinkingLevels] = useState<Record<string, string[]>>({});
+  const [candidates, setCandidates] = useState<ModelRoleSettingsResponse["candidates"]>({});
   const [scope, setScope] = useState<ModelRoleScope>("global");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,27 +41,18 @@ export function ModelRolesPanel({ cwd, onRolesChanged }: Props) {
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!cwd) {
       setRoles([]);
-      setModels([]);
-      setThinkingLevels({});
+      setCandidates({});
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const query = `?cwd=${encodeURIComponent(cwd)}`;
-      const [rolesRes, modelsRes] = await Promise.all([
-        fetch(`/api/model-roles${query}`, signal ? { signal } : undefined),
-        fetch(`/api/models${query}`, signal ? { signal } : undefined),
-      ]);
-      if (!rolesRes.ok) throw new Error(`HTTP ${rolesRes.status}`);
-      const rolesData = await rolesRes.json() as { roles?: ModelRoleAssignment[]; error?: string };
-      if (rolesData.error) throw new Error(rolesData.error);
-      if (!modelsRes.ok) throw new Error(`HTTP ${modelsRes.status}`);
-      const modelsData = await modelsRes.json() as ModelsResponse;
-      setRoles(rolesData.roles ?? []);
-      setModels(modelsData.modelList ?? []);
-      setThinkingLevels(modelsData.thinkingLevels ?? {});
+      const res = await fetch(`/api/model-roles?cwd=${encodeURIComponent(cwd)}`, { signal });
+      const data = await res.json() as ModelRoleSettingsResponse & { error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setRoles(data.roles);
+      setCandidates(data.candidates);
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
       setError(e instanceof Error ? e.message : String(e));
@@ -167,8 +142,9 @@ export function ModelRolesPanel({ cwd, onRolesChanged }: Props) {
           {visibleRoles.map((role) => {
             const current = role.resolved ? `${role.resolved.provider}/${role.resolved.modelId}` : "";
             const currentThinkingLevel = getModelRoleThinkingLevel(role.selector);
-            const thinkingKey = role.resolved ? `${role.resolved.provider}:${role.resolved.modelId}` : "";
-            const thinkingOptions = getModelRoleThinkingOptions(thinkingLevels[thinkingKey]);
+            const models = candidates[role.role] ?? [];
+            const selected = models.find((model) => model.selector === current);
+            const thinkingOptions = getModelRoleThinkingOptions(selected?.thinkingLevels);
             return (
               <div
                 key={role.role}
@@ -217,10 +193,7 @@ export function ModelRolesPanel({ cwd, onRolesChanged }: Props) {
                         void assign(role.role, null);
                         return;
                       }
-                      const selectedModel = models.find((model) => selectorFor(model) === value);
-                      const supported = selectedModel
-                        ? thinkingLevels[`${selectedModel.provider}:${selectedModel.id}`]
-                        : undefined;
+                      const supported = models.find((model) => model.selector === value)?.thinkingLevels;
                       const preservedLevel = getModelRoleThinkingLevel(role.selector);
                       const nextLevel = getModelRoleThinkingOptions(supported).includes(preservedLevel)
                         ? preservedLevel
@@ -230,11 +203,11 @@ export function ModelRolesPanel({ cwd, onRolesChanged }: Props) {
                     options={[
                       { value: "", label: t("roles.unset") },
                       ...models.map((model) => ({
-                        value: selectorFor(model),
+                        value: model.selector,
                         label: `${model.name} — ${model.provider}`,
-                        searchText: selectorFor(model),
+                        searchText: model.selector,
                       })),
-                      ...current && !models.some((model) => selectorFor(model) === current)
+                      ...current && !selected
                         ? [{ value: current, label: current }]
                         : [],
                     ]}

@@ -1921,6 +1921,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
     refreshAuthProviders();
     refreshEnabledModels();
   }, [refreshAuthProviders, refreshEnabledModels]);
+  const refreshRoleAssignments = useCallback(() => {
+    refreshEnabledModels();
+    onModelsChanged?.();
+  }, [refreshEnabledModels, onModelsChanged]);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -2149,7 +2153,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
   const detailContent = (() => {
     if (!selection) return null;
     if (selection.type === "roles") {
-      return <ModelRolesPanel cwd={cwd ?? null} onRolesChanged={onModelsChanged} />;
+      return <ModelRolesPanel cwd={cwd ?? null} onRolesChanged={refreshRoleAssignments} />;
     }
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
