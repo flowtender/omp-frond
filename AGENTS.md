@@ -14,6 +14,30 @@ Tests: `bun test`
 Exception: `bun run desktop:build` (via `scripts/stage-desktop.mjs`) is safe — it builds
 into `src-tauri/server/.next` through `OMP_WEB_DIST_DIR` and never touches the dev `.next/`.
 
+### Checking the UI in a browser without the password lock
+
+The dev server on 30141 uses the real agent dir, so it is usually locked
+(`omp-web-auth.json`). For a visual check, run a second dev server on a throwaway
+agent dir; it starts unlocked and never touches the real config:
+
+```bash
+AGENT_DIR=$(mktemp -d /tmp/omp-web-verify.XXXXXX)/agent && mkdir "$AGENT_DIR"
+NODE_ENV=development PI_CODING_AGENT_DIR="$AGENT_DIR" OMP_WEB_DIST_DIR=.next-verify \
+  bun --bun next dev --webpack -H 127.0.0.1 -p 30142
+```
+
+- `PI_CODING_AGENT_DIR` moves both omp's agent dir and the password store
+  (`bin/web-auth-store.js`). The empty dir means default settings: no sessions,
+  no providers, omp's default `theme.light`/`theme.dark`.
+- `OMP_WEB_DIST_DIR=.next-verify` keeps it off the main server's `.next/`. It is
+  gitignored, and its `tsconfig.json` includes are already present, so Next does not
+  rewrite that file. Use this name: another one makes Next add new includes there.
+- `NODE_ENV=development` is required when the shell exports `NODE_ENV=production`:
+  `next dev` then fails every CSS file with "Module parse failed: Unexpected character '@'".
+- In dev, the Next "Compiling…" badge sits over the sidebar's Settings button and
+  blocks clicks there; focus the button and press Enter instead.
+- Stop the server and `rm -rf` the temp dir afterwards.
+
 ### Everything runs on Bun
 
 `@oh-my-pi/pi-*` is published as **TypeScript sources** and imports `bun:sqlite`,

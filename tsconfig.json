@@ -39,7 +39,10 @@
     "src-tauri/server/.next/types/**/*.ts",
     "src-tauri/server/.next/dev/types/**/*.ts",
     ".next-production/types/**/*.ts",
-    ".next-production/dev/types/**/*.ts"
+    ".next-production/dev/types/**/*.ts",
+    ".next-verify/dev/types/**/*.ts",
+    ".next-verify/dev/dev/types/**/*.ts",
+    ".next-verify/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

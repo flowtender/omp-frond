@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { useTheme } from "@/hooks/useTheme";
-import { THEME_OPTIONS } from "@/lib/theme";
 import {
   CHAT_CONTENT_WIDTH_DEFAULT,
   CHAT_CONTENT_WIDTH_MAX,
@@ -51,7 +49,6 @@ interface UiSettingsProps {
 
 export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: UiSettingsProps) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
-  const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const chatScrollMode = useChatScrollMode();
@@ -171,44 +168,6 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
     <div className="settings-general">
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
-        <div role="radiogroup" aria-label={t("settings.appearance")} className="settings-theme-options">
-          {THEME_OPTIONS.map((option) => {
-            const selected = preference === option.id;
-            return (
-              <label
-                key={option.id}
-                className="settings-theme-option"
-                data-system={option.id === "auto" || undefined}
-                data-wide={option.id === "contrast-light" || option.id === "contrast-dark" || option.id === "zenburn" || undefined}
-              >
-                <input
-                  type="radio"
-                  name="theme"
-                  value={option.id}
-                  checked={selected}
-                  onChange={() => setThemePreference(option.id)}
-                  className="sr-only"
-                />
-                {/* A data-theme span paints with that theme's own variables. System is a switch, not a
-                    palette: a neutral tile with a light and a dark chip beside its name. */}
-                {option.id === "auto" ? (
-                  <span className="settings-theme-swatch settings-theme-system" aria-hidden="true">
-                    <span data-theme="light" className="settings-theme-chip" />
-                    <span data-theme="dark" className="settings-theme-chip" />
-                    <span className="settings-theme-system-name">{t(option.label)}</span>
-                  </span>
-                ) : (
-                  <span className="settings-theme-swatch" aria-hidden="true">
-                    <span data-theme={option.id} className="settings-theme-fill">
-                      <span className="settings-theme-name">{t(option.label)}</span>
-                    </span>
-                  </span>
-                )}
-                <span className="sr-only">{t(option.label)}</span>
-              </label>
-            );
-          })}
-        </div>
         <div className="settings-chat-options">
           <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.promptCacheSource")}>
             <span>{t("settings.promptCacheSource")}</span>
