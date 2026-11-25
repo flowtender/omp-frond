@@ -7,8 +7,6 @@
 // (legacy `{ server, tool }` or the SDK bridge's `{ serverName, mcpToolName }`).
 // Without a result a call keeps its registered name.
 
-/** Larger results are shown as the server sent them. */
-const PRETTY_JSON_MAX_CHARS = 200_000;
 const MCP_TOOL_PREFIX = "mcp__";
 
 export interface McpToolLabel {
@@ -27,18 +25,4 @@ export function mcpToolLabel(toolName: string, details?: unknown): McpToolLabel 
     if (typeof server === "string" && typeof tool === "string" && server && tool) return { server, tool };
   }
   return null;
-}
-
-/**
- * MCP servers often answer with one JSON document as text, compacted. Show it
- * indented; anything else, including JSON surrounded by other text, as sent.
- */
-export function prettyMcpResultText(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.length > PRETTY_JSON_MAX_CHARS || !/^[[{]/.test(trimmed)) return text;
-  try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2);
-  } catch {
-    return text;
-  }
 }

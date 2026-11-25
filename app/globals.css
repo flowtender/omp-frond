@@ -2530,6 +2530,23 @@ pre, code {
   text-underline-offset: 2px;
 }
 
+.omp-syntax { color: var(--syntax-variable, var(--text)); }
+.omp-syntax .token:is(.comment, .prolog, .doctype) { color: var(--syntax-comment, var(--text-muted)); }
+.omp-syntax .token:is(.keyword, .atrule) { color: var(--syntax-keyword, var(--accent)); }
+.omp-syntax .token:is(.function, .function-name, .tag) { color: var(--syntax-function, var(--accent)); }
+.omp-syntax .token:is(.variable, .parameter, .property) { color: var(--syntax-variable, var(--text)); }
+.omp-syntax .token:is(.string, .char, .attr-value, .regex) { color: var(--syntax-string, var(--text)); }
+.omp-syntax .token:is(.number, .boolean, .constant) { color: var(--syntax-number, var(--text)); }
+.omp-syntax .token:is(.class-name, .builtin) { color: var(--syntax-type, var(--text)); }
+.omp-syntax .token.operator { color: var(--syntax-operator, var(--text)); }
+.omp-syntax .token.punctuation { color: var(--syntax-punctuation, var(--text-muted)); }
+
+/* Prism labels JSON keys as properties, the colon as an operator, and null as a keyword. */
+.omp-syntax:is(.language-json, .language-webmanifest) .token.property,
+.omp-syntax :is(.language-json, .language-webmanifest) .token.property { color: var(--syntax-function, var(--accent)); }
+.omp-syntax:is(.language-json, .language-webmanifest) .token.null,
+.omp-syntax :is(.language-json, .language-webmanifest) .token.null { color: var(--syntax-number, var(--text)); }
+
 /* syntax highlighter line numbers */
 .markdown-body span.linenumber,
 span.linenumber {

@@ -110,6 +110,15 @@ export async function getWebThemePalette(name: string): Promise<WebThemePalette>
       "--omp-md-heading": firstColor(colors.mdHeading, accent),
       "--omp-md-link": firstColor(colors.mdLink, accent),
       "--omp-md-code": firstColor(colors.mdCode, colors.syntaxString, accent),
+      "--syntax-comment": firstColor(colors.syntaxComment, muted),
+      "--syntax-keyword": firstColor(colors.syntaxKeyword, accent),
+      "--syntax-function": firstColor(colors.syntaxFunction, accent),
+      "--syntax-variable": firstColor(colors.syntaxVariable, text),
+      "--syntax-string": firstColor(colors.syntaxString, text),
+      "--syntax-number": firstColor(colors.syntaxNumber, text),
+      "--syntax-type": firstColor(colors.syntaxType, text),
+      "--syntax-operator": firstColor(colors.syntaxOperator, text),
+      "--syntax-punctuation": firstColor(colors.syntaxPunctuation, muted),
     },
   };
 }

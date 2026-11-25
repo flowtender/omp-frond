@@ -2,8 +2,7 @@
 
 import { memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vs, vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
@@ -11,12 +10,14 @@ import { PlugGlyph } from "./PlugGlyph";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useTheme } from "@/hooks/useTheme";
+import { usePrismLanguages } from "@/hooks/usePrismLanguages";
+import { fileLanguage } from "@/lib/file-language";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, isHiddenAssistantBlock, splitThinkingPieces } from "@/lib/message-display";
 import { useDisplaySettings } from "@/hooks/useDisplaySettings";
 import { formatTurnDuration } from "@/lib/turn-duration";
-import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
+import { diffGapLabel, parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap } from "@/lib/patch";
+import { canHighlightDiff, highlightDiffFile, type DiffToken } from "@/lib/diff-syntax";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
@@ -29,7 +30,7 @@ import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
-import { mcpToolLabel, prettyMcpResultText, type McpToolLabel } from "@/lib/mcp-tool-display";
+import { mcpToolLabel, type McpToolLabel } from "@/lib/mcp-tool-display";
 import { inlineToolResult, inlineToolTarget, shellToolDispatches, type ToolDispatch } from "@/lib/inline-tool-display";
 import { asyncResultCards, taskToolCards, type TaskResultCard } from "@/lib/task-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
@@ -107,6 +108,61 @@ const thinkingContentCache = new Map<string, Promise<string>>();
 // KaTeX + syntax highlighting on multi-hundred-KB payloads (e.g. pasted HAR or
 // log dumps) freezes the browser main thread.
 const MAX_MARKDOWN_CHARS = 100_000;
+
+// Tool text can be updated frequently and can contain huge outputs. Only load
+// Prism for complete, bounded text with a known language.
+const ToolSyntax = memo(function ToolSyntax({ text, language, streaming = false }: {
+  text: string;
+  language?: string | null;
+  streaming?: boolean;
+}) {
+  const enabled = !streaming && !!language && language !== "text" && text.length <= MAX_MARKDOWN_CHARS;
+  const ready = usePrismLanguages(enabled);
+  if (!enabled || !ready) return <>{text}</>;
+  return <SyntaxHighlighter
+    className="omp-syntax"
+    language={language}
+    useInlineStyles={false}
+    PreTag="span"
+    CodeTag="span"
+    codeTagProps={{ className: `language-${language}`, style: { whiteSpace: "pre-wrap" } }}
+  >{text}</SyntaxHighlighter>;
+});
+
+function jsonLanguage(text: string): string | null {
+  if (text.length > MAX_MARKDOWN_CHARS || !/^\s*[\[{]/.test(text)) return null;
+  try {
+    JSON.parse(text);
+    return "json";
+  } catch {
+    return null;
+  }
+}
+
+function toolNameIs(tool: string, name: string): boolean {
+  const normalized = tool.toLowerCase();
+  return normalized === name || normalized.endsWith(`.${name}`) || normalized.endsWith(`_${name}`);
+}
+
+function toolFileLanguage(args: Record<string, unknown>): string | null {
+  const path = typeof args.path === "string" ? args.path : args.file_path;
+  if (typeof path !== "string") return null;
+  const language = fileLanguage(path);
+  return language === "text" || language === "pdf" || language === "word" ? null : language;
+}
+
+function toolFieldLanguage(tool: string, args: Record<string, unknown>, key: string): string | null {
+  if (key === "code" && toolNameIs(tool, "eval")) {
+    if (args.language === "js") return "javascript";
+    if (args.language === "py") return "python";
+  }
+  if (key === "content" && isWriteToolName(tool)) return toolFileLanguage(args);
+  return null;
+}
+
+function toolOutputLanguage(tool: string, args: Record<string, unknown>, text: string): string | null {
+  return (toolNameIs(tool, "read") ? toolFileLanguage(args) : null) ?? jsonLanguage(text);
+}
 
 function formatMessageBytes(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} MB`;
@@ -1222,10 +1278,9 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
 
   // Result display
   const resultContent = result ? (codemode ? stripCodemodeHeader(result.content) : result.content) : [];
-  const joinedResultText = result
+  const resultText = result
     ? resultContent.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
-  const resultText = mcpLabel && joinedResultText !== null ? prettyMcpResultText(joinedResultText) : joinedResultText;
   const resultImages = getMessageImages(resultContent);
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = (result?.isError ?? false)
@@ -1262,6 +1317,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         isError={isError}
         duration={duration}
         local={normalizedToolName.includes("(local)")}
+        streaming={isStreamingInput}
       />
     );
   }
@@ -1309,7 +1365,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
               borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
             }}
           >
-            <ToolFieldRows fields={toolFields} />
+            <ToolFieldRows fields={toolFields} tool={block.toolName} args={block.input} />
           </div>
         ) : (
           <pre
@@ -1326,7 +1382,9 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
               wordBreak: "break-all",
             }}
           >
-            {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : inputStr}
+            <ToolSyntax text={codemode ? codemode.code.replace(/\r/g, "").trimEnd() : inputStr}
+              language={codemode ? "javascript" : writtenFileText !== null ? toolFileLanguage(block.input) : "json"}
+              streaming={isStreamingInput} />
           </pre>
         )
       )}
@@ -1342,7 +1400,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
       {/* ── Expanded: applied-patch split diff ── */}
       {expanded && patchFiles && (
         <div style={{ borderTop: "1px solid rgba(34,197,94,0.15)", background: "var(--bg)" }}>
-          <SplitFilesView files={patchFiles} />
+          <SplitFilesView files={patchFiles} streaming={isStreamingInput} />
         </div>
       )}
 
@@ -1358,10 +1416,13 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         resultDiff ? (
           <PairedDiffResult
             diff={resultDiff}
+            targetPath={typeof block.input.path === "string" ? block.input.path : typeof block.input.file_path === "string" ? block.input.file_path : undefined}
+            streaming={isStreamingInput}
           />
         ) : (!resultIsEmpty || resultImages.length === 0) && (
           <TaskResultOutput callId={block.toolCallId} tool={block.toolName} result={result} output={resultText ?? ""}>
-            <PairedResult text={resultText ?? ""} isEmpty={resultIsEmpty} isError={isError} />
+            <PairedResult text={resultText ?? ""} isEmpty={resultIsEmpty} isError={isError}
+              language={!isError && !isStreamingInput ? toolOutputLanguage(block.toolName, block.input, resultText ?? "") : null} />
           </TaskResultOutput>
         )
       )}
@@ -1850,6 +1911,7 @@ function ConsoleOutputPreview({
   duration,
   local,
   status,
+  streaming = false,
 }: {
   callId: string;
   command: string;
@@ -1859,8 +1921,8 @@ function ConsoleOutputPreview({
   duration?: number;
   local?: boolean;
   status?: string;
+  streaming?: boolean;
 }) {
-  const { isDark } = useTheme();
   const [expanded, setExpanded] = useToolExpanded(callId, isError);
 
   return (
@@ -1869,32 +1931,12 @@ function ConsoleOutputPreview({
         onClick={() => setExpanded(!expanded)}
         style={{ width: "100%", border: 0, background: "none", textAlign: "left", cursor: "pointer" }}>
         <span className="shell-command-prompt" aria-hidden="true">$</span>
-        <SyntaxHighlighter
-          className="shell-command-code"
-          language="bash"
-          style={isDark ? vscDarkPlus : vs}
-          PreTag="span"
-          CodeTag="span"
-          wrapLongLines
-          customStyle={{
-            flex: 1,
-            minWidth: 0,
-            margin: 0,
-            padding: 0,
-            border: "none",
-            overflow: "visible",
-            background: "transparent",
-            color: "var(--text)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 13,
-            lineHeight: 1.55,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-          }}
-          codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
-        >
-          {command || " "}
-        </SyntaxHighlighter>
+        <span className="shell-command-code" style={{
+          flex: 1, minWidth: 0, color: "var(--text)", fontFamily: "var(--font-mono)",
+          fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+        }}>
+          <ToolSyntax text={command || " "} language="bash" streaming={streaming} />
+        </span>
         {local && <span className="shell-local-label">local</span>}
       </button>
 
@@ -1909,16 +1951,17 @@ function ConsoleOutputPreview({
   );
 }
 
-function ShellOutput({ output, pending = false, isError, showLabel = true }: {
+function ShellOutput({ output, pending = false, isError, showLabel = true, language }: {
   output: string;
   pending?: boolean;
   isError: boolean;
   showLabel?: boolean;
+  language?: string | null;
 }) {
   const { t } = useI18n();
   if (output.length > MAX_MARKDOWN_CHARS) return <OversizedText>{output}</OversizedText>;
-  const normalizedLines = normalizeCustomPanelLines(output.split(/\r?\n/));
-  const outputLines = normalizedLines.length === 1 && normalizedLines[0] === "" ? [] : normalizedLines;
+  const syntax = pending || isError || output.includes("\x1b") ? null : language ?? jsonLanguage(output);
+  const outputLines = syntax || !output ? [] : normalizeCustomPanelLines(output.split(/\r?\n/));
   const statusLabel = pending ? t("chat.runningCommand") : isError ? "failed" : "";
   return (
     <div className="shell-output-panel">
@@ -1927,10 +1970,12 @@ function ShellOutput({ output, pending = false, isError, showLabel = true }: {
         {statusLabel && <span className={`shell-output-status${isError ? " is-error" : pending ? " is-pending" : ""}`}>{statusLabel}</span>}
       </div>}
       <div className="shell-output-body" aria-live={pending ? "polite" : undefined}>
-        {outputLines.length === 0 && !pending && (
+        {!output && !pending && (
           <span className="shell-output-empty">{t("i18n.noOutput")}</span>
         )}
-        {outputLines.map((line, lineIndex) => {
+        {syntax ? (
+          <pre className="shell-output-line" style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><ToolSyntax text={output} language={syntax} /></pre>
+        ) : outputLines.map((line, lineIndex) => {
           const plainLine = stripAnsi(line).trimStart();
           const lineClass = isError || /^(?:error|fatal|failed|failure|✖|x\b)/i.test(plainLine)
             ? "is-error"
@@ -1991,10 +2036,11 @@ function MountedToolCards({ callId, dispatches, result, output, isError, hasFina
             duration={single ? duration : undefined}
           >
             {(expanded) => expanded && <>
-              {mode === "execute" && args && Object.keys(args).length > 0 && <ShellToolArguments args={args} />}
+              {mode === "execute" && args && Object.keys(args).length > 0 && <ShellToolArguments tool={tool} args={args} />}
               {mode === "execute" ? (
                 <TaskResultOutput callId={dispatchId} tool={tool} details={inner} result={result} slot={index} output={single ? output : ""}>
-                  {single && <ShellOutput output={output} isError={isError} />}
+                  {single && <ShellOutput output={output} isError={isError}
+                    language={toolOutputLanguage(tool, args ?? {}, output)} />}
                 </TaskResultOutput>
               ) : single && <ShellOutput output={output} isError={isError} />}
             </>}
@@ -2010,10 +2056,10 @@ function MountedToolCards({ callId, dispatches, result, output, isError, hasFina
   );
 }
 
-function ShellToolArguments({ args }: { args: Record<string, unknown> }) {
+function ShellToolArguments({ tool, args }: { tool: string; args: Record<string, unknown> }) {
   const fields = toolFieldsOfInput(args);
   return <div className="shell-tool-arguments">
-    {fields ? <ToolFieldRows fields={fields} /> : <pre>{JSON.stringify(args, null, 2)}</pre>}
+    {fields ? <ToolFieldRows fields={fields} tool={tool} args={args} /> : <pre><ToolSyntax text={JSON.stringify(args, null, 2)} language="json" /></pre>}
   </div>;
 }
 
@@ -2031,8 +2077,10 @@ interface ResultDiff {
   text: string;
 }
 
-function PairedDiffResult({ diff }: {
+function PairedDiffResult({ diff, targetPath, streaming }: {
   diff: ResultDiff;
+  targetPath?: string;
+  streaming?: boolean;
 }) {
   if (diff.text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{diff.text}</OversizedText>;
   return (
@@ -2042,15 +2090,15 @@ function PairedDiffResult({ diff }: {
         background: "var(--bg)",
       }}
     >
-      <SplitPatchView text={diff.text} />
+      <SplitPatchView text={diff.text} targetPath={targetPath} streaming={streaming} />
     </div>
   );
 }
 
-function SplitPatchView({ text }: { text: string }) {
+function SplitPatchView({ text, targetPath, streaming }: { text: string; targetPath?: string; streaming?: boolean }) {
   const files = useMemo(() => parseUnifiedPatch(text), [text]);
   if (!files) return <PatchTextView text={text} />;
-  return <SplitFilesView files={files} />;
+  return <SplitFilesView files={files} targetPath={targetPath} streaming={streaming} />;
 }
 
 /** Two code columns side by side, or one column of patch lines. */
@@ -2059,23 +2107,29 @@ export type PatchDiffLayout = "split" | "stacked";
 /**
  * The patch as the viewport can show it. Two columns need two code columns side
  * by side, which a phone does not have: there the same rows read as one column
- * — a removed line above the line that replaces it, each with its own number —
- * the way the file viewer's diff has always been drawn. See `unifiedDiffLines()`.
+ * — a removed line above the line that replaces it, each with its own number.
  */
-function SplitFilesView({ files }: { files: SplitDiffFile[] }) {
+function SplitFilesView({ files, targetPath, streaming }: { files: SplitDiffFile[]; targetPath?: string; streaming?: boolean }) {
   const layout: PatchDiffLayout = useIsMobile() ? "stacked" : "split";
-  return <PatchDiffFiles files={files} layout={layout} />;
+  return <PatchDiffFiles files={files} layout={layout} targetPath={targetPath} streaming={streaming} />;
 }
 
-export function PatchDiffFiles({ files, layout }: { files: SplitDiffFile[]; layout: PatchDiffLayout }) {
+export function PatchDiffFiles({ files, layout, targetPath, streaming = false }: { files: SplitDiffFile[]; layout: PatchDiffLayout; targetPath?: string; streaming?: boolean }) {
   const { t } = useI18n();
   const showFileHeaders = files.length > 1;
+  const languages = useMemo(() => files.map((file) => fileLanguage(stackedFilePath(file) || targetPath || "")), [files, targetPath]);
+  const eligible = canHighlightDiff(files, streaming) && languages.some((language) => language !== "text" && language !== "pdf" && language !== "word");
+  const ready = usePrismLanguages(eligible);
+  const tokens = useMemo(() => eligible && ready
+    ? files.map((file, index) => highlightDiffFile(file, languages[index]))
+    : [], [eligible, ready, files, languages]);
 
   return (
     <div style={{ background: "var(--bg)" }}>
       {files.map((file, fileIndex) => (
         <div
           key={fileIndex}
+          className={`omp-syntax${languages[fileIndex] === "json" ? " language-json" : ""}`}
           style={{
             minWidth: 0,
             borderTop: fileIndex === 0 ? "none" : "1px solid var(--border)",
@@ -2134,19 +2188,25 @@ export function PatchDiffFiles({ files, layout }: { files: SplitDiffFile[]; layo
 
               return (
                 <div key={rowIndex} style={{ display: "contents" }}>
-                  <SplitDiffCellView cell={row.left} side="left" />
-                  <SplitDiffCellView cell={row.right} side="right" />
+                  <SplitDiffCellView cell={row.left} side="left" tokens={tokens[fileIndex]?.get(row.left)} />
+                  <SplitDiffCellView cell={row.right} side="right" tokens={tokens[fileIndex]?.get(row.right)} />
                 </div>
               );
             })}
           </div>
           )}
 
-          {layout === "stacked" && unifiedDiffLines(file).map((line, lineIndex) => (
-            line.type === "gap"
-              ? <DiffGapRow key={lineIndex} gap={line} />
-              : <StackedDiffLineView key={lineIndex} line={line} />
-          ))}
+          {layout === "stacked" && file.rows.map((row, rowIndex) => {
+            if (row.type === "hunk") return null;
+            if (row.type === "gap") return <DiffGapRow key={rowIndex} gap={row} />;
+            if (row.left.type === "context" && row.right.type === "context") {
+              return <SplitDiffCellView key={rowIndex} cell={row.right} side="right" tokens={tokens[fileIndex]?.get(row.right)} />;
+            }
+            return <div key={rowIndex}>
+              {row.left.type !== "empty" && <SplitDiffCellView cell={row.left} side="right" tokens={tokens[fileIndex]?.get(row.left)} />}
+              {row.right.type !== "empty" && <SplitDiffCellView cell={row.right} side="right" tokens={tokens[fileIndex]?.get(row.right)} />}
+            </div>;
+          })}
         </div>
       ))}
     </div>
@@ -2179,19 +2239,6 @@ function stackedFilePath(file: SplitDiffFile): string {
   return file.oldPath || file.newPath || "";
 }
 
-function StackedDiffLineView({ line }: { line: UnifiedDiffLine }) {
-  return (
-    <SplitDiffCellView
-      side="right"
-      cell={{
-        // One gutter, so a removed line keeps the old number and everything else the new one.
-        lineNo: line.type === "removed" ? line.oldLineNo : line.newLineNo,
-        text: line.text,
-        type: line.type,
-      }}
-    />
-  );
-}
 
 function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right" }) {
   return (
@@ -2211,7 +2258,7 @@ function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right
   );
 }
 
-function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
+function SplitDiffCellView({ cell, side, tokens }: { cell: SplitDiffCell; side: "left" | "right"; tokens?: DiffToken[] }) {
   const bg =
     cell.type === "added"
       ? "rgba(34,197,94,0.12)"
@@ -2270,7 +2317,7 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
           overflowWrap: "anywhere",
         }}
       >
-        {cell.text || "\u00a0"}
+        {tokens && cell.text ? tokens.map((token, index) => token.className ? <span key={index} className={token.className}>{token.text}</span> : token.text) : cell.text || "\u00a0"}
       </span>
     </div>
   );
@@ -2427,10 +2474,11 @@ function ResultImages({ images, isError }: { images: ImageContent[]; isError: bo
   );
 }
 
-function PairedResult({ text, isEmpty, isError }: {
+function PairedResult({ text, isEmpty, isError, language }: {
   text: string;
   isEmpty: boolean;
   isError: boolean;
+  language?: string | null;
 }) {
   const { t } = useI18n();
   if (text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{text}</OversizedText>;
@@ -2457,7 +2505,7 @@ function PairedResult({ text, isEmpty, isError }: {
           opacity: isEmpty ? 0.6 : 1,
         }}
       >
-        {isEmpty ? t("i18n.noOutput") : text}
+        {isEmpty ? t("i18n.noOutput") : <ToolSyntax text={text} language={language} />}
       </pre>
     </div>
   );
@@ -2853,7 +2901,7 @@ const TOOL_FIELD_BLOCK: CSSProperties = {
   whiteSpace: "pre-wrap",
 };
 
-function ToolFieldRows({ fields }: { fields: ToolField[] }) {
+function ToolFieldRows({ fields, tool, args }: { fields: ToolField[]; tool: string; args: Record<string, unknown> }) {
   return (
     <table style={{ borderCollapse: "collapse" }}>
       <tbody>
@@ -2861,7 +2909,9 @@ function ToolFieldRows({ fields }: { fields: ToolField[] }) {
           <tr key={field.key}>
             <td style={TOOL_FIELD_LABEL}>{field.key}</td>
             <td style={TOOL_FIELD_VALUE}>
-              {field.multiline ? <pre style={TOOL_FIELD_BLOCK}>{field.value}</pre> : field.value}
+              {field.multiline
+                ? <pre style={TOOL_FIELD_BLOCK}><ToolSyntax text={field.value} language={toolFieldLanguage(tool, args, field.key)} /></pre>
+                : <ToolSyntax text={field.value} language={toolFieldLanguage(tool, args, field.key)} />}
             </td>
           </tr>
         ))}

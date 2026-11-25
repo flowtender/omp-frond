@@ -415,9 +415,8 @@ test("an async notice keeps the highlighted shell command and output open beside
   const html = renderMessage(message);
   assert.match(html, /Background job results/);
   assert.match(html, /class="shell-output-preview is-error"/);
-  const command = html.match(/class="shell-command-code"[^>]*>(.*?)<\/span><\/span><\/button>/s)?.[1];
+  const command = html.match(/class="shell-command-code"[^>]*>(.*?)<\/button>/s)?.[1];
   assert.ok(command);
-  assert.match(command, /style="color:[^"]+"/);
   assert.match(textOf(command), /printf '%s\\n' "\$VALUE" && bun run compile/);
   assert.match(html, /class="shell-output-footer">3\.6s<\/div>/);
   assert.match(html, /class="shell-output-line is-error"><span>  failure: &lt;missing&gt;<\/span>/);
@@ -598,7 +597,7 @@ test("renders shell blocks as themed terminal content", (t) => {
   );
 
   assert.match(html, /class="shell-output-preview"/);
-  assert.match(html, /git<\/span>/);
+  assert.match(textOf(html), /git status/);
   assert.match(html, /--short/);
   assert.match(html, /Output/);
   assert.match(html, /components\/MessageView\.tsx/);
@@ -1105,7 +1104,7 @@ test("expands a codemode call into its script, its calls, and the output without
   });
   const text = textOf(html);
 
-  // The script sits in the plain box any tool's input uses, not a highlighted code block.
+  // The script stays in the tool input box, not a markdown code block.
   assert.doesNotMatch(html, /markdown-code-block/);
   assert.equal(textOf(html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/)[1]), CODEMODE_SCRIPT);
   assert.match(text, /Tool calls/);
@@ -1162,7 +1161,7 @@ test("a codemode call with no script or streaming input falls back to a plain bo
   assert.doesNotMatch(textOf(otherHtml), /"script": "x"/);
 });
 
-test("labels an MCP call server/tool and indents a JSON result", (t) => {
+test("labels an MCP call server/tool and preserves a JSON result", (t) => {
   const block = {
     type: "toolCall",
     toolCallId: "call-mcp-1",
@@ -1187,7 +1186,7 @@ test("labels an MCP call server/tool and indents a JSON result", (t) => {
   const text = textOf(html);
   assert.match(text, /docs\.v2\/search/);
   assert.match(html, /title="mcp__docs_v2__search"/);
-  assert.match(text, /\{\n {2}"hits": \[\n {4}\{\n {6}"title": "Code mode"/);
+  assert.match(text, /\{"hits":\[\{"title":"Code mode"\}\]\}/);
 });
 
 test("keeps the registered name where no result names the server and tool", (t) => {
@@ -1368,4 +1367,58 @@ test("one column names a deleted file's section by its old path", () => {
 
   assert.ok(html.includes(">a/gone.ts<"));
   assert.ok(!html.includes("/dev/null"));
+});
+
+test("highlights complete tool code and JSON, leaving streaming, unknown, and oversized text plain", async (t) => {
+  const { loadPrismLanguages } = await jiti.import("@/lib/prism-languages");
+  await loadPrismLanguages();
+  const renderTool = (id, toolName, input, output, rawInput) => {
+    const block = { type: "toolCall", toolCallId: id, toolName, input, ...(rawInput === undefined ? {} : { rawInput }) };
+    setToolCallExpanded(id, true);
+    t.after(() => setToolCallExpanded(id, false));
+    return renderMessage({ role: "assistant", content: [block] }, {
+      toolResults: new Map(output === undefined ? [] : [[id, {
+        role: "toolResult", toolCallId: id, content: [{ type: "text", text: output }],
+      }]]),
+    });
+  };
+  for (const [language, code, token] of [
+    ["js", "const value = 42;", "keyword"],
+    ["py", "def value():\n    return 42", "keyword"],
+  ]) {
+    const html = renderTool(`eval-${language}`, "eval", { language, code });
+    assert.match(html, new RegExp(`token ${token}`));
+    assert.ok(textOf(html).includes(code));
+  }
+  assert.match(renderTool("codemode-highlight", "codemode", { code: "const x = 1;" }), /token keyword/);
+  assert.match(renderTool("write-highlight", "write", { path: "x.ts", content: "const x = 1;" }), /token keyword/);
+  assert.match(renderTool("read-highlight", "read", { path: "x.py" }, "def greet():\n  return 1"), /token keyword/);
+  const json = '  {"ok":true,"items":[1,2]}  \n';
+  const output = renderTool("json-highlight", "other", { nested: { x: 1 } }, json);
+  assert.match(output, /language-json/);
+  assert.match(output, /token property/);
+  assert.ok(textOf(output).includes(json));
+  assert.doesNotMatch(renderTool("invalid-json", "other", { x: 1 }, '{"ok":'), /omp-syntax/);
+  assert.doesNotMatch(renderTool("unknown-file", "write", { path: "x.unknown", content: "const x = 1;" }), /omp-syntax/);
+  assert.doesNotMatch(renderTool("streaming", "eval", {}, undefined, '{"code":"const x'), /omp-syntax/);
+  assert.doesNotMatch(renderTool("oversized-code", "eval", { language: "js", code: "x".repeat(100_001) }), /omp-syntax/);
+  assert.match(renderTool("bash-highlight", "bash", { command: "echo $HOME" }), /omp-syntax/);
+});
+
+test("highlights mounted eval and read without losing ANSI console output", async (t) => {
+  const { loadPrismLanguages } = await jiti.import("@/lib/prism-languages");
+  await loadPrismLanguages();
+  const renderMounted = (id, tool, args, output) => {
+    setToolCallExpanded(`${id}:cmd:0`, true);
+    t.after(() => setToolCallExpanded(`${id}:cmd:0`, false));
+    return renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: id, toolName: "bash", input: { command: tool } }] }, {
+      toolResults: new Map([[id, { role: "toolResult", content: [{ type: "text", text: output }],
+        details: { wallTimeMs: 1, toolCommands: [{ tool, mode: "execute", exitCode: 0, args }] } }]]),
+    });
+  };
+  assert.match(renderMounted("mounted-eval-code", "eval", { language: "py", code: "return 42" }, ""), /token keyword/);
+  assert.match(renderMounted("mounted-read-code", "read", { path: "x.js" }, "const x = 1;"), /token keyword/);
+  const ansi = renderMounted("mounted-read-ansi", "read", { path: "x.js" }, "\x1b[31mred\x1b[0m");
+  assert.match(ansi, /color:/);
+  assert.match(textOf(ansi), /red/);
 });
