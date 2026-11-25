@@ -24,6 +24,8 @@ export interface SettingsField {
   value: SettingsValue;
   defaultValue: SettingsValue;
   configured: boolean;
+  /** Set in the requested project's own settings (`/api/settings?project=`), overriding the global value. */
+  projectOverride?: boolean;
   options?: SettingsOption[];
   ordered?: boolean;
   condition?: string;
@@ -58,6 +60,11 @@ export interface SettingsResponse {
   fields: SettingsField[];
   availableThemes: Array<{ name: string; colorScheme: "dark" | "light" }>;
   theme: WebThemeConfig;
+}
+
+/** `GET /api/settings/project-overrides`: per project root, the settings on the tab it sets itself. */
+export interface ProjectOverridesResponse {
+  projects: Record<string, string[]>;
 }
 
 export type McpTransport = "stdio" | "http" | "sse";

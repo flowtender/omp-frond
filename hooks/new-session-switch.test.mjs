@@ -60,7 +60,7 @@ async function sendAndSwitch(stage) {
     const sending = hook.result.handleSend("first message");
     await settle();
     if (stage === "creating") hook.unmount();
-    creation.resolve(json({ sessionId: "s1" }));
+    creation.resolve(json({ sessionId: "s1", toolNames: null }));
     await settle();
     if (stage === "connecting") hook.unmount();
     else sources.at(-1)?.connect();

@@ -56,3 +56,9 @@ export function isFilePathAllowed(target: string, allowedRoots: Set<string>): bo
 export function isExistingFilePathAllowed(target: string, allowedRoots: Set<string>): boolean {
   return isExistingPathWithinRoots(target, allowedRoots);
 }
+
+/** `cwd` itself when it exists inside an allowed root; throws `Access denied` otherwise. */
+export async function requireAllowedCwd(cwd: string): Promise<string> {
+  if (!isExistingFilePathAllowed(cwd, await getAllowedFileRoots())) throw new Error("Access denied");
+  return cwd;
+}

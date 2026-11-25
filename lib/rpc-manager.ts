@@ -26,6 +26,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
+import { buildToolsMarkdown } from "@oh-my-pi/pi-tui/prompt/tools-markdown";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
@@ -1729,6 +1730,13 @@ export class AgentSessionWrapper {
 
       case "execute_slash_command": {
         const output: string[] = [];
+        if (typeof command.message === "string" && command.message.trim().replace(/^\//, "").trim() === "tools") {
+          output.push(buildToolsMarkdown({
+            tools: this.inner.agent?.state?.tools ?? [],
+            mountedCommands: this.inner.getToolCommandEntries?.() ?? [],
+          }));
+          return { handled: true, output };
+        }
         const result: AcpBuiltinSlashCommandResult = await executeAcpBuiltinSlashCommand(command.message as string, {
           session: this.inner as never,
           sessionManager: this.inner.sessionManager,

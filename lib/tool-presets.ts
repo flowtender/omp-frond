@@ -13,9 +13,8 @@ export const CONCRETE_TOOL_PRESET_VALUES = ["none", "read-only", "default", "ful
 export type ConcreteToolPreset = typeof CONCRETE_TOOL_PRESET_VALUES[number];
 
 /**
- * "configured" is not a tool list: it means "send no override", so omp resolves the
- * loadout from settings.json defaultTools exactly like the `omp` CLI does. Sessions
- * left on it stay unpinned and keep following the setting as it changes.
+ * "configured" is not a tool list: it means "send no override" and let omp
+ * choose its normal loadout. Sessions left on it stay unpinned.
  */
 export const CONFIGURED_TOOL_PRESET = "configured";
 export const TOOL_PRESET_VALUES = ["configured", "none", "read-only", "default", "full"] as const;
@@ -56,7 +55,7 @@ export function getPresetFromToolNames(toolNames: readonly string[]): ConcreteTo
   return "default";
 }
 
-/** Undefined means "no explicit selection": let omp resolve settings.json defaultTools. */
+/** Undefined means "no explicit selection": let omp choose its normal loadout. */
 export function getToolNamesForPreset(preset: ToolPreset): string[] | undefined {
   if (preset === CONFIGURED_TOOL_PRESET) return undefined;
   if (preset === "none") return [...PRESET_NONE];

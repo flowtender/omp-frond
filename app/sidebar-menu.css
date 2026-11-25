@@ -33,6 +33,12 @@
   outline: none;
 }
 
+/* Above the Settings dialog (z-index 1000) it was opened from, below the trust dialog (1100). */
+.sidebar-menu.is-over-dialog,
+.sidebar-sheet-layer.is-over-dialog {
+  z-index: 1050;
+}
+
 @keyframes sidebar-menu-in {
   from {
     opacity: 0;

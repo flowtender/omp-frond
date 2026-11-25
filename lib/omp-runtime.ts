@@ -63,6 +63,12 @@ export async function getSettingsForCwd(cwd: string | undefined): Promise<Settin
   return settings.cloneForCwd(cwd);
 }
 
+/** After a write to `<cwd>/.omp/config.yml`: the shared instance re-reads it when it is scoped there. */
+export async function reloadProjectSettings(cwd: string): Promise<void> {
+  const { settings } = await getOmpRuntime();
+  if (settings.getCwd() === cwd) await settings.reloadForCwd(cwd);
+}
+
 /** Drop the cached runtime so the next request rebuilds it (config/auth edits). */
 export function invalidateOmpRuntime(): void {
   globalThis.__ompRuntimePromise = undefined;

@@ -7,6 +7,11 @@ import { basename, dirname, join } from "path";
  * process permissions. The caller must create the parent directory first.
  */
 export function writePrivateFileAtomicSync(path: string, contents: string): void {
+  writeFileAtomicSync(path, contents, 0o600);
+}
+
+/** Replace a file atomically with `mode`. The caller must create the parent directory first. */
+export function writeFileAtomicSync(path: string, contents: string, mode: number): void {
   const dir = dirname(path);
   const tempPath = join(dir, `.${basename(path)}-${randomUUID()}.tmp`);
   let operationFailed = false;
@@ -15,7 +20,7 @@ export function writePrivateFileAtomicSync(path: string, contents: string): void
     writeFileSync(tempPath, contents, {
       encoding: "utf8",
       flag: "wx",
-      mode: 0o600,
+      mode,
       flush: true,
     });
     renameSync(tempPath, path);

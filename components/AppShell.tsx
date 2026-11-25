@@ -2872,6 +2872,7 @@ export function AppShell() {
         onRuntimeIdentity={handleRuntimeIdentity}
         initialSection={settingsConfigSection}
         projectTrust={projectTrust}
+        projects={sidebarNewSessionContext?.projects ?? []}
         quoteSelectionEnabled={quoteSelectionEnabled}
         onQuoteSelectionChange={handleQuoteSelectionChange}
         onClose={() => setSettingsConfigSection(null)}

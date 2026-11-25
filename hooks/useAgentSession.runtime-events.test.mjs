@@ -6,7 +6,6 @@ import { isBlockingExtensionUiRequest } from "../lib/browser-notifications.ts";
 import { normalizeToolCalls } from "../lib/normalize.ts";
 import { toClientAgentEvent } from "../lib/agent-event-wire.ts";
 import { userMessageKey } from "../lib/prompt-recovery.ts";
-import { getToolNamesForPreset } from "../lib/tool-presets.ts";
 
 const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("useAgentSession.ts", source, ts.ScriptTarget.Latest, true);
@@ -29,7 +28,7 @@ const callbackNames = [
   "closeEvents", "followSessionIdentity", "followRuntimeState", "cancelEventStreamGrace",
   "handleExtensionUiRequest", "handleAgentEvent", "connectEvents", "resolveCommandSession", "ensureEventsConnected", "applyContextUsage", "refreshContextUsage",
   "settleUiStage", "notifyPromptStage", "finishPromptWithoutStream", "reconcileAgentState",
-  "handleSend", "handleToolPresetChange",
+  "handleSend",
 ];
 const helperNames = ["streamReducer", "EventStreamConnectionError"];
 for (const name of callbackNames) assert.ok(callbacks.has(name), `Missing callback: ${name}`);
@@ -107,10 +106,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
     applyComposer: () => {},
     session: { id: sessionId },
     isNew: false,
-    getToolNamesForPreset,
     ensuringNewSessionRef: { current: null },
-    setToolPresetState: (preset) => { state.toolPreset = preset; },
-    setPreferredToolPreset: (preset) => { state.preferredToolPreset = preset; },
     addNotice: (notice) => effects.push(["notice", notice]),
     editEntryId: null,
     bashRunningRef: { current: false },
@@ -220,30 +216,6 @@ test("an expired runtime does not connect to a saved session the server cannot v
   h.replies.push(response({ running: false }), { ok: false, status: 404 });
   await assert.rejects(h.ensureEventsConnected("a"), /Runtime identity expired/);
   assert.equal(h.sources.length, 0);
-});
-
-test("a preset change after restart targets the saved chat without opening a stream", async () => {
-  const h = harness();
-  h.replies.push(response({ running: false }), response({ running: false }));
-
-  await h.handleToolPresetChange("full");
-
-  assert.deepEqual(h.effects.filter(([kind]) => kind === "command"), [
-    ["command", "a", { type: "set_tools", toolNames: ["read", "bash", "edit", "write", "grep", "glob"] }],
-  ]);
-  assert.equal(h.sources.length, 0);
-  assert.equal(h.state.preferredToolPreset, "full");
-});
-
-test("a preset change does not reopen an expired runtime without a saved chat", async () => {
-  const h = harness();
-  h.replies.push(response({ running: false }), { ok: false, status: 404 });
-
-  await h.handleToolPresetChange("full");
-
-  assert.equal(h.effects.some(([kind]) => kind === "command"), false);
-  assert.equal(h.state.preferredToolPreset, undefined);
-  assert.match(h.effects.find(([kind]) => kind === "notice")?.[1].message, /Runtime identity expired/);
 });
 
 for (const initialId of ["a", "b"]) {

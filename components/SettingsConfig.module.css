@@ -300,6 +300,20 @@
 .error, .saveState { margin-top: 5px; color: var(--danger); font: 10px var(--font-mono); }
 .saveState { color: var(--text-dim); }
 
+.scopeBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.scopeLabel { color: var(--text-dim); font: 700 10px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
+.scopeBar :global(.project-picker-button) { border: 1px solid var(--border); }
+.scopeBar :global(.project-picker-button)[data-overridden="true"] { border-color: var(--warning); }
+.scopeOverrideBadge { flex: 0 0 auto; padding: 2px 5px; border-radius: 4px; background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); font: 700 9px/1.2 var(--font-mono); }
+.scopeReset { height: 26px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; font: 10px var(--font-mono); }
+.scopeReset:hover { background: var(--bg-hover); color: var(--text); }
+.scopeReset:disabled { cursor: wait; opacity: .55; }
+.settingRow[data-overridden="true"] .settingLabel { color: var(--warning); }
+.projectTag { margin-left: 6px; color: var(--warning); font: 700 9px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.useGlobal { margin-left: 6px; padding: 0; border: 0; background: transparent; color: var(--text-dim); cursor: pointer; font: 10px var(--font-mono); text-decoration: underline; }
+.useGlobal:hover { color: var(--text); }
+.useGlobal:disabled { cursor: wait; opacity: .55; }
+
 .themeGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

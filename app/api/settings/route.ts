@@ -3,10 +3,13 @@ import {
   getDefault,
   getEnumValues,
   getPathsForTab,
+  getSegments,
   getType,
   getUi,
   hasUi,
   isCredential,
+  isSetInProjectLayer,
+  isSettingTab,
   SETTING_TABS,
   TAB_GROUPS,
   TAB_METADATA,
@@ -16,9 +19,10 @@ import {
   setSetting,
   type SettingPath,
 } from "@/lib/omp-settings";
-import { getOmpRuntime, getSettingsForCwd } from "@/lib/omp-runtime";
-import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { getOmpRuntime, getSettingsForCwd, reloadProjectSettings } from "@/lib/omp-runtime";
+import { requireAllowedCwd } from "@/lib/file-access";
 import { getAvailableWebThemes, getWebThemeConfig } from "@/lib/omp-theme";
+import { removeProjectSettings, writeProjectSetting } from "@/lib/project-settings-file";
 import type {
   SettingsField,
   SettingsFieldType,
@@ -29,11 +33,17 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-async function validateCwd(cwd: string | null): Promise<string | undefined> {
-  if (!cwd) return undefined;
-  const allowedRoots = await getAllowedFileRoots();
-  if (!isExistingFilePathAllowed(cwd, allowedRoots)) throw new Error("Access denied");
-  return cwd;
+// `?cwd=` reads the settings a session there sees. `?project=` does the same
+// for a project root and also marks what the project's own config sets;
+// PATCH and DELETE with a project write that project's `.omp/config.yml`.
+
+async function validateCwd(cwd: string | null | undefined): Promise<string | undefined> {
+  return cwd ? requireAllowedCwd(cwd) : undefined;
+}
+
+function errorResponse(error: unknown, status = 400) {
+  const message = error instanceof Error ? error.message : String(error);
+  return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : status });
 }
 
 function optionsFor(path: SettingPath, runtimeThemes: string[]): SettingsOption[] | undefined {
@@ -123,8 +133,10 @@ function validateSettingValue(path: SettingPath, value: unknown): SettingsValue 
 
 export async function GET(req: Request) {
   try {
-    const cwd = await validateCwd(new URL(req.url).searchParams.get("cwd"));
-    const settings = await getSettingsForCwd(cwd);
+    const params = new URL(req.url).searchParams;
+    const project = await validateCwd(params.get("project"));
+    const settings = await getSettingsForCwd(project ?? await validateCwd(params.get("cwd")));
+    const projectLayer = project ? settings.getProjectSettings() : null;
     const [availableThemes, theme] = await Promise.all([
       getAvailableWebThemes(),
       getWebThemeConfig(settings),
@@ -148,6 +160,7 @@ export async function GET(req: Request) {
           value: secret ? null : serializableValue(getSetting(settings, path)),
           defaultValue: secret ? null : serializableValue(getDefault(path)),
           configured: isSettingConfigured(settings, path),
+          ...(projectLayer ? { projectOverride: isSetInProjectLayer(projectLayer, path) } : {}),
           options: optionsFor(path, themeNames),
           ordered: ui.ordered === true,
           condition: ui.condition,
@@ -163,14 +176,13 @@ export async function GET(req: Request) {
     };
     return NextResponse.json(response);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 500 });
+    return errorResponse(error, 500);
   }
 }
 
 export async function PATCH(req: Request) {
   try {
-    const body = await req.json() as { path?: string; value?: unknown };
+    const body = await req.json() as { path?: string; value?: unknown; project?: string };
     if (!body.path || !findSetting(body.path) || !hasUi(body.path as SettingPath)) {
       return NextResponse.json({ error: "Unknown setting" }, { status: 400 });
     }
@@ -182,11 +194,48 @@ export async function PATCH(req: Request) {
     ) {
       throw new Error("Unknown omp theme");
     }
+    const project = await validateCwd(body.project);
+    if (project) {
+      // A project's config is a file in the repository: no credential goes there.
+      if (isCredential(path)) throw new Error("Credentials can only be saved globally");
+      await writeProjectSetting(project, getSegments(path), value);
+      await reloadProjectSettings(project);
+      return NextResponse.json({ success: true, value: serializableValue(getSetting(await getSettingsForCwd(project), path)) });
+    }
     const { settings } = await getOmpRuntime();
     setSetting(settings, path, value);
     await settings.flush();
     return NextResponse.json({ success: true, value: serializableValue(getSetting(settings, path)) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    return errorResponse(error);
+  }
+}
+
+/**
+ * `?project=<root>&path=<setting>` or `?project=<root>&tab=<tab>`: removes the
+ * setting, or every setting on the tab, from the project's own config, so the
+ * global value applies there again.
+ */
+export async function DELETE(req: Request) {
+  try {
+    const params = new URL(req.url).searchParams;
+    const project = await validateCwd(params.get("project"));
+    if (!project) return NextResponse.json({ error: "project is required" }, { status: 400 });
+    const path = params.get("path");
+    const tab = params.get("tab");
+    let paths: SettingPath[];
+    if (path) {
+      if (!findSetting(path) || !hasUi(path)) return NextResponse.json({ error: "Unknown setting" }, { status: 400 });
+      paths = [path];
+    } else if (isSettingTab(tab)) {
+      paths = getPathsForTab(tab);
+    } else {
+      return NextResponse.json({ error: "path or tab is required" }, { status: 400 });
+    }
+    await removeProjectSettings(project, paths.map(getSegments));
+    await reloadProjectSettings(project);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return errorResponse(error);
   }
 }

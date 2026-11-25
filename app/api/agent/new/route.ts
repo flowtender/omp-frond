@@ -55,11 +55,13 @@ export async function POST(req: Request) {
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
-    const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: unknown; [key: string]: unknown };
+    const { provider, modelId, toolNames: requestedToolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[] | null; thinkingLevel?: unknown; [key: string]: unknown };
     if ((provider && !modelId) || (!provider && modelId)) {
       throw new Error("provider and modelId must be provided together");
     }
     const explicitThinkingLevel = parseThinkingLevel(thinkingLevel);
+    // Omitted means omp's own loadout; an explicit list pins the session's tools.
+    const toolNames = requestedToolNames ?? undefined;
 
     // Must be unique per request: startRpcSession coalesces concurrent callers
     // that share a key onto one session. Date.now() (ms resolution) collides for
@@ -94,6 +96,7 @@ export async function POST(req: Request) {
           : null,
         thinkingLevel: state.thinkingLevel,
         configuredThinkingLevel: state.configuredThinkingLevel,
+        toolNames: toolNames ?? null,
       });
     }
 

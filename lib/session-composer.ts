@@ -17,6 +17,7 @@ export type SessionComposerSnapshot = SessionModelSelection & {
   configuredThinkingLevel: string;
   source: "restored" | "live";
   toolPreset: ToolPreset;
+  toolNames: string[] | null;
   shimmer: ShimmerMode;
 };
 
@@ -58,6 +59,7 @@ export async function readRestoredComposer(
     thinkingLevel: thinkingLevel ?? "off",
     configuredThinkingLevel: configuredThinkingLevel ?? "off",
     toolPreset: tools ? getPresetFromToolNames(tools) : "configured",
+    toolNames: tools ?? null,
     shimmer: cfgMotionResolved.get(settings).shimmer,
   };
 }
@@ -72,6 +74,7 @@ export function readLiveComposer(session: AgentSessionLike): SessionComposerSnap
     thinkingLevel,
     configuredThinkingLevel: session.configuredThinkingLevel() ?? thinkingLevel,
     toolPreset: getPresetFromToolNames(session.getActiveToolNames()),
+    toolNames: readSessionToolSelection(session.sessionManager.getEntries() as unknown as SessionEntry[]) ?? null,
     shimmer: cfgMotionResolved.get(session.settings).shimmer,
   };
 }

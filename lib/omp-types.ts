@@ -176,7 +176,7 @@ export interface AgentSessionLike {
   };
   readonly sessionManager: SessionManager;
   readonly settings: Settings;
-  readonly agent: { state?: { systemPrompt?: string | string[]; thinkingLevel?: string } };
+  readonly agent: { state?: { systemPrompt?: string | string[]; thinkingLevel?: string; tools?: ReadonlyArray<{ name: string; description: string }> } };
   /** The session-level system prompt the SDK renders from its current options. */
   readonly systemPrompt?: string;
   /** Shell/project settings the SDK exposes to its host. */
@@ -232,6 +232,8 @@ export interface AgentSessionLike {
   getAllToolNames(): string[];
   getToolByName(name: string): { name: string; description?: string } | undefined;
   getActiveToolNames(): string[];
+  /** Entries of tools mounted as bash commands, listed after the active set by `/tools`. */
+  getToolCommandEntries?(): ReadonlyArray<{ name: string; summary: string }>;
   getEnabledToolNames(): string[];
   setActiveToolsByName(names: string[]): Promise<void>;
   abortCompaction(): void;

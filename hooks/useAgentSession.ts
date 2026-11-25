@@ -32,8 +32,7 @@ import type {
   StreamingState as WireStreamingState,
   StreamingStore,
 } from "@/lib/streaming-message";
-import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
-import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
+import type { ToolEntry } from "@/lib/tool-presets";
 import type { ContextUsage, GoalStatusInfo, SessionStatsInfo, SlashCommandInfo } from "@/lib/omp-types";
 import type { ModelRoleAssignment } from "@/lib/api-types";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
@@ -288,7 +287,7 @@ export interface UseAgentSessionOptions {
   /** Registers an action that lazily starts the session and loads its prompt and tools. */
   onSystemInfoLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsPanelOpen?: () => void;
-  setToolPreset?: (preset: ToolPreset) => void;
+  onToolsReport?: (markdown: string) => void;
   /** Holds the initial chat scroll until an external anchor resolves. */
   deferInitialScroll?: boolean;
 }
@@ -469,7 +468,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange,
-    onSessionStatsPanelOpen, onOpenSettings,
+    onSessionStatsPanelOpen, onOpenSettings, onToolsReport,
   } = opts;
   const deferInitialScroll = opts.deferInitialScroll ?? false;
   const sessionRunning = opts.sessionRunning === true;
@@ -533,7 +532,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   // The level saved as `defaultThinkingLevel`, starred in the reasoning menu.
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
-  const [toolPreset, setToolPreset] = useState<ToolPreset>(() => isNew ? getPreferredToolPreset() : "configured");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [effectiveThinkingLevel, setEffectiveThinkingLevel] = useState<string | undefined>();
   const [composerStatus, setComposerStatus] = useState<Pick<SessionComposerSnapshot, "source" | "shimmer" | "modelRole">>();
@@ -652,15 +650,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const optimisticUserMessageRef = useRef<UserMessage | null>(null);
   const modelSwitchPendingRef = useRef(false);
 
-  const setToolPresetState = opts.setToolPreset ?? setToolPreset;
-
   const applyComposer = useCallback((snapshot: SessionComposerSnapshot, connected = false) => {
     setComposerStatus({ source: snapshot.source, shimmer: snapshot.shimmer, modelRole: snapshot.modelRole });
     setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : connected ? snapshot.model : null);
     setThinkingLevel(snapshot.configuredThinkingLevel === "auto" ? "auto" : asConcreteThinkingLevel(snapshot.configuredThinkingLevel) ?? "off");
     setEffectiveThinkingLevel(snapshot.thinkingLevel);
-    setToolPresetState(snapshot.toolPreset);
-  }, [setToolPresetState]);
+  }, []);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
@@ -992,14 +987,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const selectedModel = newSessionModelOverrideRef.current;
       const selectedThinkingLevel = thinkingLevelOverrideRef.current;
       if (selectedModel) setPendingModel(selectedModel);
-      const toolNames = getToolNamesForPreset(toolPreset);
       const res = await fetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
-          toolNames,
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(selectedThinkingLevel
             ? { thinkingLevel: selectedThinkingLevel }
@@ -1044,7 +1037,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [isNew, newSessionCwd]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -2563,6 +2556,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       onOpenSettings("models");
       return { handled: true, action: "openSettings" };
     }
+    if (commandName === "tools") {
+      if (args || !onToolsReport) return { handled: false };
+      try {
+        const sid = sessionIdRef.current ?? await ensureNewSession();
+        if (!sid) throw new Error("No active session");
+        const targetId = await resolveCommandSession(sid);
+        const result = await sendAgentCommand<{ output: string[] }>(targetId, {
+          type: "execute_slash_command",
+          message: "/tools",
+        }, runtimeIdRef);
+        if (mountedRef.current) onToolsReport(result.output.join("\n\n"));
+        return { handled: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        addNotice({ type: "error", message });
+        return { handled: true, error: message };
+      }
+    }
     const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
@@ -2732,7 +2743,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, appendCommandOutput, ensureEventsConnected, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, onOpenSettings, onSessionStatsPanelOpen, promoteNewSession, scheduleEventStreamClose, slashCommandsForMcp]);
+  }, [addNotice, appendCommandOutput, ensureEventsConnected, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, onOpenSettings, onSessionStatsPanelOpen, onToolsReport, promoteNewSession, resolveCommandSession, scheduleEventStreamClose, slashCommandsForMcp]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -2902,23 +2913,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, handleThinkingLevelChange, reloadModelsQuietly, saveDefaultPreferences, thinkingLevel]);
 
   const dismissCompactError = useCallback(() => setCompactError(null), []);
-
-  const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
-    try {
-      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-      if (sid) {
-        const targetId = await resolveCommandSession(sid);
-        await sendAgentCommand(targetId, { type: "set_tools", toolNames: getToolNamesForPreset(preset) }, runtimeIdRef);
-      } else if (!isNew) {
-        return;
-      }
-      setPreferredToolPreset(preset);
-      setToolPresetState(preset);
-      if (!isNew && sid) await loadSession(sessionIdRef.current ?? sid);
-    } catch (e) {
-      addNotice({ type: "error", message: `Failed to change tools: ${e instanceof Error ? e.message : String(e)}` });
-    }
-  }, [addNotice, isNew, loadSession, resolveCommandSession, setToolPresetState]);
 
   // Single writer for the follow flag so the ref (read by the scroll effects)
   // and the state (read by the jump-to-bottom button) never drift apart.
@@ -3274,7 +3268,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelRoles, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelRoles, newSessionModel, thinkingLevel,
     effectiveThinkingLevel,
     retryInfo, contextUsage, promptCache, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
@@ -3308,7 +3302,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleEditContent,
     // Present only while a history edit is pending.
     cancelEdit: editEntryId ? cancelEdit : undefined,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

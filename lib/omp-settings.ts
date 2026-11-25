@@ -8,7 +8,8 @@ import { orderedSettings } from "@oh-my-pi/pi-coding-agent/config/all-settings";
 import { type AnySetting, lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { cfgSkills, type SkillsSettings } from "@oh-my-pi/pi-coding-agent/extensibility/settings";
 import type { Settings } from "@oh-my-pi/pi-coding-agent";
-import type { AnyUiMetadata, SettingTab } from "@oh-my-pi/pi-tui/overlays/settings-defs";
+import { isRecord } from "@oh-my-pi/pi-utils";
+import { SETTING_TABS, type AnyUiMetadata, type SettingTab } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 
 export { SETTING_TABS, TAB_GROUPS, TAB_METADATA, type SettingTab } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 
@@ -78,4 +79,25 @@ export function isCredential(path: SettingPath): boolean {
 /** Paths shown on `tab`, in omp's settings-panel order. */
 export function getPathsForTab(tab: SettingTab): SettingPath[] {
   return orderedSettings().filter((setting) => setting.ui?.tab === tab).map((setting) => setting.id);
+}
+
+export function isSettingTab(value: string | null): value is SettingTab {
+  return value !== null && (SETTING_TABS as readonly string[]).includes(value);
+}
+
+/** The dotted path split as the settings files nest it. */
+export function getSegments(path: SettingPath): readonly string[] {
+  return requireSetting(path).segments;
+}
+
+/** Whether `projectLayer` (from `settings.getProjectSettings()`) sets `path`. */
+export function isSetInProjectLayer(projectLayer: Record<string, unknown>, path: SettingPath): boolean {
+  const setting = lookup(path);
+  if (!setting) return false;
+  let node: unknown = projectLayer;
+  for (const segment of setting.segments) {
+    if (!isRecord(node)) return false;
+    node = node[segment];
+  }
+  return node !== undefined && node !== null;
 }

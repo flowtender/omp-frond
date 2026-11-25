@@ -93,6 +93,8 @@ app/api/
   plugins/route.ts                GET/POST omp plugin management
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
+  settings/route.ts               GET/PATCH omp settings (?cwd= or ?project=) | DELETE a project's own value
+  settings/project-overrides/route.ts  GET which settings each project's own config sets on a tab
   web-access/route.ts             GET/PUT the password lock (settings -> Access)
   web-access/recovery/route.ts    POST recovery code request/redeem (unauthenticated)
   worktrees/route.ts              GET/POST/DELETE git worktrees
@@ -122,6 +124,7 @@ lib/
   omp-runtime.ts       shared Settings + AuthStorage + ModelRegistry
   omp-types.ts         structural view of omp's AgentSession
   project-trust.ts     gates a project's executable resources
+  project-settings-file.ts  writes a project's .omp/config.yml (omp writes only model roles there)
   seen-models.ts       models already shown, for the "new" tags (omp-web-seen-models.json)
   prompt-cache.ts      prompt-cache status: a live session's warmer, or inferred from a transcript
   prompt-cache-shared.ts  client-safe prompt-cache report, view-at-time and indicator settings
@@ -141,6 +144,7 @@ lib/
 components/
   AccessConfig.tsx    password lock panel inside the settings modal
   FormDialog.tsx      the ask tool's HTML form, drawn natively (ui.formDialog)
+  SettingsScopePicker.tsx  "Edit for": global or one project, on project-scoped settings tabs
   PromptCacheIndicator.tsx  the cache marker (composer + sidebar rows), per the Appearance settings
   AppShell.tsx        layout + URL state + tab management
   SessionSidebar.tsx  session tree + FileExplorer
@@ -234,8 +238,14 @@ post-compaction turns. It is not the LLM context, where the summary comes first.
 ### ToolCall field normalization
 omp stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
 
-### New session tool preset
-Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes `toolNames: []` with `restrictToolNames: true` and forces `agent.state.systemPrompt = []` after startup and reloads.
+### Tool settings and tool pins
+There are no tool presets. Settings › OMP settings › Tools edits omp's own
+Tools tab globally or for one project (`.omp/config.yml`, which wins in that
+project); see `docs/agents/tools.md`. Tool names can still be passed at session
+creation (`POST /api/agent/new` → `toolNames[]`) or with `set_tools`; the
+browser sends neither. When tools are fully disabled (`toolNames = []`),
+`rpc-manager.ts` passes `toolNames: []` with `restrictToolNames: true` and runs
+the session as Chat only (ADR 0002).
 
 ### `enabledModels` scoping
 The `enabledModels` setting uses omp's `--models` syntax: globs against

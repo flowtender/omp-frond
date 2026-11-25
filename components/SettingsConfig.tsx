@@ -6,6 +6,7 @@ import { NewModelsBadge, useEnabledModels } from "./EnabledModelsSection";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { AccessConfig } from "./AccessConfig";
+import { SettingsScopePicker } from "./SettingsScopePicker";
 import { UiSettings } from "./UiSettings";
 import { SearchableSelect } from "./SearchableSelect";
 import { PlugGlyph } from "./PlugGlyph";
@@ -14,12 +15,14 @@ import { refreshDisplaySettings } from "@/hooks/useDisplaySettings";
 import { useI18n } from "@/hooks/useI18n";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
 import type { ProjectTrustStatus } from "@/lib/api-types";
+import type { ProjectChoice } from "@/lib/new-session-context";
 import { focusModalPanel, listenForPanelEscape } from "@/lib/stacked-dialog";
 import type {
   McpConfigResponse,
   McpScopeConfig,
   McpServerConfig,
   McpServerEntry,
+  ProjectOverridesResponse,
   SettingsField,
   SettingsResponse,
   SettingsValue,
@@ -29,6 +32,9 @@ import styles from "./SettingsConfig.module.css";
 
 type SettingsSection = "ui" | "models" | "themes" | "skills" | "plugins" | "mcp" | "access" | `settings:${string}`;
 
+/** OMP settings tabs that can be edited for one project as well as globally. */
+const PROJECT_SCOPED_TABS: Record<string, true> = { tools: true };
+
 interface SettingsConfigProps {
   cwd?: string | null;
   sessionId: string | null;
@@ -36,6 +42,8 @@ interface SettingsConfigProps {
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"];
   initialSection?: SettingsSection;
   projectTrust?: ProjectTrustStatus | null;
+  /** The projects the new-chat picker lists: what a project-scoped tab can be edited for. */
+  projects: readonly ProjectChoice[];
   quoteSelectionEnabled: boolean;
   onQuoteSelectionChange: (enabled: boolean) => void;
   onClose: () => void;
@@ -175,10 +183,24 @@ function SettingControl({ field, busy, onSave }: { field: SettingsField; busy: b
   return <TextSetting field={field} busy={busy} onSave={onSave} />;
 }
 
-function SettingRow({ field, busy, error, onSave }: { field: SettingsField; busy: boolean; error?: string; onSave: (value: SettingsValue) => void }) {
+function SettingRow({ field, busy, error, onSave, onUseGlobal }: {
+  field: SettingsField;
+  busy: boolean;
+  error?: string;
+  onSave: (value: SettingsValue) => void;
+  /** Given for a field the edited project's own config sets. */
+  onUseGlobal?: () => void;
+}) {
   return (
-    <div className={styles.settingRow}>
-      <div><div className={styles.settingLabel}>{field.label}</div><div className={styles.settingDescription}>{field.description}</div>{error && <div className={styles.error}>{error}</div>}</div>
+    <div className={styles.settingRow} data-overridden={onUseGlobal !== undefined}>
+      <div>
+        <div className={styles.settingLabel}>
+          {field.label}
+          {onUseGlobal && <><span className={styles.projectTag}>project</span><button type="button" className={styles.useGlobal} disabled={busy} onClick={onUseGlobal}>use global</button></>}
+        </div>
+        <div className={styles.settingDescription}>{field.description}</div>
+        {error && <div className={styles.error}>{error}</div>}
+      </div>
       <div className={styles.settingControl}><SettingControl field={field} busy={busy} onSave={onSave} /></div>
     </div>
   );
@@ -200,7 +222,25 @@ function ThemePreview({ palette }: { palette: WebThemePalette }) {
 /** Settings the web client applies itself, without reloading the agent. */
 const DISPLAY_SETTING_PATHS = new Set(["hideThinkingBlock"]);
 
-export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, initialSection = "ui", projectTrust, quoteSelectionEnabled, onQuoteSelectionChange, onClose, onModelsChanged, onReloaded }: SettingsConfigProps) {
+async function fetchSettings(query: string): Promise<SettingsResponse> {
+  const response = await fetch(`/api/settings${query}`, { cache: "no-store" });
+  const data = await response.json() as SettingsResponse & { error?: string };
+  if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+  return data;
+}
+
+async function sendSettingsRequest(url: string, init: RequestInit): Promise<{ value?: SettingsValue }> {
+  const response = await fetch(url, init);
+  const result = await response.json() as { value?: SettingsValue; error?: string };
+  if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
+  return result;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, initialSection = "ui", projectTrust, projects, quoteSelectionEnabled, onQuoteSelectionChange, onClose, onModelsChanged, onReloaded }: SettingsConfigProps) {
   const { t } = useI18n();
   const [selectedSection, setSection] = useState<SettingsSection>(initialSection);
   const section = !cwd && CORE_SECTIONS.some((item) => item.id === selectedSection && item.requiresCwd) ? "ui" : selectedSection;
@@ -216,18 +256,25 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
   const [needsReload, setNeedsReload] = useState(false);
   const [reloading, setReloading] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  const activeTab = section.startsWith("settings:") ? section.slice("settings:".length) : null;
+  const searching = query.trim().length > 0;
+  const projectScoped = activeTab !== null && PROJECT_SCOPED_TABS[activeTab] === true && !searching;
+  // The project a project-scoped tab edits; null edits the global settings.
+  const [scopeProject, setScopeProject] = useState<ProjectChoice | null>(null);
+  const scopedRoot = projectScoped ? scopeProject?.root ?? null : null;
+  const scopedRootRef = useRef(scopedRoot);
+  scopedRootRef.current = scopedRoot;
+  const [projectSettings, setProjectSettings] = useState<SettingsResponse | null>(null);
+  const [projectOverrides, setProjectOverrides] = useState<ProjectOverridesResponse["projects"]>({});
+  const [resettingProject, setResettingProject] = useState(false);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const suffix = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
-      const response = await fetch(`/api/settings${suffix}`, { cache: "no-store" });
-      const data = await response.json() as SettingsResponse & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-      setSettings(data);
+      setSettings(await fetchSettings(cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""));
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(errorText(error));
     } finally {
       setLoading(false);
     }
@@ -235,14 +282,54 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
 
-  const saveSetting = useCallback(async (field: SettingsField, value: SettingsValue) => {
-    setSaving((current) => new Set(current).add(field.path));
-    setSaveErrors((current) => { const next = { ...current }; delete next[field.path]; return next; });
+  const projectRoots = useMemo(() => projects.map(({ root }) => root), [projects]);
+  const loadProjectOverrides = useCallback(async () => {
+    if (!activeTab || PROJECT_SCOPED_TABS[activeTab] !== true || projectRoots.length === 0) return;
+    const query = new URLSearchParams({ tab: activeTab });
+    for (const root of projectRoots) query.append("project", root);
     try {
-      const response = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: field.path, value }) });
-      const result = await response.json() as { value?: SettingsValue; error?: string };
-      if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
-      setSettings((current) => current ? { ...current, fields: current.fields.map((item) => item.path === field.path ? { ...item, value: result.value ?? value, configured: true } : item) } : current);
+      const response = await fetch(`/api/settings/project-overrides?${query}`, { cache: "no-store" });
+      if (response.ok) setProjectOverrides((await response.json() as ProjectOverridesResponse).projects);
+    } catch {
+      // The markers are a hint: the page still edits without them.
+    }
+  }, [activeTab, projectRoots]);
+  useEffect(() => { void loadProjectOverrides(); }, [loadProjectOverrides]);
+
+  const loadProjectSettings = useCallback(async (root: string) => {
+    try {
+      const data = await fetchSettings(`?project=${encodeURIComponent(root)}`);
+      if (scopedRootRef.current === root) setProjectSettings(data);
+    } catch (error) {
+      if (scopedRootRef.current === root) setLoadError(errorText(error));
+    }
+  }, []);
+  useEffect(() => {
+    setProjectSettings(null);
+    if (scopedRoot) void loadProjectSettings(scopedRoot);
+  }, [scopedRoot, loadProjectSettings]);
+
+  const markSaving = useCallback((path: string, busy: boolean) => setSaving((current) => {
+    const next = new Set(current);
+    if (busy) next.add(path);
+    else next.delete(path);
+    return next;
+  }), []);
+
+  const saveSetting = useCallback(async (field: SettingsField, value: SettingsValue) => {
+    markSaving(field.path, true);
+    setSaveErrors((current) => { const next = { ...current }; delete next[field.path]; return next; });
+    const project = scopedRoot;
+    try {
+      const result = await sendSettingsRequest("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: field.path, value, ...(project ? { project } : {}) }) });
+      const update = (current: SettingsResponse | null) => current ? { ...current, fields: current.fields.map((item) => item.path === field.path ? { ...item, value: result.value ?? value, configured: true, ...(project ? { projectOverride: true } : {}) } : item) } : current;
+      if (project) {
+        setProjectSettings(update);
+        void loadProjectOverrides();
+        setNeedsReload(true);
+        return;
+      }
+      setSettings(update);
       if (field.path === "theme.dark" || field.path === "theme.light") {
         await refreshOmpTheme(cwd);
         await loadSettings();
@@ -254,15 +341,47 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
         setNeedsReload(true);
       }
     } catch (error) {
-      setSaveErrors((current) => ({ ...current, [field.path]: error instanceof Error ? error.message : String(error) }));
+      setSaveErrors((current) => ({ ...current, [field.path]: errorText(error) }));
     } finally {
-      setSaving((current) => { const next = new Set(current); next.delete(field.path); return next; });
+      markSaving(field.path, false);
     }
-  }, [cwd, loadSettings]);
+  }, [cwd, loadSettings, loadProjectOverrides, markSaving, scopedRoot]);
 
-  const values = useMemo(() => new Map(settings?.fields.map((field) => [field.path, field.value]) ?? []), [settings?.fields]);
-  const visibleFields = useMemo(() => settings?.fields.filter((field) => conditionVisible(field, values)) ?? [], [settings?.fields, values]);
-  const activeTab = section.startsWith("settings:") ? section.slice("settings:".length) : null;
+  /** Removes `query`'s settings (one `path`, or a whole `tab`) from the edited project's config. */
+  const restoreGlobalValues = useCallback(async (project: string, query: Record<string, string>) => {
+    await sendSettingsRequest(`/api/settings?${new URLSearchParams({ project, ...query })}`, { method: "DELETE" });
+    setNeedsReload(true);
+    await Promise.all([loadProjectSettings(project), loadProjectOverrides()]);
+  }, [loadProjectSettings, loadProjectOverrides]);
+
+  const restoreGlobalSetting = useCallback(async (field: SettingsField) => {
+    if (!scopedRoot) return;
+    markSaving(field.path, true);
+    try {
+      await restoreGlobalValues(scopedRoot, { path: field.path });
+    } catch (error) {
+      setSaveErrors((current) => ({ ...current, [field.path]: errorText(error) }));
+    } finally {
+      markSaving(field.path, false);
+    }
+  }, [markSaving, scopedRoot, restoreGlobalValues]);
+
+  const resetProjectToGlobal = useCallback(async () => {
+    if (!scopedRoot || !activeTab) return;
+    setResettingProject(true);
+    try {
+      await restoreGlobalValues(scopedRoot, { tab: activeTab });
+    } catch (error) {
+      setLoadError(errorText(error));
+    } finally {
+      setResettingProject(false);
+    }
+  }, [activeTab, scopedRoot, restoreGlobalValues]);
+
+  // A project-scoped tab shows what a session in the edited project sees.
+  const shownSettings = scopedRoot ? projectSettings : settings;
+  const values = useMemo(() => new Map(shownSettings?.fields.map((field) => [field.path, field.value]) ?? []), [shownSettings?.fields]);
+  const visibleFields = useMemo(() => shownSettings?.fields.filter((field) => conditionVisible(field, values)) ?? [], [shownSettings?.fields, values]);
   const filteredFields = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (normalized) return visibleFields.filter((field) => `${field.label} ${field.description} ${field.path} ${field.group ?? ""}`.toLowerCase().includes(normalized));
@@ -306,7 +425,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
     return [...new Set(orderedGroups)].map((group) => {
       const groupFields = fields.filter((field) => (field.group ?? "General") === group);
       if (!groupFields.length) return null;
-      return <section className={styles.group} key={group}><h3 className={styles.groupTitle}>{group}</h3>{groupFields.map((field) => <SettingRow key={field.path} field={field} busy={saving.has(field.path)} error={saveErrors[field.path]} onSave={(value) => void saveSetting(field, value)} />)}</section>;
+      return <section className={styles.group} key={group}><h3 className={styles.groupTitle}>{group}</h3>{groupFields.map((field) => <SettingRow key={field.path} field={field} busy={saving.has(field.path)} error={saveErrors[field.path]} onSave={(value) => void saveSetting(field, value)} onUseGlobal={scopedRoot && field.projectOverride ? () => void restoreGlobalSetting(field) : undefined} />)}</section>;
     });
   };
 
@@ -330,15 +449,28 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
   const renderGenericSettings = () => {
     if (loading) return <div className={styles.empty}>Loading omp settings…</div>;
     if (loadError || !settings) return <div className={styles.empty}>{loadError ?? "Settings unavailable"}</div>;
+    const projectOverrideCount = scopedRoot ? projectOverrides[scopedRoot]?.length ?? 0 : 0;
     return (
       <div className={styles.scrollContent}>
         <header className={styles.contentHeader}>
           <h2 className={styles.contentTitle}>{pageTitle}</h2>
           <p className={styles.contentDescription}>
-            {query.trim()
+            {searching
               ? "Matching canonical /settings entries across every category."
-              : "Canonical omp /settings values. Changes are saved immediately to the shared agent configuration."}
+              : scopedRoot
+                ? <>Settings for sessions in this project. A change is saved to <code>.omp/config.yml</code> in the project and wins over the global value there.</>
+                : "Canonical omp /settings values. Changes are saved immediately to the shared agent configuration."}
           </p>
+          {projectScoped && (
+            <div className={styles.scopeBar}>
+              <SettingsScopePicker projects={projects} value={scopeProject} overrides={projectOverrides} onChange={setScopeProject} />
+              {projectOverrideCount > 0 && (
+                <button type="button" className={styles.scopeReset} disabled={resettingProject} onClick={() => void resetProjectToGlobal()}>
+                  {resettingProject ? "Resetting…" : "Reset to global"}
+                </button>
+              )}
+            </div>
+          )}
           {needsReload && sessionId && (
             <div className={styles.reloadNotice}>
               <span>Saved. Reload the active session to apply runtime settings.</span>
@@ -349,15 +481,16 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
           )}
         </header>
         <div className={styles.settingsBody}>
-          {filteredFields.length
-            ? renderFields(filteredFields, selectedTab?.groups ?? [])
-            : <div className={styles.empty}>No settings match this search.</div>}
+          {scopedRoot && !projectSettings
+            ? <div className={styles.empty}>Loading project settings…</div>
+            : filteredFields.length
+              ? renderFields(filteredFields, selectedTab?.groups ?? [])
+              : <div className={styles.empty}>No settings match this search.</div>}
         </div>
       </div>
     );
   };
 
-  const searching = query.trim().length > 0;
   const projectSectionVisible = !searching && (section === "skills" || section === "plugins");
 
   return (

@@ -134,6 +134,8 @@ export interface SidebarMenuProps {
   footer?: ReactNode;
   /** Focus goes into the menu again whenever this changes (a body swapped in or out). */
   focusKey?: string;
+  /** Opened from inside a modal dialog (Settings): drawn above it. */
+  overDialog?: boolean;
 }
 
 type ActionItem = Extract<SidebarMenuItem, { type: "item" }>;
@@ -395,6 +397,8 @@ export interface SidebarMenuSurfaceProps {
   surfaceRef?: Ref<HTMLDivElement>;
   onActivate: (action: MenuAction, shiftKey: boolean) => void;
   onClose: (reason: "outside" | "cancel") => void;
+  /** Opened from inside a modal dialog (Settings): drawn above it. */
+  overDialog?: boolean;
 }
 
 /**
@@ -492,6 +496,7 @@ export function SidebarMenuSurface({
   surfaceRef,
   onActivate,
   onClose,
+  overDialog = false,
 }: SidebarMenuSurfaceProps) {
   const custom = hasCustomMenuBody(children);
   const hasFooter = !custom && hasCustomMenuBody(footer);
@@ -538,7 +543,7 @@ export function SidebarMenuSurface({
     return (
       <div
         ref={surfaceRef}
-        className={classic ? "sidebar-menu is-classic" : "sidebar-menu"}
+        className={`${classic ? "sidebar-menu is-classic" : "sidebar-menu"}${overDialog ? " is-over-dialog" : ""}`}
         role={menuRole ?? "dialog"}
         aria-label={ariaLabel}
         style={{ width }}
@@ -550,7 +555,7 @@ export function SidebarMenuSurface({
   }
 
   return (
-    <div className="sidebar-sheet-layer" {...isolateEvents}>
+    <div className={overDialog ? "sidebar-sheet-layer is-over-dialog" : "sidebar-sheet-layer"} {...isolateEvents}>
       {/* The backdrop takes the tap that closes the sheet, so it reaches neither the
           drawer's own backdrop (which would close the sidebar) nor a row. */}
       <div className="sidebar-sheet-backdrop" aria-hidden="true" onClick={() => onClose("outside")} />
@@ -587,6 +592,7 @@ export function SidebarMenu({
   classic = false,
   footer,
   focusKey = "",
+  overDialog = false,
 }: SidebarMenuProps) {
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   // The one piece of state the menu keeps: its filter field's text, for one
@@ -790,6 +796,7 @@ export function SidebarMenu({
       surfaceRef={surfaceRef}
       onActivate={(item, shiftKey) => activateRef.current(item, shiftKey)}
       onClose={(reason) => onCloseRef.current(reason)}
+      overDialog={overDialog}
     >
       {children}
     </SidebarMenuSurface>,
