@@ -8,6 +8,8 @@ import { splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks, type DisplayOptions } from "@/lib/message-display";
+import { useExpansionPreference } from "@/lib/expansion-preference";
+import { countToolCallFailures } from "@/lib/tool-call-expansion";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { attachDeferredTaskResults } from "@/lib/task-tool-display";
 import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
@@ -209,10 +211,12 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; failureCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+  const preference = useExpansionPreference("process");
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
+  const expanded = manualExpanded ?? (preference === "automatic" ? defaultExpanded : preference === "expanded");
   useLayoutEffect(() => {
-    if (reveal) setExpanded(true);
+    if (reveal) setManualExpanded(true);
   }, [reveal]);
   // The chevron already says this folds; the words stay in the accessible name.
   const parts = [`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
@@ -220,14 +224,15 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   if (durationMs !== undefined) parts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
   // Folded, the cache misses inside are added up here (#1265); open, each shows under its step.
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
+  const failureText = failureCount > 0 && !(expanded || reveal) ? t("chat.processFailures", { count: failureCount }) : undefined;
 
   return (
     <div style={{ marginBottom: 14 }}>
       <button
         type="button"
         aria-expanded={expanded || reveal}
-        aria-label={[t("chat.processDetails"), ...parts, ...(cacheMissText ? [cacheMissText] : [])].join(" · ")}
-        onClick={() => setExpanded((v) => !v)}
+        aria-label={[t("chat.processDetails"), ...parts, ...(failureText ? [failureText] : []), ...(cacheMissText ? [cacheMissText] : [])].join(" · ")}
+        onClick={() => setManualExpanded(!(expanded || reveal))}
         style={{
           display: "flex",
           alignItems: "center",
@@ -243,13 +248,14 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
           fontSize: 12,
           textAlign: "left",
         }}
-        title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
+        title={expanded || reveal ? t("chat.collapseProcess") : t("chat.expandProcess")}
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded || reveal ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="4 2.5 7.5 6 4 9.5" />
         </svg>
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {parts.join(" · ")}
+          {failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${failureText}`}</span>}
           {cacheMissText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${cacheMissText}`}</span>}
         </span>
       </button>
@@ -1323,6 +1329,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // processViews also holds the notice lines of steps that show nothing else.
                 let processMessageCount = 0;
                 let processToolCount = 0;
+                let processFailureCount = 0;
                 let processRefIdx: number | undefined;
                 let revealProcess = false;
 
@@ -1348,6 +1355,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   }
                   processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
                   processToolCount += countToolCallBlocks(blocks);
+                  processFailureCount += countToolCallFailures(blocks, toolResultsMap);
                   processMessageCount += 1;
                   revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || blocks.includes(searchBlock)));
                   processViews.push(renderMessage(processIdx, {
@@ -1368,12 +1376,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     <div
                       key={`process-group-${messageKeys[groupStartIdx]}`}
                     >
-                      {/* Re-key on answer availability: useState reads defaultExpanded only
-                          on mount, so a turn first rendered without an answer (expanded)
-                          would otherwise stay open once its answer shows up, e.g. when
-                          switching between an answered and an unanswered leaf of the same
-                          turn. Manual toggles survive every other re-render. */}
-                      <ProcessDetailsGroup key={answered ? "answered" : "unanswered"} messageCount={processMessageCount} toolCallCount={processToolCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
+                      <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
                         {processViews}
                       </ProcessDetailsGroup>
                     </div>,

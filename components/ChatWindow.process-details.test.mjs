@@ -17,6 +17,7 @@ const notices = await import("../lib/transcript-notices.ts");
 const noticeViews = await jiti.import("./TranscriptNotices.tsx");
 const { extractTurnWrittenFiles } = await import("../lib/turn-written-files.ts");
 const paging = await import("../lib/chat-lazy-load.ts");
+const { countToolCallFailures } = await jiti.import("@/lib/tool-call-expansion");
 
 // Exercise the real transcript renderer without mounting the session/network hooks.
 const source = ts.createSourceFile("ChatWindow.tsx", await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -42,7 +43,8 @@ const work = (text) => reply(text, { stopReason: "toolUse", content: [{ type: "t
 function renderTranscript(messages, overrides = {}) {
   const context = createContext({
     React, Fragment: React.Fragment, useState: React.useState, useLayoutEffect: React.useLayoutEffect,
-    ...display, ...views, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles,
+    ...display, ...views, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, countToolCallFailures,
+    useExpansionPreference: () => "automatic",
     MessageView, messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
     displayOptions: {}, finalAnswerViewCache: new WeakMap(), toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
     sessionBusy: false, isStreaming: false, bashRunning: false, isNew: false, isCompacting: false, compactError: null,
@@ -131,4 +133,46 @@ test("reveals only the searched process segment without hiding either reply", ()
   assert.ok(!html.includes("unmatched process commentary"));
   assert.ok(html.includes("first reply"));
   assert.ok(html.includes("second reply"));
+});
+
+test("process preference overrides the automatic default", () => {
+  const messages = [user, work("process commentary"), reply("final answer")];
+  assert.ok(renderTranscript(messages, { useExpansionPreference: () => "expanded" }).includes("process commentary"));
+  assert.ok(!renderTranscript([user, work("unfinished")], { useExpansionPreference: () => "collapsed" }).includes("unfinished"));
+});
+
+test("manual process choice survives an answer and later preference changes", () => {
+  const group = functions.find((node) => node.name.text === "ProcessDetailsGroup");
+  let state = null;
+  let preference = "automatic";
+  const context = createContext({
+    React,
+    useState: () => [state, (value) => { state = value; }],
+    useLayoutEffect: () => {},
+    useExpansionPreference: () => preference,
+    formatTurnDuration: duration.formatTurnDuration,
+    cacheMissSummaryText: noticeViews.cacheMissSummaryText,
+    TRANSCRIPT_NOTICE_WARNING_COLOR: noticeViews.TRANSCRIPT_NOTICE_WARNING_COLOR,
+  });
+  const component = new Script(ts.transpileModule(`(${group.getText(source)})`, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.React },
+  }).outputText).runInContext(context);
+  const props = { messageCount: 1, toolCallCount: 0, failureCount: 0, t: (key) => key, children: "work" };
+  const button = (defaultExpanded) => component({ ...props, defaultExpanded }).props.children[0];
+  assert.equal(button(true).props["aria-expanded"], true);
+  button(true).props.onClick();
+  assert.equal(button(false).props["aria-expanded"], false);
+  preference = "expanded";
+  assert.equal(button(false).props["aria-expanded"], false);
+  button(false).props.onClick();
+  preference = "collapsed";
+  assert.equal(button(false).props["aria-expanded"], true);
+});
+
+test("collapsed process header reports failed calls and hides the count when open", () => {
+  const messages = [user, work("failed work"), reply("answer")];
+  const toolResultsMap = new Map([["failed work", { role: "toolResult", toolCallId: "failed work", isError: true, content: [] }]]);
+  const t = (key, params) => key === "chat.processFailures" ? `${params.count} failures` : key;
+  assert.ok(renderTranscript(messages, { toolResultsMap, t }).includes("1 failures"));
+  assert.ok(!renderTranscript(messages, { toolResultsMap, t, useExpansionPreference: () => "expanded" }).includes("1 failures"));
 });

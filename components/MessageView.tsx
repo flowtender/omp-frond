@@ -20,8 +20,8 @@ import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, 
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
-import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
-import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
+import { isToolCallExpanded, setToolCallExpanded, toolCallExpandedByDefault, toolCallFailureCount } from "@/lib/tool-call-expansion";
+import { useExpansionPreference } from "@/lib/expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -119,12 +119,15 @@ function formatMessageBytes(n: number): string {
  * click-to-reveal plain-text <pre> instead of running the markdown pipeline.
  */
 function SafeMarkdownBody({ children, className, ...props }: React.ComponentProps<typeof MarkdownBody>) {
+  return children.length > MAX_MARKDOWN_CHARS
+    ? <OversizedText className={className}>{children}</OversizedText>
+    : <MarkdownBody className={className} {...props}>{children}</MarkdownBody>;
+}
+
+function OversizedText({ children, className }: { children: string; className?: string }) {
   const { t } = useI18n();
   const [showRaw, setShowRaw] = useState(false);
 
-  if (children.length <= MAX_MARKDOWN_CHARS) {
-    return <MarkdownBody className={className} {...props}>{children}</MarkdownBody>;
-  }
   if (!showRaw) {
     return (
       <button
@@ -1030,13 +1033,20 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
 // streamed chunk laid all of it out again (the prompt anchor reads layout after
 // each commit). As pieces, only the last one changes. Thinking that fits one
 // piece stays one text node.
-function ThinkingText({ text }: { text: string }) {
+export function ThinkingText({ text }: { text: string }) {
   const pieces = useMemo(() => splitThinkingPieces(text), [text]);
   if (pieces.length === 1) return text;
   // No memo: React already skips a div whose text is unchanged, and a memo
   // bailout keeps the old props, each a slice pinning the whole thinking of
   // its chunk (995 MB retained streaming 2M Chinese characters).
   return pieces.map((piece, index) => <div key={index}>{piece.text}</div>);
+}
+
+function useBlockExpansion(kind: "thinking" | "compaction") {
+  const preference = useExpansionPreference(kind);
+  const [manual, setManual] = useState<boolean>();
+  const expanded = manual ?? (preference === "expanded");
+  return [expanded, () => setManual(!expanded)] as const;
 }
 
 export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
@@ -1047,7 +1057,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
   blockIndex: number;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(isThinkingExpandedByDefault);
+  const [expanded, toggleExpanded] = useBlockExpansion("thinking");
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(block.deferred === true);
   const [error, setError] = useState<string | null>(null);
@@ -1064,13 +1074,6 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
   const tRef = useRef(t);
   tRef.current = t;
   const preview = getThinkingPreview(block.thinking);
-
-  // Keep already-mounted blocks in sync when the preference changes.
-  useEffect(() => {
-    const onChange = () => setExpanded(isThinkingExpandedByDefault());
-    window.addEventListener(THINKING_EXPANDED_EVENT, onChange);
-    return () => window.removeEventListener(THINKING_EXPANDED_EVENT, onChange);
-  }, []);
 
   // Load deferred history content whenever the block is expanded.
   // loadThinkingContent() memoizes in-flight promises and drops failed ones
@@ -1119,7 +1122,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
         aria-expanded={expanded}
         aria-label={`${t("i18n.thinking")}${preview ? `: ${preview}` : ""}`}
         title={t("i18n.thinking")}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggleExpanded}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -1252,6 +1255,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
     }
     return (
       <ConsoleOutputPreview
+        callId={block.toolCallId}
         command={isRecord(block.input) && typeof block.input.command === "string" ? block.input.command : ""}
         output={resultText ?? ""}
         pending={!result}
@@ -1263,7 +1267,9 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   }
 
   if (isTodoTool && todoPhases) {
-    return <TodoChecklistPreview phases={todoPhases} />;
+    return <ToolCard callId={block.toolCallId} toolName={block.toolName} isError={isError}>
+      {(expanded) => expanded && <TodoChecklistPreview phases={todoPhases} />}
+    </ToolCard>;
   }
   const inlineResult = inlineToolResult(block.toolName, result?.details, t);
 
@@ -1273,6 +1279,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
       toolName={block.toolName}
       mcpLabel={mcpLabel}
       isError={isError}
+      hasFailure={toolCallFailureCount(block, result) > 0}
       target={isStreamingInput
         ? t("chat.generatingToolInput")
         : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : inlineTarget || getStructuredToolPreview(block, todoPhases)))}
@@ -1411,7 +1418,7 @@ function JobResultCards({ callId, cards, cwd, onOpenFile }: {
     const error = card.error && card.error !== card.output ? card.error : "";
     const tool = card.tool ?? "task";
     if (tool === "bash") {
-      return <ConsoleOutputPreview key={id} command={card.target} output={card.output}
+      return <ConsoleOutputPreview key={id} callId={id} command={card.target} output={card.output}
         pending={card.status === "pending" || card.status === "running"} isError={failed}
         duration={card.durationMs} status={card.status === "cancelled" || card.status === "interrupted"
           ? t(TASK_STATUS_LABELS[card.status]) : undefined} />;
@@ -1420,9 +1427,9 @@ function JobResultCards({ callId, cards, cwd, onOpenFile }: {
       <ToolCard key={id} callId={id} toolName={tool} label={card.label} target={card.target}
         facts={t(TASK_STATUS_LABELS[card.status])} duration={card.durationMs} isError={failed}>
         {(expanded) => expanded && <div className="task-tool-result">
-          {error && <p className="task-tool-result-error">{error}</p>}
+          {error && (error.length > MAX_MARKDOWN_CHARS ? <OversizedText>{error}</OversizedText> : <p className="task-tool-result-error">{error}</p>)}
           {tool !== "task" ? <ShellOutput output={card.output} isError={failed} showLabel={false} />
-            : card.output ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{card.output}</MarkdownBody>
+            : card.output ? <SafeMarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{card.output}</SafeMarkdownBody>
               : !error && <span className="shell-output-empty">{t("i18n.noOutput")}</span>}
         </div>}
       </ToolCard>
@@ -1430,12 +1437,23 @@ function JobResultCards({ callId, cards, cwd, onOpenFile }: {
   });
 }
 
-function ToolCard({ callId, toolName, label, mcpLabel, isError, target, facts, duration, count = 0, action, children }: {
+function useToolExpanded(callId: string, hasFailure: boolean): [boolean, (expanded: boolean) => void] {
+  const preference = useExpansionPreference("tools");
+  const [override, setOverride] = useState(() => isToolCallExpanded(callId));
+  const expanded = override ?? toolCallExpandedByDefault(preference, hasFailure);
+  return [expanded, (next) => {
+    setToolCallExpanded(callId, next);
+    setOverride(next);
+  }];
+}
+
+function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, facts, duration, count = 0, action, children }: {
   callId: string;
   toolName: string;
   label?: string;
   mcpLabel?: McpToolLabel | null;
   isError: boolean;
+  hasFailure?: boolean;
   target?: string;
   facts?: string;
   duration?: number;
@@ -1444,7 +1462,7 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, target, facts, d
   children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(() => isToolCallExpanded(callId));
+  const [expanded, setExpanded] = useToolExpanded(callId, hasFailure);
   return (
     <div style={{
       borderRadius: 7,
@@ -1457,10 +1475,7 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, target, facts, d
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={() => {
-            setToolCallExpanded(callId, !expanded);
-            setExpanded(!expanded);
-          }}
+          onClick={() => setExpanded(!expanded)}
           style={{
             display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0,
             padding: "6px 10px", background: "none", border: "none",
@@ -1827,6 +1842,7 @@ function TodoChecklistRow({ task }: { task: TodoPreviewTask }) {
 }
 
 function ConsoleOutputPreview({
+  callId,
   command,
   output,
   pending,
@@ -1835,6 +1851,7 @@ function ConsoleOutputPreview({
   local,
   status,
 }: {
+  callId: string;
   command: string;
   output: string;
   pending: boolean;
@@ -1844,10 +1861,13 @@ function ConsoleOutputPreview({
   status?: string;
 }) {
   const { isDark } = useTheme();
+  const [expanded, setExpanded] = useToolExpanded(callId, isError);
 
   return (
     <div className={`shell-output-preview${isError ? " is-error" : ""}`}>
-      <div className="shell-command-line">
+      <button type="button" className="shell-command-line" aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        style={{ width: "100%", border: 0, background: "none", textAlign: "left", cursor: "pointer" }}>
         <span className="shell-command-prompt" aria-hidden="true">$</span>
         <SyntaxHighlighter
           className="shell-command-code"
@@ -1876,9 +1896,9 @@ function ConsoleOutputPreview({
           {command || " "}
         </SyntaxHighlighter>
         {local && <span className="shell-local-label">local</span>}
-      </div>
+      </button>
 
-      <ShellOutput output={output} pending={pending} isError={isError} />
+      {expanded && <ShellOutput output={output} pending={pending} isError={isError} />}
 
       {(status || duration !== undefined) && (
         <div className="shell-output-footer">
@@ -1896,6 +1916,7 @@ function ShellOutput({ output, pending = false, isError, showLabel = true }: {
   showLabel?: boolean;
 }) {
   const { t } = useI18n();
+  if (output.length > MAX_MARKDOWN_CHARS) return <OversizedText>{output}</OversizedText>;
   const normalizedLines = normalizeCustomPanelLines(output.split(/\r?\n/));
   const outputLines = normalizedLines.length === 1 && normalizedLines[0] === "" ? [] : normalizedLines;
   const statusLabel = pending ? t("chat.runningCommand") : isError ? "failed" : "";
@@ -1966,6 +1987,7 @@ function MountedToolCards({ callId, dispatches, result, output, isError, hasFina
             target={mode === "help" ? t("chat.toolHelp") : inlineToolTarget(tool, args)}
             facts={facts}
             isError={failed || (single && isError)}
+            hasFailure={failed || (single && isError) || taskToolCards(tool, inner, "", result, index).some((card) => card.status === "failed")}
             duration={single ? duration : undefined}
           >
             {(expanded) => expanded && <>
@@ -2012,6 +2034,7 @@ interface ResultDiff {
 function PairedDiffResult({ diff }: {
   diff: ResultDiff;
 }) {
+  if (diff.text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{diff.text}</OversizedText>;
   return (
     <div
       style={{
@@ -2410,6 +2433,7 @@ function PairedResult({ text, isEmpty, isError }: {
   isError: boolean;
 }) {
   const { t } = useI18n();
+  if (text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{text}</OversizedText>;
   return (
     <div
       style={{
@@ -2441,8 +2465,7 @@ function PairedResult({ text, isEmpty, isError }: {
 
 function CompactionMessageView({ message }: { message: CustomMessage }) {
   const { t } = useI18n();
-  // Collapsed by default, as in pi's TUI: a summary can run to pages.
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, toggleExpanded] = useBlockExpansion("compaction");
   const summary = getMessageText(message.content);
   const time = formatTime(message.timestamp);
   const tokensBefore = (message.details as { tokensBefore?: unknown } | undefined)?.tokensBefore;
@@ -2481,7 +2504,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
             type="button"
             aria-expanded={expanded}
             title={expanded ? t("i18n.collapse") : t("i18n.expand")}
-            onClick={() => setExpanded((v) => !v)}
+            onClick={toggleExpanded}
             style={{
               display: "flex",
               alignItems: "flex-start",
@@ -2532,7 +2555,7 @@ export function CompactionSummaryDetails({ summary }: { summary: string }) {
          {t("i18n.compactionDescription")}
       </div>
       {parsedSummary.body ? (
-        <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+        <SafeMarkdownBody className="markdown-compaction-message">{parsedSummary.body}</SafeMarkdownBody>
       ) : (
          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
       )}

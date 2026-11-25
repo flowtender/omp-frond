@@ -20,6 +20,7 @@ const {
   MessageView,
   PatchDiffFiles,
   ThinkingBlock,
+  ThinkingText,
   formatToolDuration,
   getModelDisplayName,
   getTokenEstimateText,
@@ -54,43 +55,25 @@ test("matches response model aliases and otherwise includes the provider", () =>
   assert.equal(getModelDisplayName("gateway", "unknown-model", names), "gateway/unknown-model");
 });
 
-test("previews the first thinking line and reveals the full text with the saved default", () => {
-  const previousWindow = globalThis.window;
-  try {
-    for (const expanded of [false, true]) {
-      globalThis.window = { localStorage: { getItem: () => String(expanded) } };
-      const html = renderToStaticMarkup(React.createElement(
-        I18nProvider,
-        null,
-        React.createElement(ThinkingBlock, {
-          block: { type: "thinking", thinking: "**Independent reasoning**\n\nDetailed second line." },
-          blockIndex: 2,
-          duration: 3,
-        }),
-      ));
-      assert.match(html, new RegExp(`aria-expanded="${expanded}"`));
-      assert.equal((html.match(/>[^<]*Independent reasoning[^<]*</g) ?? []).length, 1);
-      assert.equal(html.includes("Detailed second line."), expanded);
-      assert.match(html, /aria-label="Thinking: /);
-      assert.match(html, /3s/);
-    }
-  } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
-  }
+test("server rendering shows the thinking preview without revealing its full content", () => {
+  const html = renderToStaticMarkup(React.createElement(
+    I18nProvider,
+    null,
+    React.createElement(ThinkingBlock, {
+      block: { type: "thinking", thinking: "**Independent reasoning**\n\nDetailed second line." },
+      blockIndex: 2,
+      duration: 3,
+    }),
+  ));
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, />Independent reasoning</);
+  assert.doesNotMatch(html, /Detailed second line/);
+  assert.match(html, /aria-label="Thinking: /);
+  assert.match(html, /3s/);
 });
 
 test("renders long expanded thinking in pieces and short thinking as one text node (#1196)", () => {
-  const previousWindow = globalThis.window;
-  globalThis.window = { localStorage: { getItem: () => "true" } };
-  const contentOf = (thinking) => {
-    const html = renderToStaticMarkup(React.createElement(
-      I18nProvider,
-      null,
-      React.createElement(ThinkingBlock, { block: { type: "thinking", thinking }, blockIndex: 0 }),
-    ));
-    return html.match(/overflow-wrap:anywhere">([\s\S]*)<\/div><\/div>$/)[1];
-  };
+  const contentOf = (text) => renderToStaticMarkup(React.createElement(ThinkingText, { text }));
   const piecesOf = (thinking) => {
     const content = contentOf(thinking);
     const pieces = [...content.matchAll(/<div>([^<]*)<\/div>/g)].map((match) => match[1]);
@@ -98,19 +81,14 @@ test("renders long expanded thinking in pieces and short thinking as one text no
     assert.ok(pieces.length > 1);
     return pieces;
   };
-  try {
-    assert.equal(contentOf("First <b>line</b>\n\nSecond line."), "First &lt;b&gt;line&lt;/b&gt;\n\nSecond line.");
+  assert.equal(contentOf("First <b>line</b>\n\nSecond line."), "First &lt;b&gt;line&lt;/b&gt;\n\nSecond line.");
 
-    // The block boundary stands in for the line break at a cut; a line with
-    // no break is cut with nothing left out.
-    const thinking = "Wait, let me check settings.json again.\n".repeat(2_000);
-    assert.equal(piecesOf(thinking).join("\n"), thinking);
-    const oneLine = "Wait, let me check settings.json again. ".repeat(2_000);
-    assert.equal(piecesOf(oneLine).join(""), oneLine);
-  } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
-  }
+  // The block boundary stands in for the line break at a cut; a line with
+  // no break is cut with nothing left out.
+  const thinking = "Wait, let me check settings.json again.\n".repeat(2_000);
+  assert.equal(piecesOf(thinking).join("\n"), thinking);
+  const oneLine = "Wait, let me check settings.json again. ".repeat(2_000);
+  assert.equal(piecesOf(oneLine).join(""), oneLine);
 });
 
 test("shows deferred thinking previews without loading the full content", () => {
@@ -433,10 +411,11 @@ test("an async notice keeps the highlighted shell command and output open beside
 </task-result>
 </system-notice>`,
   };
+  setToolCallExpanded("async:456:result:build-job:0", true);
   const html = renderMessage(message);
   assert.match(html, /Background job results/);
   assert.match(html, /class="shell-output-preview is-error"/);
-  const command = html.match(/class="shell-command-code"[^>]*>(.*?)<\/span><\/span><\/div>/s)?.[1];
+  const command = html.match(/class="shell-command-code"[^>]*>(.*?)<\/span><\/span><\/button>/s)?.[1];
   assert.ok(command);
   assert.match(command, /style="color:[^"]+"/);
   assert.match(textOf(command), /printf '%s\\n' "\$VALUE" && bun run compile/);
@@ -448,7 +427,9 @@ test("an async notice keeps the highlighted shell command and output open beside
   assert.match(renderMessage(message), /<strong>No issues<\/strong>/);
 });
 
-test("a single async job keeps its command and falls back if the report no longer matches", () => {
+test("a single async job keeps its command and falls back if the report no longer matches", (t) => {
+  t.after(clearExpandedToolCalls);
+  setToolCallExpanded("async:789:result:test-job:0", true);
   const message = {
     role: "custom", customType: "async-result", display: true, timestamp: 789,
     details: { jobs: [{ jobId: "test-job", type: "bash", status: "completed", label: "Old title" }] },
@@ -586,7 +567,9 @@ test("renders partial assistant content before the provider error", () => {
   assert.match(html, /Error: Connection closed/);
 });
 
-test("renders shell blocks as themed terminal content", () => {
+test("renders shell blocks as themed terminal content", (t) => {
+  t.after(clearExpandedToolCalls);
+  setToolCallExpanded("shell-1", true);
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,
@@ -778,7 +761,9 @@ test("mounted GitNexus impact uses the impact glyph when the SDK name has a suff
 });
 
 
-test("renders every todo task in an integrated checklist", () => {
+test("renders every todo task in an integrated checklist", (t) => {
+  t.after(clearExpandedToolCalls);
+  setToolCallExpanded("todo-1", true);
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,

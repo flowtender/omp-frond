@@ -20,10 +20,7 @@ import { setPromptCacheIndicatorSettings, usePromptCacheIndicatorSettings } from
 import type { PromptCacheIndicatorSource, PromptCacheIndicatorStyle } from "@/lib/prompt-cache-shared";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
 import type { ToolSettingsResponse } from "@/lib/api-types";
-import {
-  isThinkingExpandedByDefault,
-  setThinkingExpandedByDefault,
-} from "@/lib/thinking-expansion-preference";
+import { setExpansionPreference, useExpansionPreference, type ExpansionKind, type ExpansionMode } from "@/lib/expansion-preference";
 import { setupPushSubscription } from "@/lib/push-client";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
@@ -38,6 +35,30 @@ const PROMPT_CACHE_STYLES: { value: PromptCacheIndicatorStyle; label: string }[]
   { value: "terminal", label: "settings.promptCacheStyleTerminal" },
   { value: "gradient", label: "settings.promptCacheStyleGradient" },
 ];
+
+const EXPANSION_OPTIONS: { kind: ExpansionKind; label: string; modes: ExpansionMode[] }[] = [
+  { kind: "thinking", label: "settings.expansionThinking", modes: ["collapsed", "expanded"] },
+  { kind: "tools", label: "settings.expansionTools", modes: ["collapsed", "expanded", "failed"] },
+  { kind: "process", label: "settings.expansionProcess", modes: ["automatic", "collapsed", "expanded"] },
+  { kind: "compaction", label: "settings.expansionCompaction", modes: ["collapsed", "expanded"] },
+];
+
+function ExpansionSetting({ kind, label, modes }: typeof EXPANSION_OPTIONS[number]) {
+  const { t } = useI18n();
+  const value = useExpansionPreference(kind);
+  return (
+    <label className="settings-chat-option settings-chat-switch-option">
+      <span>{t(label)}</span>
+      <select
+        value={value}
+        onChange={(event) => setExpansionPreference(kind, event.target.value as ExpansionMode)}
+        style={{ color: "var(--text)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px" }}
+      >
+        {modes.map((mode) => <option key={mode} value={mode}>{t(`settings.expansionMode.${mode}`)}</option>)}
+      </select>
+    </label>
+  );
+}
 
 interface UiSettingsProps {
   sessionId: string | null;
@@ -61,16 +82,11 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
-  const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
   const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
   const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
-
-  useEffect(() => {
-    setThinkingExpanded(isThinkingExpandedByDefault());
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -296,17 +312,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.chat")}</h3>
         <div className="settings-chat-options">
-          <div className="settings-chat-option settings-chat-switch-option">
-            <span>{t("settings.thinkingExpandedDefault")}</span>
-            <ConfigSwitch
-              checked={thinkingExpanded}
-              label={t("settings.thinkingExpandedDefault")}
-              onChange={(enabled) => {
-                setThinkingExpandedByDefault(enabled);
-                setThinkingExpanded(enabled);
-              }}
-            />
-          </div>
+          {EXPANSION_OPTIONS.map((option) => <ExpansionSetting key={option.kind} {...option} />)}
           <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.quoteSelection")}</span>
             <ConfigSwitch
