@@ -4,13 +4,13 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import { modelRefProvider } from "./enabled-models";
 
 /**
- * Which models omp-web has already shown, so the Models panel can tag the ones
+ * Which models omp-frond has already shown, so the Models panel can tag the ones
  * that appeared since.
  *
  * omp's catalog has no release dates, so "new" can only mean "available now,
- * and not available the last time omp-web looked". The record lives next to
+ * and not available the last time omp-frond looked". The record lives next to
  * the agent config like the project-trust store, so it survives restarts and is
- * shared by every omp-web instance on the same agent directory.
+ * shared by every omp-frond instance on the same agent directory.
  *
  * Baselines are per provider: the first time a provider shows up at all (the
  * store is created, or the user signs in to it), its whole catalog is recorded
@@ -21,7 +21,7 @@ import { modelRefProvider } from "./enabled-models";
  * with another request's in this process.
  */
 
-const SEEN_MODELS_FILE = "omp-web-seen-models.json";
+const SEEN_MODELS_FILE = "omp-frond-seen-models.json";
 
 interface SeenModels {
   /** Providers whose catalog has been baselined. */

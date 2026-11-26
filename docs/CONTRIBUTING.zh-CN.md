@@ -1,8 +1,8 @@
-# 参与贡献 omp-web
+# 参与贡献 omp-frond
 
 [English](../CONTRIBUTING.md)
 
-本仓库 `flowtender/omp-frond` 是 omp-web 的 fork。omp-web 是 [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi) 编码智能体的浏览器前端，界面源自 [pi-web](https://github.com/agegr/pi-web)。这里涉及三个界面上游，所以动手前先确定改动应该提交到哪个仓库。
+本仓库 `flowtender/omp-frond` 是 omp-web 的 fork。omp-frond 是 [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi) 编码智能体的浏览器前端，界面源自 [pi-web](https://github.com/agegr/pi-web)。这里涉及三个界面上游，所以动手前先确定改动应该提交到哪个仓库。
 
 ## 改动应该提交到哪里
 

@@ -191,7 +191,7 @@ export async function DELETE(
     try {
       forgetSessionDrafts([id]);
     } catch (error) {
-      console.warn(`[pi-web] could not clear the unsent draft of ${id}: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`[omp-frond] could not clear the unsent draft of ${id}: ${error instanceof Error ? error.message : String(error)}`);
     }
     invalidateSessionPathCache(id);
     invalidateSessionListCache();

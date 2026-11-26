@@ -114,8 +114,8 @@ Choose the recipient first. For example, prepare the typing-focus patch for
 kd-mm2 in a separate worktree (choose a new sibling path):
 
 ```bash
-git worktree add -b submit/kd-typing-focus ../omp-web-kd-typing-focus kd-mm2/main
-cd ../omp-web-kd-typing-focus
+git worktree add -b submit/kd-typing-focus ../omp-frond-kd-typing-focus kd-mm2/main
+cd ../omp-frond-kd-typing-focus
 git cherry-pick -x topic/typing-focus
 ```
 

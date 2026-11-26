@@ -62,14 +62,14 @@ function bunExecutableName() {
  * omp's SDK (`@oh-my-pi/pi-*`) ships TypeScript sources and imports `bun:`
  * builtins, so the server half of omp-frond can only run on the Bun runtime.
  * Order: the current process (when omp-frond itself was launched by Bun), an
- * explicit `OMP_WEB_BUN` override, `$BUN_INSTALL/bin`, `~/.bun/bin`, `$PATH`.
+ * explicit `OMP_FROND_BUN` override, `$BUN_INSTALL/bin`, `~/.bun/bin`, `$PATH`.
  */
 function resolveBunPath(env = process.env) {
   // An explicit override wins even when Bun is already running us, so an
   // operator can pin a specific build without changing PATH.
   const candidates = [];
-  if (env.OMP_WEB_BUN) candidates.push(env.OMP_WEB_BUN);
-  if (!env.OMP_WEB_BUN && process.versions.bun && process.execPath) return process.execPath;
+  if (env.OMP_FROND_BUN) candidates.push(env.OMP_FROND_BUN);
+  if (!env.OMP_FROND_BUN && process.versions.bun && process.execPath) return process.execPath;
 
   if (env.BUN_INSTALL) candidates.push(join(env.BUN_INSTALL, "bin", bunExecutableName()));
   candidates.push(join(homedir(), ".bun", "bin", bunExecutableName()));
@@ -100,7 +100,7 @@ function getMissingBunMessage() {
     '  powershell -c "irm bun.sh/install.ps1 | iex"    # Windows',
     "",
     "Already installed somewhere unusual? Point omp-frond at it:",
-    "  OMP_WEB_BUN=/path/to/bun omp-frond",
+    "  OMP_FROND_BUN=/path/to/bun omp-frond",
   ].join("\n");
 }
 

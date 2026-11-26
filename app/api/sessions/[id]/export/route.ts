@@ -123,7 +123,7 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const tempDir = join(tmpdir(), "omp-web-export");
+    const tempDir = join(tmpdir(), "omp-frond-export");
     mkdirSync(tempDir, { recursive: true });
 
     const sessionBase = basename(filePath, ".jsonl");

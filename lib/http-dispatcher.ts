@@ -137,7 +137,7 @@ function createUndiciOriginDispatcher(
  * `fetch`, and `install` does not exist. Bun's native `fetch` already honors
  * `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` read at process start, so the
  * dispatcher dance is both ineffective and unnecessary under Bun — which is the
- * runtime `omp-web` actually serves on.
+ * runtime `omp-frond` actually serves on.
  */
 export function isBunRuntime(): boolean {
   return typeof process.versions.bun === "string";

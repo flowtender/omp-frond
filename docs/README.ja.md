@@ -1,14 +1,14 @@
-# omp-web
+# omp-frond
 
 [English](../README.md) | [简体中文](./README.zh-CN.md) | [Русский](./README.ru.md)
 
-[oh-my-pi（omp）](https://github.com/can1357/oh-my-pi) コーディングエージェントのブラウザー UI です。omp-web は `omp` CLI がすでに書き込んでいるセッションを読み込み、会話の閲覧、リアルタイムのチャット、モデルロール、Provider 設定、スキル管理、プロジェクトファイルのプレビューをブラウザーで提供します。
+[oh-my-pi（omp）](https://github.com/can1357/oh-my-pi) コーディングエージェントのブラウザー UI です。omp-frond は `omp` CLI がすでに書き込んでいるセッションを読み込み、会話の閲覧、リアルタイムのチャット、モデルロール、Provider 設定、スキル管理、プロジェクトファイルのプレビューをブラウザーで提供します。
 
 このリポジトリ `flowtender/omp-frond` は omp-web のフォークです。UI は [pi-web](https://github.com/agegr/pi-web)（作者 [@agegr](https://github.com/agegr)）に由来し、[ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) と [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) の OMP 適応を取り込んでいます。OMP SDK（[can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)）は正確なバージョンに固定された依存関係です。ブランチ構成と更新手順は英語のガイド [docs/upstream-maintenance.md](./upstream-maintenance.md) を参照してください。
 
 ## クイックスタート
 
-omp SDK は TypeScript のソースとして配布され、`bun:` の組み込みモジュールを import するため、omp-web の API は **Bun** で動作します。必要な環境は **Bun 1.4.4 以降**と **Node.js 22.19.0 以降**です（`package.json` の `engines` を参照。インストール時の `postinstall` は Node で実行されます）。
+omp SDK は TypeScript のソースとして配布され、`bun:` の組み込みモジュールを import するため、omp-frond の API は **Bun** で動作します。必要な環境は **Bun 1.4.4 以降**と **Node.js 22.19.0 以降**です（`package.json` の `engines` を参照。インストール時の `postinstall` は Node で実行されます）。
 
 ### ソースから実行（このフォーク）
 
@@ -38,9 +38,9 @@ bun add -g omp-web    # または：npm install -g omp-web
 omp-web
 ```
 
-サーバーの準備が整うと、CLI は自動的にブラウザーを開こうとします。開かない場合は [http://127.0.0.1:30141](http://127.0.0.1:30141) にアクセスしてください。CLI はデフォルトで `127.0.0.1` のみをリッスンします。モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。`omp-web` のエントリポイントは Node または Bun で動作し、Bun を見つけてその中でサーバーを再実行します。特定の Bun を使う場合は `OMP_WEB_BUN=/path/to/bun` を設定します。
+サーバーの準備が整うと、CLI は自動的にブラウザーを開こうとします。開かない場合は [http://127.0.0.1:30141](http://127.0.0.1:30141) にアクセスしてください。CLI はデフォルトで `127.0.0.1` のみをリッスンします。モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。`omp-frond` のエントリポイントは Node または Bun で動作し、Bun を見つけてその中でサーバーを再実行します。特定の Bun を使う場合は `OMP_FROND_BUN=/path/to/bun` を設定します。
 
-Windows で `bunx` が起動前に `EPERM: Operation not permitted (NtSetInformationFile())` で失敗する場合、原因は omp-web ではなく Bun の Windows キャッシュの名前変更です。Bun を更新し、キャッシュを消去してから再試行してください。
+Windows で `bunx` が起動前に `EPERM: Operation not permitted (NtSetInformationFile())` で失敗する場合、原因は omp-frond ではなく Bun の Windows キャッシュの名前変更です。Bun を更新し、キャッシュを消去してから再試行してください。
 
 ## 主なオプション
 
@@ -57,23 +57,23 @@ omp-frond --reset-password         # パスワードを忘れた場合に新し�
 | オプションまたは環境変数 | 用途 | デフォルト |
 | --- | --- | --- |
 | `--port <port>`、`-p`、または `PORT` | サーバーポート | `30141` |
-| `--hostname <host>`、`-H`、または `OMP_WEB_HOSTNAME` | バインドするホスト名 | `127.0.0.1` |
-| `--no-open`、または `OMP_WEB_NO_OPEN=1` | ブラウザーを自動的に開かない | 自動的に開く |
-| `--authenticated`、または `OMP_WEB_AUTHENTICATED=1` | パスワードロックを有効化 | 無効 |
-| `OMP_WEB_PASSWORD` | 保存されたパスワードを上書き | 未設定 |
-| `OMP_WEB_ALLOWED_HOSTS` | リバースプロキシ用の追加の完全一致ホスト名（カンマ区切り） | 未設定 |
+| `--hostname <host>`、`-H`、または `OMP_FROND_HOSTNAME` | バインドするホスト名 | `127.0.0.1` |
+| `--no-open`、または `OMP_FROND_NO_OPEN=1` | ブラウザーを自動的に開かない | 自動的に開く |
+| `--authenticated`、または `OMP_FROND_AUTHENTICATED=1` | パスワードロックを有効化 | 無効 |
+| `OMP_FROND_PASSWORD` | 保存されたパスワードを上書き | 未設定 |
+| `OMP_FROND_ALLOWED_HOSTS` | リバースプロキシ用の追加の完全一致ホスト名（カンマ区切り） | 未設定 |
 
 ネイティブ HTTPS は `--tls-cert cert.pem --tls-key key.pem` で有効になります。詳細は [HTTPS](./https.md) を参照してください。
 
 ## パスワードとアクセス
 
-**Settings → Access** でパスワードを設定し、ロックのオン／オフを切り替えられます。`--authenticated` または `OMP_WEB_PASSWORD` を使うこともできます。パスワードは `scrypt` ハッシュとして `~/.omp/agent/omp-web-auth.json`（モード `0600`）に保存されます。パスワードを忘れた場合は、サーバーで `omp-frond --reset-password` を実行するか、`/recover` を開いてサーバーのコンソールに表示された一度限りのコードを入力してください。
+**Settings → Access** でパスワードを設定し、ロックのオン／オフを切り替えられます。`--authenticated` または `OMP_FROND_PASSWORD` を使うこともできます。パスワードは `scrypt` ハッシュとして `~/.omp/agent/omp-frond-auth.json`（モード `0600`）に保存されます。パスワードを忘れた場合は、サーバーで `omp-frond --reset-password` を実行するか、`/recover` を開いてサーバーのコンソールに表示された一度限りのコードを入力してください。
 
-omp-web は高い権限を持つエージェントを呼び出せるため、ログインパスワードとセッション Cookie は[ネイティブ HTTPS](./https.md)、信頼できる HTTPS リバースプロキシ、または信頼できる VPN で保護してください。脅威モデルの詳細は [authentication.md](./authentication.md) にあります。
+omp-frond は高い権限を持つエージェントを呼び出せるため、ログインパスワードとセッション Cookie は[ネイティブ HTTPS](./https.md)、信頼できる HTTPS リバースプロキシ、または信頼できる VPN で保護してください。脅威モデルの詳細は [authentication.md](./authentication.md) にあります。
 
 ## モデルロール
 
-omp は作業範囲ごとにモデルを割り当てます。omp-web は TUI の `/model` セレクターと `Ctrl+P` のサイクルで使われるロールと同じものを表示します：`default`、`smol`、`slow`、`plan`、`commit`、`task`、`advisor`、`vision`、`designer`、`tiny`。
+omp は作業範囲ごとにモデルを割り当てます。omp-frond は TUI の `/model` セレクターと `Ctrl+P` のサイクルで使われるロールと同じものを表示します：`default`、`smol`、`slow`、`plan`、`commit`、`task`、`advisor`、`vision`、`designer`、`tiny`。
 
 ロールの割り当ては `~/.omp/agent/config.yml` の `modelRoles` に保存されます（**This project** を選ぶと `.omp/config.yml`）。ブラウザーで行った割り当ては、次にターミナルのセッションを起動したときにも使われます。
 

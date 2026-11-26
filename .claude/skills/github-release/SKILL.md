@@ -1,6 +1,6 @@
 ---
 name: github-release
-description: "Use when the user asks to prepare, create, publish, or update a GitHub release for omp-web, especially a versioned tag release. Generate the release body with the v0.1.7 format: commit-range preamble plus Added, Improved, and Internal sections."
+description: "Use when the user asks to prepare, create, publish, or update a GitHub release for omp-frond, especially a versioned tag release. Generate the release body with the v0.1.7 format: commit-range preamble plus Added, Improved, and Internal sections."
 ---
 
 # GitHub Release
@@ -104,7 +104,7 @@ gh release create v<version> \
   --repo flowtender/omp-frond \
   --verify-tag \
   --title "v<version>" \
-  --notes-file /tmp/omp-web-release-notes.md
+  --notes-file /tmp/omp-frond-release-notes.md
 ```
 
 Never use `--generate-notes`; it would bypass the required format. If the release already exists and the user explicitly requested a notes update:
@@ -112,7 +112,7 @@ Never use `--generate-notes`; it would bypass the required format. If the releas
 ```bash
 gh release edit v<version> \
   --repo flowtender/omp-frond \
-  --notes-file /tmp/omp-web-release-notes.md
+  --notes-file /tmp/omp-frond-release-notes.md
 ```
 
 If the tag does not exist, stop before `gh release create`: a release must point to the intended tagged commit. When the user asked for the complete tag-and-release flow, create and push the annotated tag only after version and commit checks pass, then use `--verify-tag`.

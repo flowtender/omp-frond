@@ -31,7 +31,7 @@ const OMP_SDK_REQUEST = /^@oh-my-pi\//;
 const nextConfig: NextConfig = {
   // Desktop builds (scripts/stage-desktop.mjs) redirect the production build
   // into src-tauri/server/.next so packaging never touches the dev `.next/`.
-  distDir: process.env.OMP_WEB_DIST_DIR || ".next",
+  distDir: process.env.OMP_FROND_DIST_DIR || ".next",
   outputFileTracingRoot: configDir,
   experimental: {
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever

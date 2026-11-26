@@ -29,7 +29,7 @@ export interface EnabledModelsBulkActions {
 /**
  * Bulk actions for the rows currently shown.
  *
- * Mirrors the server guard: omp-web reads an empty scope as "no scope" and shows
+ * Mirrors the server guard: omp-frond reads an empty scope as "no scope" and shows
  * every model again, so the UI never offers a bulk disable that would switch
  * off the last enabled model anywhere.
  */

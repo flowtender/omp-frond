@@ -176,7 +176,7 @@ key and the counts never shrink.
 
 ## omp port
 
-omp-web carries the same editor against omp's SDK instead of pi's. What
+omp-frond carries the same editor against omp's SDK instead of pi's. What
 changed, and why:
 
 - Matching is omp's `resolveModelScope()`: `Bun.Glob` instead of minimatch
@@ -192,7 +192,7 @@ changed, and why:
   classifies providers as built-in or custom, because nothing read it.
 - pi-web's "Refresh catalog" button is not ported: it drove pi's pi.dev
   catalog overlay, which omp does not have.
-- An empty scope reads as "every model" in omp-web's selector but as "no
+- An empty scope reads as "every model" in omp-frond's selector but as "no
   model" in omp's TUI, which makes the last-model guard matter more, not less.
-- Models that appeared since omp-web last looked are tagged "new"
+- Models that appeared since omp-frond last looked are tagged "new"
   (`lib/seen-models.ts`, `docs/agents/models.md`).

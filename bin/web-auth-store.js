@@ -28,7 +28,7 @@ const { basename, dirname, join, resolve } = require("node:path");
 const WEB_AUTH_USERNAME = "omp";
 
 /** Credential filename, kept next to the agent configuration. */
-const WEB_AUTH_FILENAME = "omp-web-auth.json";
+const WEB_AUTH_FILENAME = "omp-frond-auth.json";
 
 /** Current on-disk schema version. */
 const WEB_AUTH_VERSION = 1;
@@ -68,7 +68,7 @@ const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
  * launcher cannot load it, and `proxy.ts` must not pull the SDK into its bundle.
  * This mirrors omp's default layout: an explicit `PI_CODING_AGENT_DIR` wins,
  * otherwise `~/.omp/agent` with `PI_CONFIG_DIR` and the active profile applied.
- * Anything more exotic (an XDG migration) is addressed with `OMP_WEB_AUTH_FILE`.
+ * Anything more exotic (an XDG migration) is addressed with `OMP_FROND_AUTH_FILE`.
  */
 function resolveAgentDir(env = process.env) {
   if (env.PI_CODING_AGENT_DIR) return resolve(env.PI_CODING_AGENT_DIR);
@@ -84,10 +84,10 @@ function normalizeProfileName(profile) {
   return PROFILE_NAME_RE.test(normalized) && !normalized.endsWith(".") ? normalized : undefined;
 }
 
-/** Absolute path of the credential file. `OMP_WEB_AUTH_FILE` overrides the location entirely. */
+/** Absolute path of the credential file. `OMP_FROND_AUTH_FILE` overrides the location entirely. */
 function resolveWebAuthFile(env = process.env) {
-  return env.OMP_WEB_AUTH_FILE
-    ? resolve(env.OMP_WEB_AUTH_FILE)
+  return env.OMP_FROND_AUTH_FILE
+    ? resolve(env.OMP_FROND_AUTH_FILE)
     : join(resolveAgentDir(env), WEB_AUTH_FILENAME);
 }
 
@@ -241,7 +241,7 @@ function currentConfig(file, { replaceUnreadable = false } = {}) {
 }
 
 function environmentPassword(env = process.env) {
-  const password = env.OMP_WEB_PASSWORD;
+  const password = env.OMP_FROND_PASSWORD;
   return typeof password === "string" && password.length > 0 ? password : null;
 }
 

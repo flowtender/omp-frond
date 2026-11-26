@@ -809,7 +809,7 @@ button.extension-widget-trigger:focus-visible {
 }
 
 :root {
-  /* System monospace stack. omp-web is a local tool: it must not depend on a
+  /* System monospace stack. omp-frond is a local tool: it must not depend on a
      font CDN at build or at runtime, and the terminal-native faces below are
      already what omp users read code in. CJK fallbacks stay last. */
   --font-ui-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -2177,7 +2177,7 @@ pre, code {
 }
 
 /* The empty new-session page's header above the composer (ChatWindow), on
-   the composer's left edge: the brand (the logo, "Pi Web" and its versions
+   the composer's left edge: the brand (the logo, "omp-frond" and its versions
    line), then the project and worktree row (NewSessionContextBar) right
    above the composer card. Nothing on the right. */
 .new-session-hero-inner {

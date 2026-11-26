@@ -306,8 +306,8 @@ type SidebarMenuState =
 /** The archive bar's deletes: every archived session, or those archived over 30 days ago. */
 type ArchiveDeleteScope = "all" | "old";
 
-const UNREAD_SESSIONS_STORAGE_KEY = "omp-web:unread-session-ids";
-const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
+const UNREAD_SESSIONS_STORAGE_KEY = "omp-frond:unread-session-ids";
+const LAST_CUSTOM_CWD_STORAGE_KEY = "omp-frond:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
 const INITIAL_SUMMARY_WAIT_MS = 15_000;
@@ -682,7 +682,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     if (target) focusIfLost(document, target());
   }, [focusRequest]);
 
-  // Pins, archive and project order: pi-web's own state, kept on the server for every window.
+  // Pins, archive and project order: omp-frond's own state, kept on the server for every window.
   const {
     state: uiState,
     loaded: uiStateLoaded,
@@ -730,7 +730,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     maxWidth: FILES_SECTION_MAX_HEIGHT,
     minWidth: FILES_SECTION_MIN_HEIGHT,
     persistClamp: false,
-    storageKey: "pi-web:sidebar-files-height",
+    storageKey: "omp-frond:sidebar-files-height",
     widthRef: filesHeightRef,
   });
   const filesSizerPanelRef = filesSizer.panelRef;
@@ -1912,7 +1912,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     }
   }, [loadSessions]);
 
-  // A project's display name is pi-web's own (the UI state file): renaming
+  // A project's display name is omp-frond's own (the UI state file): renaming
   // it never selects the project, nor moves, pins or folds its group. The
   // header's field goes as the name is saved; its toggle takes the focus.
   const startProjectRename = useCallback((project: SidebarProject) => {

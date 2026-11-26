@@ -48,9 +48,9 @@ delivery may be ambiguous. Reconnect attaches to the same process with a fresh
 writer; restart explicitly replaces the process.
 
 `bin/prepare-terminal.js` repairs node-pty 1.1.0's macOS spawn-helper executable
-bits during installation, including omp-web packages installed from npm.
+bits during installation, including omp-frond packages installed from npm.
 
-`omp-web` pins node-pty to `1.2.0-beta.15`, which includes Linux x64 and ARM64
+`omp-frond` pins node-pty to `1.2.0-beta.15`, which includes Linux x64 and ARM64
 prebuilt binaries. Native module loading is deferred until terminal creation,
 so missing or incompatible binaries produce a JSON error with repair instructions.
 Empty or non-JSON API errors show the HTTP status and direct users to the server log.
@@ -60,7 +60,7 @@ If a native binary cannot load, run
 installation directory (for npx, the cache directory containing `node_modules`).
 On Debian/Ubuntu, install `python3` and `build-essential` first. This forces a
 source build instead of reusing a missing or incompatible prebuilt binary.
-Restart omp-web after repair.
+Restart omp-frond after repair.
 
 ## Verification
 

@@ -72,7 +72,7 @@ function loadScopes(cwd: string, agentDir: string, projectTrusted: boolean): Plu
 /**
  * Whether this request may change the project scope's plugin settings.
  *
- * omp-web's session trust gate looks at code-bearing folders (`.omp/tools`,
+ * omp-frond's session trust gate looks at code-bearing folders (`.omp/tools`,
  * `.mcp.json`, …) and lets a folder that only ships a `settings.json` through.
  * This route writes that file, so a folder which configures plugins needs an
  * explicit decision first: writing a package into a folder the user never
@@ -87,7 +87,7 @@ function projectPluginsTrusted(cwd: string, status: ProjectTrustStatus): boolean
 const UNTRUSTED_PROJECT_ERROR = "Project resources must be trusted before modifying project plugins";
 const NOT_CONFIGURED_ERROR = "Package is not configured";
 /**
- * Disabling replaces an entry's resource lists, and omp-web keeps no copy, so a
+ * Disabling replaces an entry's resource lists, and omp-frond keeps no copy, so a
  * package whose lists were filtered by hand cannot be restored by enabling.
  */
 const FILTERED_PACKAGE_ERROR =

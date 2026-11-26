@@ -1,8 +1,8 @@
 # Password access
 
-omp-web drives a coding agent that reads and writes files, runs shell commands,
+omp-frond drives a coding agent that reads and writes files, runs shell commands,
 and spends provider credits. Anything that can reach the port can do all of
-that. On loopback that is exactly the intent; the moment omp-web listens on a
+that. On loopback that is exactly the intent; the moment omp-frond listens on a
 LAN address or sits behind a tunnel, it needs a lock.
 
 The lock uses a password sign-in page and server-validated session cookies, not
@@ -24,20 +24,20 @@ omp-frond --authenticated
 ```
 
 Turns password access on for this run and for every later one. If no password
-has ever been set, omp-web asks for one on the terminal before the server
+has ever been set, omp-frond asks for one on the terminal before the server
 starts, so a run that was told to be locked can never come up unlocked. If a
 password is already stored, the flag just switches the lock back on.
 
-`OMP_WEB_AUTHENTICATED=1` does the same thing from the environment.
+`OMP_FROND_AUTHENTICATED=1` does the same thing from the environment.
 
-Non-interactive launches — systemd, Docker, `omp-web &` — cannot answer a
+Non-interactive launches — systemd, Docker, `omp-frond &` — cannot answer a
 prompt, so `--authenticated` fails there with a message instead of hanging. Set
 the password once interactively, or use the environment variable below.
 
 **From the environment.**
 
 ```bash
-OMP_WEB_PASSWORD='a-long-random-password' omp-frond
+OMP_FROND_PASSWORD='a-long-random-password' omp-frond
 ```
 
 The variable overrides the stored credential completely: while it is set, the
@@ -46,7 +46,7 @@ or empty hands control back to the stored credential.
 
 ## How the password is stored
 
-In `<agentDir>/omp-web-auth.json` — normally `~/.omp/agent/omp-web-auth.json` —
+In `<agentDir>/omp-frond-auth.json` — normally `~/.omp/agent/omp-frond-auth.json` —
 created with mode `0600` and replaced atomically. The file holds a `scrypt`
 digest, the random salt that produced it, and the cost parameters. **The
 password itself is never written anywhere.**
@@ -54,7 +54,7 @@ password itself is never written anywhere.**
 That is the whole reason recovery exists rather than a "show password" button:
 nothing on the machine can turn the file back into the password.
 
-`OMP_WEB_AUTH_FILE` overrides the location. Set it if you have migrated omp's
+`OMP_FROND_AUTH_FILE` overrides the location. Set it if you have migrated omp's
 state to XDG directories, or if you want the credential somewhere else entirely;
 `bin/omp-frond.js` resolves the path once and passes it to the server, so the two
 halves can never disagree.
@@ -78,7 +78,7 @@ server restarts; missing, expired, malformed, or revoked sessions grant no acces
 **Settings → Access → Sign out of this device** deletes the server-side session
 and clears its cookie. A copied cookie cannot be replayed after logout.
 Replacing or recovering the password invalidates all existing sessions,
-including sessions on other devices. Changing `OMP_WEB_PASSWORD` does the same.
+including sessions on other devices. Changing `OMP_FROND_PASSWORD` does the same.
 
 Unauthenticated page loads redirect to `/login`; API calls return `401` without
 a Basic challenge. Open app windows also check their session on visibility,
@@ -90,11 +90,11 @@ Password guesses at the login endpoint use the shared exponential backoff:
 failure counter. Host and cross-site checks run before login and logout.
 
 Native HTTPS marks session cookies Secure automatically. When a trusted reverse
-proxy terminates HTTPS, set `OMP_WEB_SECURE_COOKIES=1`; forwarded headers alone
+proxy terminates HTTPS, set `OMP_FROND_SECURE_COOKIES=1`; forwarded headers alone
 are not trusted for that decision. HTTP without Secure cookies is retained for
 loopback and trusted-network deployments. See [HTTPS](./https.md) for certificates.
 
-If the credential file exists but cannot be parsed while the lock is on, omp-web
+If the credential file exists but cannot be parsed while the lock is on, omp-frond
 answers `503` to everything rather than assuming it should unlock. Use
 `--reset-password` to get out of that state.
 
@@ -116,7 +116,7 @@ server — a tmux pane, a service log, a Docker `logs` stream:
 
 1. Open `/recover`. The recovery page and API are reachable without credentials,
    as are the login page and API.
-2. Ask for a recovery code. omp-web prints it **on its own console** — the
+2. Ask for a recovery code. omp-frond prints it **on its own console** — the
    terminal running the server — and never returns it over HTTP.
 3. Type the code and a new password into the page.
 
@@ -134,9 +134,9 @@ Password login authenticates; it does not encrypt. Both the login password and
 session cookie are readable over plain HTTP on an untrusted network.
 
 Use [native HTTPS](./https.md), a trusted HTTPS reverse proxy, or a trusted VPN
-before exposing omp-web beyond loopback.
+before exposing omp-frond beyond loopback.
 
 Separately from the password, API requests are accepted only for loopback names,
 IP literals, the bind hostname, and the exact names listed in
-`OMP_WEB_ALLOWED_HOSTS`; cross-site browser requests are rejected outright.
+`OMP_FROND_ALLOWED_HOSTS`; cross-site browser requests are rejected outright.
 Those checks run before authentication and apply to `/recover` too.

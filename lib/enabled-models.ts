@@ -78,9 +78,9 @@ export interface EnabledModelsModelView {
   enabled: boolean;
   /** The context budget currently resolved by omp, including models.yml overrides. */
   contextWindow?: number;
-  /** Thinking level pinned by a `:level` pattern; read-only in omp-web. */
+  /** Thinking level pinned by a `:level` pattern; read-only in omp-frond. */
   thinkingPin?: string;
-  /** First seen since omp-web last recorded the available models; cleared once switched or used. */
+  /** First seen since omp-frond last recorded the available models; cleared once switched or used. */
   isNew: boolean;
   recent?: boolean;
   roles?: { role: string; label: string; auto?: boolean }[];
@@ -281,7 +281,7 @@ export function computeEnabledModelsState(input: EnabledModelsInput): EnabledMod
     // The resolver keeps the first occurrence of a model, so its pin wins.
     for (const ref of entry.matched) pins[ref] ??= entry.pin;
   }
-  // omp-web's selector falls back to every available model when the patterns
+  // omp-frond's selector falls back to every available model when the patterns
   // resolve to nothing, so a fully stale list reads as "all enabled" here too.
   const allEnabled = enabled.length === 0;
   return {
@@ -296,7 +296,7 @@ export function computeEnabledModelsState(input: EnabledModelsInput): EnabledMod
  * Turn `refs` on or off with the smallest possible edit of the pattern list.
  *
  * Returns `{ ok: false, reason: "last-model" }` when the edit would leave no
- * enabled model: an empty scope reads as "no scope" in omp-web's selector,
+ * enabled model: an empty scope reads as "no scope" in omp-frond's selector,
  * which shows every model again, so disabling the last one would silently
  * mean the opposite (and omp's TUI would offer no model at all).
  */
@@ -370,7 +370,7 @@ const THINKING_LEVEL_SUFFIXES: Record<string, true> = {
  * A model renamed in the panel is a known fact, not the kind of mismatch worth
  * preserving: leaving `stepfun/ddd` behind after it became `stepfun/ddd1` loses
  * the selection, and when it was the only entry the whole scope resolves to
- * nothing — which omp-web's selector reads as "no scope", enabling every model.
+ * nothing — which omp-frond's selector reads as "no scope", enabling every model.
  *
  * Applied before the provider rewrite, so `from` is the reference as the
  * settings file still spells it and `to` is where it ends up.

@@ -1,15 +1,15 @@
 # HTTPS
 
-omp-web serves plain HTTP by default. Use HTTPS when the browser reaches omp-web
+omp-frond serves plain HTTP by default. Use HTTPS when the browser reaches omp-frond
 over a network, for example from a phone. The login password and session cookie
 are readable on the wire over plain HTTP. Native HTTPS marks the session cookie
 `Secure`; reverse proxies must explicitly enable secure cookies as described below.
 
-omp-web can terminate TLS itself with a certificate and private key you supply.
-You can also keep omp-web on plain HTTP behind a reverse proxy that terminates
+omp-frond can terminate TLS itself with a certificate and private key you supply.
+You can also keep omp-frond on plain HTTP behind a reverse proxy that terminates
 TLS. Both options are described below.
 
-## Option 1: native HTTPS in omp-web
+## Option 1: native HTTPS in omp-frond
 
 Pass the certificate and key with flags or environment variables. Both are
 required together:
@@ -20,24 +20,24 @@ omp-frond --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
 
 | Flag | Environment variable | Meaning |
 | --- | --- | --- |
-| `--tls-cert <file>` | `OMP_WEB_TLS_CERT` | PEM certificate (or chain) |
-| `--tls-key <file>` | `OMP_WEB_TLS_KEY` | PEM private key matching the certificate |
+| `--tls-cert <file>` | `OMP_FROND_TLS_CERT` | PEM certificate (or chain) |
+| `--tls-key <file>` | `OMP_FROND_TLS_KEY` | PEM private key matching the certificate |
 
 Rules:
 
 - A flag wins over its environment variable.
-- Giving only one of the two is an error. omp-web never falls back to HTTP
+- Giving only one of the two is an error. omp-frond never falls back to HTTP
   silently.
 - The files are read and checked before any password prompt. A missing,
   unreadable, or mismatched pair stops the launch with a message naming the file.
-- Relative paths are resolved from the directory you start omp-web in.
+- Relative paths are resolved from the directory you start omp-frond in.
 - Keep the private key readable only by your user, for example `chmod 600`.
 
 With HTTPS enabled, the browser URL is `https://<hostname>:<port>`. Next.js itself
 listens only on `127.0.0.1` on an internal port, so only the HTTPS listener is
 reachable from the network.
 
-Set `--hostname` (or `OMP_WEB_HOSTNAME`) to the address the phone connects to,
+Set `--hostname` (or `OMP_FROND_HOSTNAME`) to the address the phone connects to,
 for example your Tailscale address or `0.0.0.0` on a trusted LAN. If you
 connect using a name, the name must be allowed (see [Host allow-list](#host-allow-list)).
 
@@ -45,7 +45,7 @@ connect using a name, the name must be allowed (see [Host allow-list](#host-allo
 
 [mkcert](https://github.com/FiloSottile/mkcert) creates a local certificate
 authority and certificates it trusts. This is useful when the browser runs on
-the same machine as omp-web.
+the same machine as omp-frond.
 
 ```bash
 mkcert -install
@@ -53,7 +53,7 @@ mkcert localhost 127.0.0.1 ::1
 ```
 
 This writes two files to the current directory, named after the first name
-(`localhost+2.pem` and `localhost+2-key.pem`). Then start omp-web:
+(`localhost+2.pem` and `localhost+2-key.pem`). Then start omp-frond:
 
 ```bash
 omp-frond --hostname 127.0.0.1 \
@@ -73,7 +73,7 @@ tailnet. Phones on the tailnet trust them without extra setup.
 
 1. In the Tailscale admin console, turn on **MagicDNS** and **HTTPS
    Certificates** for your tailnet.
-2. Find the full machine name of the computer running omp-web, which has the
+2. Find the full machine name of the computer running omp-frond, which has the
    form `<machine>.<tailnet>.ts.net`:
 
    ```bash
@@ -93,10 +93,10 @@ tailnet. Phones on the tailnet trust them without extra setup.
    Make the key readable only by your user, for example `sudo chown "$USER"`
    the key file and `chmod 600` it.
 
-4. Start omp-web on the tailnet address, allowing the tailnet name:
+4. Start omp-frond on the tailnet address, allowing the tailnet name:
 
    ```bash
-   OMP_WEB_ALLOWED_HOSTS=<machine>.<tailnet>.ts.net \
+   OMP_FROND_ALLOWED_HOSTS=<machine>.<tailnet>.ts.net \
    omp-frond --hostname 0.0.0.0 --no-open \
      --tls-cert ./<machine>.<tailnet>.ts.net.crt \
      --tls-key ./<machine>.<tailnet>.ts.net.key \
@@ -106,47 +106,47 @@ tailnet. Phones on the tailnet trust them without extra setup.
 5. On the phone, open `https://<machine>.<tailnet>.ts.net:30141`.
 
 Tailscale certificates expire after about 90 days. Run step 3 again to renew
-them, then restart omp-web.
+them, then restart omp-frond.
 
 Use `--hostname 0.0.0.0` only on a network you trust, or bind to your Tailscale
 IP address (`tailscale ip -4`) instead. Add `--authenticated` before exposing
-omp-web beyond loopback so that a password is required.
+omp-frond beyond loopback so that a password is required.
 
 ## Host allow-list
 
-omp-web rejects requests whose `Host` header is not allowed. Allowed names are:
+omp-frond rejects requests whose `Host` header is not allowed. Allowed names are:
 
-- the value of `--hostname` / `OMP_WEB_HOSTNAME`,
+- the value of `--hostname` / `OMP_FROND_HOSTNAME`,
 - loopback names and IP literals, and
-- the comma-separated names in `OMP_WEB_ALLOWED_HOSTS`.
+- the comma-separated names in `OMP_FROND_ALLOWED_HOSTS`.
 
 A phone that opens `https://<machine>.<tailnet>.ts.net:30141` must therefore have
-that name in `OMP_WEB_ALLOWED_HOSTS` (or be the `--hostname` value).
+that name in `OMP_FROND_ALLOWED_HOSTS` (or be the `--hostname` value).
 
 ## Option 2: reverse proxy terminates TLS
 
-You can keep omp-web on plain HTTP on loopback and let a reverse proxy (nginx,
-Caddy, and similar) serve HTTPS in front of it. Run omp-web without the TLS
+You can keep omp-frond on plain HTTP on loopback and let a reverse proxy (nginx,
+Caddy, and similar) serve HTTPS in front of it. Run omp-frond without the TLS
 options and tell it that the public connection is HTTPS:
 
 ```bash
-OMP_WEB_SECURE_COOKIES=1 omp-frond --no-open
+OMP_FROND_SECURE_COOKIES=1 omp-frond --no-open
 ```
 
-`OMP_WEB_SECURE_COOKIES=1` is the required setting for a reverse proxy. omp-web
+`OMP_FROND_SECURE_COOKIES=1` is the required setting for a reverse proxy. omp-frond
 does not read `X-Forwarded-Proto` or other forwarded headers to decide whether a
 connection is secure, because a client can send those headers itself. Without
-`OMP_WEB_SECURE_COOKIES=1`, the session cookie is not marked `Secure` when the
+`OMP_FROND_SECURE_COOKIES=1`, the session cookie is not marked `Secure` when the
 browser connects over HTTPS through the proxy.
 
 Keep the proxy forwarding the `Host` header unchanged, and add that name to
-`OMP_WEB_ALLOWED_HOSTS` as described above.
+`OMP_FROND_ALLOWED_HOSTS` as described above.
 
 ## Summary of environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `OMP_WEB_TLS_CERT` | Certificate path for native HTTPS (also set by the launcher for the server process) |
-| `OMP_WEB_TLS_KEY` | Private key path for native HTTPS (also set by the launcher for the server process) |
-| `OMP_WEB_SECURE_COOKIES` | Set to `1` when a reverse proxy serves HTTPS |
-| `OMP_WEB_ALLOWED_HOSTS` | Comma-separated extra `Host` names to accept |
+| `OMP_FROND_TLS_CERT` | Certificate path for native HTTPS (also set by the launcher for the server process) |
+| `OMP_FROND_TLS_KEY` | Private key path for native HTTPS (also set by the launcher for the server process) |
+| `OMP_FROND_SECURE_COOKIES` | Set to `1` when a reverse proxy serves HTTPS |
+| `OMP_FROND_ALLOWED_HOSTS` | Comma-separated extra `Host` names to accept |

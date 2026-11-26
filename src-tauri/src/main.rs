@@ -159,9 +159,9 @@ fn start_server(app: &mut tauri::App) -> Result<(), String> {
         .arg("-p")
         .arg(port.to_string())
         // Relative project paths in the browser resolve against this
-        // directory (lib/directory-browser.ts reads OMP_WEB_LAUNCH_CWD).
+        // directory (lib/directory-browser.ts reads OMP_FROND_LAUNCH_CWD).
         .env(
-            "OMP_WEB_LAUNCH_CWD",
+            "OMP_FROND_LAUNCH_CWD",
             app.path().home_dir().map_err(|error| error.to_string())?,
         )
         .stdout(Stdio::piped())

@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveWebAuthPolicy, verifyWebPassword, type WebAuthStoreOptions } from "../bin/web-auth-store.js";
 
-export const WEB_SESSION_COOKIE = "omp-web-session";
+export const WEB_SESSION_COOKIE = "omp-frond-session";
 export const WEB_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 export type WebAuthDecision = "allow" | "unauthorized" | "unavailable";
 
@@ -61,7 +61,7 @@ export function webSessionCookieOptions(request: Request) {
   return {
     httpOnly: true,
     sameSite: "strict" as const,
-    secure: process.env.OMP_WEB_SECURE_COOKIES === "1" || Boolean(process.env.OMP_WEB_TLS_CERT) || new URL(request.url).protocol === "https:",
+    secure: process.env.OMP_FROND_SECURE_COOKIES === "1" || Boolean(process.env.OMP_FROND_TLS_CERT) || new URL(request.url).protocol === "https:",
     path: "/",
     maxAge: WEB_SESSION_TTL_SECONDS,
   };

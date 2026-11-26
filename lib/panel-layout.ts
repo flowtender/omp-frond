@@ -3,7 +3,7 @@ export const SPLIT_PANEL_MIN_WIDTH = 960;
 
 export const SIDEBAR_DEFAULT_WIDTH = 260;
 // 190, not upstream's 180: the brand shows the SDK's two-digit major
-// (`omp-web/SDK` versions, e.g. `0.6.0/18.10.4`) and needs the headroom to
+// (`omp-frond/SDK` versions, e.g. `0.6.0/18.10.4`) and needs the headroom to
 // keep its never-cut guarantee at the minimum width (see PiWebTitle test).
 export const SIDEBAR_MIN_WIDTH = 190;
 export const SIDEBAR_MAX_WIDTH = 480;

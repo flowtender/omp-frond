@@ -122,7 +122,7 @@ async function resolveGitTreeHash(install: SkillInstallInfo): Promise<string> {
   const repository = `https://github.com/${install.source}.git`;
   const ref = install.ref || "HEAD";
   const folder = skillFolder(install.skillPath!);
-  const gitDir = await mkdtemp(join(tmpdir(), "omp-web-skill-check-"));
+  const gitDir = await mkdtemp(join(tmpdir(), "omp-frond-skill-check-"));
 
   try {
     const options = { timeout: GIT_CHECK_TIMEOUT_MS, env: projectGitEnvironment() };

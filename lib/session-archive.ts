@@ -5,7 +5,7 @@ import { getAgentDir } from "@/lib/session-reader";
 // Frontend-only session archive: a flat registry of session ids kept outside
 // the session files themselves. Archiving never moves or edits a session, so
 // the omp CLI and --resume are unaffected; restoring is a flag flip.
-const REGISTRY_FILE = "omp-web-archived.json";
+const REGISTRY_FILE = "omp-frond-archived.json";
 
 export function readArchivedIds(): Set<string> {
   try {

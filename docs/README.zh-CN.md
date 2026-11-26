@@ -1,14 +1,14 @@
-# omp-web
+# omp-frond
 
 [English](../README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
-[oh-my-pi（omp）](https://github.com/can1357/oh-my-pi) 编码智能体的浏览器界面。omp-web 读取 `omp` CLI 已经写入的会话，在浏览器中提供会话浏览、实时对话、模型角色、Provider 配置、技能管理和项目文件预览。
+[oh-my-pi（omp）](https://github.com/can1357/oh-my-pi) 编码智能体的浏览器界面。omp-frond 读取 `omp` CLI 已经写入的会话，在浏览器中提供会话浏览、实时对话、模型角色、Provider 配置、技能管理和项目文件预览。
 
 本仓库 `flowtender/omp-frond` 是 omp-web 的 fork，界面源自 [pi-web](https://github.com/agegr/pi-web)（作者 [@agegr](https://github.com/agegr)），并包含 [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) 与 [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) 的 OMP 适配。OMP SDK（[can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)）以精确版本号作为依赖锁定。分支结构和更新流程见英文文档 [docs/upstream-maintenance.md](./upstream-maintenance.md)。
 
 ## 快速开始
 
-omp-web 的 API 运行在 **Bun** 上，因为 omp SDK 以 TypeScript 源码发布，并导入 `bun:` 内置模块。环境要求：**Bun 1.4.4 或更高版本**，以及 **Node.js 22.19.0 或更高版本**（见 `package.json` 的 `engines`；安装时的 `postinstall` 步骤使用 Node 运行）。
+omp-frond 的 API 运行在 **Bun** 上，因为 omp SDK 以 TypeScript 源码发布，并导入 `bun:` 内置模块。环境要求：**Bun 1.4.4 或更高版本**，以及 **Node.js 22.19.0 或更高版本**（见 `package.json` 的 `engines`；安装时的 `postinstall` 步骤使用 Node 运行）。
 
 ### 从源码运行（本分支）
 
@@ -38,9 +38,9 @@ bun add -g omp-web    # 或：npm install -g omp-web
 omp-web
 ```
 
-服务就绪后，CLI 会尝试自动打开浏览器；否则访问 [http://127.0.0.1:30141](http://127.0.0.1:30141)。CLI 默认只监听 `127.0.0.1`。如果尚未配置模型 Provider，请打开 **Models** 面板登录或添加 API Key。`omp-web` 入口本身在 Node 或 Bun 下运行，并会找到 Bun 后在其中重新执行服务，可通过 `OMP_WEB_BUN=/path/to/bun` 指定 Bun 路径。
+服务就绪后，CLI 会尝试自动打开浏览器；否则访问 [http://127.0.0.1:30141](http://127.0.0.1:30141)。CLI 默认只监听 `127.0.0.1`。如果尚未配置模型 Provider，请打开 **Models** 面板登录或添加 API Key。`omp-frond` 入口本身在 Node 或 Bun 下运行，并会找到 Bun 后在其中重新执行服务，可通过 `OMP_FROND_BUN=/path/to/bun` 指定 Bun 路径。
 
-Windows 上如果 `bunx` 在启动前因 `EPERM: Operation not permitted (NtSetInformationFile())` 失败，问题出在 Bun 的 Windows 缓存重命名环节，而不是 omp-web。可以升级 Bun 后清空缓存重试。
+Windows 上如果 `bunx` 在启动前因 `EPERM: Operation not permitted (NtSetInformationFile())` 失败，问题出在 Bun 的 Windows 缓存重命名环节，而不是 omp-frond。可以升级 Bun 后清空缓存重试。
 
 ## 常用选项
 
@@ -57,23 +57,23 @@ omp-frond --reset-password         # 忘记密码时设置新密码
 | 参数或环境变量 | 用途 | 默认值 |
 | --- | --- | --- |
 | `--port <端口>`、`-p`，或 `PORT` | 服务端口 | `30141` |
-| `--hostname <主机>`、`-H`，或 `OMP_WEB_HOSTNAME` | 监听地址 | `127.0.0.1` |
-| `--no-open`，或 `OMP_WEB_NO_OPEN=1` | 不自动打开浏览器 | 自动打开 |
-| `--authenticated`，或 `OMP_WEB_AUTHENTICATED=1` | 启用密码锁 | 关闭 |
-| `OMP_WEB_PASSWORD` | 覆盖已保存的密码 | 未设置 |
-| `OMP_WEB_ALLOWED_HOSTS` | 额外允许的精确主机名（反向代理使用），多个值用逗号分隔 | 未设置 |
+| `--hostname <主机>`、`-H`，或 `OMP_FROND_HOSTNAME` | 监听地址 | `127.0.0.1` |
+| `--no-open`，或 `OMP_FROND_NO_OPEN=1` | 不自动打开浏览器 | 自动打开 |
+| `--authenticated`，或 `OMP_FROND_AUTHENTICATED=1` | 启用密码锁 | 关闭 |
+| `OMP_FROND_PASSWORD` | 覆盖已保存的密码 | 未设置 |
+| `OMP_FROND_ALLOWED_HOSTS` | 额外允许的精确主机名（反向代理使用），多个值用逗号分隔 | 未设置 |
 
 HTTPS 使用 `--tls-cert cert.pem --tls-key key.pem`。详见 [HTTPS](./https.md)。
 
 ## 密码与访问
 
-在 **Settings → Access** 中设置密码并开关密码锁；也可以使用 `--authenticated`，或设置 `OMP_WEB_PASSWORD`。密码以 `scrypt` 哈希保存在 `~/.omp/agent/omp-web-auth.json`（权限 `0600`）中。忘记密码时，在服务器上运行 `omp-frond --reset-password`，或打开 `/recover` 并输入服务器控制台打印的一次性验证码。
+在 **Settings → Access** 中设置密码并开关密码锁；也可以使用 `--authenticated`，或设置 `OMP_FROND_PASSWORD`。密码以 `scrypt` 哈希保存在 `~/.omp/agent/omp-frond-auth.json`（权限 `0600`）中。忘记密码时，在服务器上运行 `omp-frond --reset-password`，或打开 `/recover` 并输入服务器控制台打印的一次性验证码。
 
-omp-web 可以调用高权限的智能体，请用 [原生 HTTPS](./https.md)、可信的 HTTPS 反向代理或可信 VPN 保护登录密码和会话 Cookie。完整的威胁模型见 [authentication.md](./authentication.md)。
+omp-frond 可以调用高权限的智能体，请用 [原生 HTTPS](./https.md)、可信的 HTTPS 反向代理或可信 VPN 保护登录密码和会话 Cookie。完整的威胁模型见 [authentication.md](./authentication.md)。
 
 ## 模型角色
 
-omp 为不同工作范围配置不同的模型。omp-web 展示的角色与 TUI 中 `/model` 选择器和 `Ctrl+P` 循环使用的角色相同，包括 `default`、`smol`、`slow`、`plan`、`commit`、`task`、`advisor`、`vision`、`designer` 和 `tiny`。
+omp 为不同工作范围配置不同的模型。omp-frond 展示的角色与 TUI 中 `/model` 选择器和 `Ctrl+P` 循环使用的角色相同，包括 `default`、`smol`、`slow`、`plan`、`commit`、`task`、`advisor`、`vision`、`designer` 和 `tiny`。
 
 角色分配写入 `~/.omp/agent/config.yml` 中的 `modelRoles`（选择 **This project** 时写入 `.omp/config.yml`）。在浏览器中做出的分配，也是下一次终端会话启动时读取的配置。
 

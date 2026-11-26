@@ -3,7 +3,7 @@
  * The browser renders SVG itself, so nothing here rasterizes.
  *
  * omp 19.2 has no exported loader for this: its form's own (`ui/forms/html-form/media.ts`)
- * registers pi-tui blobs and rasterizes SVG for the terminal. What omp-web adds is
+ * registers pi-tui blobs and rasterizes SVG for the terminal. What omp-frond adds is
  * what the SDK lacks: the size cap and the fetch timeout.
  */
 import { resolveReadPath } from "@oh-my-pi/pi-coding-agent/tools/path-utils";

@@ -13,7 +13,7 @@ import { withTranscriptNotices, type TranscriptNotice } from "./transcript-notic
 // persisted, so every history read and every live reply derives it again.
 // It is computed whatever the setting says; the chat hides it while it is off.
 
-const LIVE_ENTRY_ID = "omp-web:live-assistant";
+const LIVE_ENTRY_ID = "omp-frond:live-assistant";
 
 type AssistantMessage = Extract<OmpSessionEntry, { type: "message" }>["message"] & { role: "assistant"; usage: Usage };
 

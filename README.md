@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/hero.png" alt="omp-web — Browser workspace for omp" width="100%">
+  <img src="./docs/hero.png" alt="omp-frond — Browser workspace for omp" width="100%">
 </p>
 
   <a href="https://github.com/flowtender/omp-frond/blob/main/LICENSE"><img src="https://img.shields.io/github/license/flowtender/omp-frond?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
@@ -12,9 +12,9 @@
 </p>
 
 
-The web view for [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi). omp-web reads the sessions the `omp` CLI already writes and gives you a browser workspace for session browsing, real-time chat, model roles, provider configuration, skill management, and project file preview.
+The web view for [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi). omp-frond reads the sessions the `omp` CLI already writes and gives you a browser workspace for session browsing, real-time chat, model roles, provider configuration, skill management, and project file preview.
 
-It is not a separate agent: omp-web runs omp's own SDK in-process, against the same `~/.omp/agent` directory, so a session started in the terminal continues in the browser and back again.
+It is not a separate agent: omp-frond runs omp's own SDK in-process, against the same `~/.omp/agent` directory, so a session started in the terminal continues in the browser and back again.
 
 This fork, `flowtender/omp-frond`, tracks two UI upstreams: [agegr/pi-web](https://github.com/agegr/pi-web) (the original UI) and [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) (an OMP fork with a newer pi-web integration). It also builds on the OMP adaptation in [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web), which is archived and no longer tracked. The OMP SDK ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) is an exact pinned package dependency, not a branch to merge. Branch roles and update workflows are documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
 
@@ -25,7 +25,7 @@ Expand a task or subagent tool call to see its result cards, with status, durati
 
 ## Quick Start
 
-omp-web serves its API on **Bun**, because the omp SDK is published as TypeScript sources and imports `bun:` builtins. Requirements: **Bun 1.4.4 or newer** and **Node.js 22.19.0 or newer** (see `engines` in `package.json`; the install-time `postinstall` step runs under Node).
+omp-frond serves its API on **Bun**, because the omp SDK is published as TypeScript sources and imports `bun:` builtins. Requirements: **Bun 1.4.4 or newer** and **Node.js 22.19.0 or newer** (see `engines` in `package.json`; the install-time `postinstall` step runs under Node).
 
 ### From source (this fork)
 
@@ -90,20 +90,20 @@ omp-frond --reset-password         # set a new password when the old one is lost
 omp-frond --tls-cert cert.pem --tls-key key.pem --authenticated  # native HTTPS
 
 PORT=8080 omp-frond               # environment variable is also supported
-OMP_WEB_HOSTNAME=0.0.0.0 omp-frond  # explicit network exposure
-OMP_WEB_ALLOWED_HOSTS=omp.internal omp-frond  # allow an exact proxy/custom hostname
-OMP_WEB_AUTHENTICATED=1 omp-frond # same as --authenticated
-OMP_WEB_PASSWORD='a-long-random-password' omp-frond  # override the stored password
-OMP_WEB_NO_OPEN=1 omp-frond       # useful when running as a background service
+OMP_FROND_HOSTNAME=0.0.0.0 omp-frond  # explicit network exposure
+OMP_FROND_ALLOWED_HOSTS=omp.internal omp-frond  # allow an exact proxy/custom hostname
+OMP_FROND_AUTHENTICATED=1 omp-frond # same as --authenticated
+OMP_FROND_PASSWORD='a-long-random-password' omp-frond  # override the stored password
+OMP_FROND_NO_OPEN=1 omp-frond       # useful when running as a background service
 ```
 
 ## Docker
 
-A `Dockerfile` builds omp-web from source and runs it under Bun in the
+A `Dockerfile` builds omp-frond from source and runs it under Bun in the
 container. It still needs the omp home the CLI writes, so mount it:
 
 ```bash
-OMP_WEB_PASSWORD='a-long-random-password' \
+OMP_FROND_PASSWORD='a-long-random-password' \
 OMP_UID=$(id -u) OMP_GID=$(id -g) docker compose up --build
 ```
 
@@ -117,20 +117,20 @@ A password locks the web interface and every API endpoint behind a sign-in page 
 
 - **Settings → Access** in the browser, to set the password and switch the lock on or off.
 - **`omp-frond --authenticated`**, which turns it on for this run and every later one, and asks for a password on the terminal if none has been set yet.
-- **`OMP_WEB_PASSWORD`**, which overrides the stored credential for as long as it is set.
+- **`OMP_FROND_PASSWORD`**, which overrides the stored credential for as long as it is set.
 
-The password is stored as a `scrypt` hash in `~/.omp/agent/omp-web-auth.json` (mode `0600`) — never in plaintext, and never recoverable from the file. Forgotten it? Run `omp-frond --reset-password` on the server, or open `/recover` and enter the one-time code omp-frond prints on its own console.
+The password is stored as a `scrypt` hash in `~/.omp/agent/omp-frond-auth.json` (mode `0600`) — never in plaintext, and never recoverable from the file. Forgotten it? Run `omp-frond --reset-password` on the server, or open `/recover` and enter the one-time code omp-frond prints on its own console.
 
 Sign in at `/login`; the device stays signed in for 30 days using an HttpOnly session cookie. **Settings → Access → Sign out of this device** revokes that session. Changing or recovering the password invalidates existing sessions.
 
-omp-web can invoke a high-privilege agent. Protect the login password and session cookie with [native HTTPS](./docs/https.md), a trusted HTTPS reverse proxy, or a trusted VPN. For an HTTPS reverse proxy, set `OMP_WEB_SECURE_COOKIES=1` on omp-web. Plain HTTP remains supported for loopback and trusted networks.
-API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `OMP_WEB_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
+omp-frond can invoke a high-privilege agent. Protect the login password and session cookie with [native HTTPS](./docs/https.md), a trusted HTTPS reverse proxy, or a trusted VPN. For an HTTPS reverse proxy, set `OMP_FROND_SECURE_COOKIES=1` on omp-frond. Plain HTTP remains supported for loopback and trusted networks.
+API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `OMP_FROND_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
 
 Full details, including the recovery threat model: [docs/authentication.md](./docs/authentication.md).
 
 ## Model roles
 
-omp does not have "the" model — it has a model per **scope of work**, and omp-web exposes the same roles the TUI's `/model` selector and `Ctrl+P` cycle use:
+omp does not have "the" model — it has a model per **scope of work**, and omp-frond exposes the same roles the TUI's `/model` selector and `Ctrl+P` cycle use:
 
 | Role | What it runs |
 | --- | --- |
@@ -148,13 +148,13 @@ Two places surface them:
 - **The model picker in the chat bar** lists the configured roles above the flat model list. Picking one switches the session onto that role's model *and records the role*, exactly like `/model` does, so the transcript and omp's retry fallbacks agree on which role is driving.
 - **Models → Model roles** assigns a model to each role. Writes go to `modelRoles` in `~/.omp/agent/config.yml` (or `.omp/config.yml` when you pick **This project**), which is the same record the CLI reads — an assignment made in the browser is what your next terminal session starts with.
 
-Session titles follow the same routing: omp-web asks omp to name a session, and omp resolves that through the `tiny` → `commit` → `smol` chain rather than the session's primary model.
+Session titles follow the same routing: omp-frond asks omp to name a session, and omp resolves that through the `tiny` → `commit` → `smol` chain rather than the session's primary model.
 
 The reasoning selector supports **Auto**, which lets omp select effort for each turn. The selector keeps Auto selected across reloads and shows the resolved effort separately, for example `auto (high)`. Selecting Auto explicitly also carries that preference into a new session.
 
 ## HTTP Proxy
 
-omp-web reads the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables for server-side model and API requests. Bun reads them once at process start, so set them before launching:
+omp-frond reads the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables for server-side model and API requests. Bun reads them once at process start, so set them before launching:
 
 On macOS or Linux:
 
@@ -202,23 +202,23 @@ Requests to loopback addresses are never proxied, so a local provider (Ollama, L
 
 ![Chat pane next to a rendered Markdown file preview](./docs/screenshots/03-file-preview.png)
 
-**Model roles, configured once, used everywhere** — assign a model per role (`default`, `smol`, `plan`, `commit`, …); both omp-web and the omp CLI read the same `config.yml` (`modelRoles`).
+**Model roles, configured once, used everywhere** — assign a model per role (`default`, `smol`, `plan`, `commit`, …); both omp-frond and the omp CLI read the same `config.yml` (`modelRoles`).
 
 ![Settings panel showing model role assignments](./docs/screenshots/04-settings.png)
 
-**Full omp theme support** — omp-web reads omp's own dark/light palette mappings from `~/.omp/agent/config.yml` and applies them live, so the web view matches the terminal.
+**Full omp theme support** — omp-frond reads omp's own dark/light palette mappings from `~/.omp/agent/config.yml` and applies them live, so the web view matches the terminal.
 
 ![Theme settings showing omp's dark and light palette mapping](./docs/screenshots/05-themes.png)
 
 ## Notes
 
-- **Data directory**: omp-web reads `~/.omp/agent/sessions` by default. Set `PI_CODING_AGENT_DIR` to point at another omp agent directory (omp kept the variable name).
+- **Data directory**: omp-frond reads `~/.omp/agent/sessions` by default. Set `PI_CODING_AGENT_DIR` to point at another omp agent directory (omp kept the variable name).
 - **Session files**: files are stored as `~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
 - **Provider config**: the Models panel reads and writes `models.yml` in the omp agent directory. Credentials live in omp's `agent.db`, shared with the CLI. A header value that names an environment variable (bare name, no `$`) is substituted at request time.
 - **Custom system prompts**: `SYSTEM.md` and `APPEND_SYSTEM.md` are picked up for browser sessions exactly as `omp` picks them up in a terminal — the project's `.omp/` (or `.claude/`, `.codex/`, `.gemini/`) first, then `~/.omp/agent/` — resolved against the session's own working directory.
-- **Project trust**: opening a repository in a browser tab must not run its code, so omp-web gates a project's `.omp/extensions`, `.omp/hooks`, `.omp/tools` and `.mcp.json` behind an explicit trust decision. Skills and rules are data and load either way. See [Project trust](./docs/project-trust.md).
+- **Project trust**: opening a repository in a browser tab must not run its code, so omp-frond gates a project's `.omp/extensions`, `.omp/hooks`, `.omp/tools` and `.mcp.json` behind an explicit trust decision. Skills and rules are data and load either way. See [Project trust](./docs/project-trust.md).
 - **File access**: file browsing and preview are scoped to the selected project directory and working directories that appear in sessions.
-- **Git worktrees**: see [Worktrees in omp-web](./docs/worktrees.md) for when the switcher appears, how new worktrees are created, and what removal does.
+- **Git worktrees**: see [Worktrees in omp-frond](./docs/worktrees.md) for when the switcher appears, how new worktrees are created, and what removal does.
 - **Forks vs in-session branches**: Fork creates a new `.jsonl` file. "Edit from here" puts the selected message in the composer without moving the branch. Send the edit to branch from that turn in the same session. To switch back, expand **Branches** on the open session's sidebar row.
 - **Skills**: the skill installer shells out to `npx skills add --agent claude-code`, which writes the `.claude/skills` layout omp discovers by default.
 - **Internationalization**: see [Internationalization](./docs/i18n.md) for using translations and adding languages or UI text.
@@ -243,7 +243,7 @@ window.addEventListener("pi-web:session-row-contextmenu", (event) => {
 
 The detail object contains `id`, `path`, `cwd`, optional `name`, pointer
 coordinates, and a `refresh()` callback for actions that change the session
-list. If no listener cancels the extension event, Pi Web preserves the
+list. If no listener cancels the extension event, omp-frond preserves the
 browser's native context menu. This hook is browser-side and independent of
 Pi agent extensions.
 
@@ -290,7 +290,7 @@ bun run lint
 bun run test
 ```
 
-For a local production preview, set `OMP_WEB_DIST_DIR=.next-production` in
+For a local production preview, set `OMP_FROND_DIST_DIR=.next-production` in
 `.env.production.local`, then run `bun run build && bun run start`. Stop the
 previous preview before rebuilding, and keep `.next-production/` between
 builds so webpack can reuse its cache. Development still uses `.next/dev`.
@@ -317,7 +317,7 @@ bun scripts/build-updater-json.mjs <tag>  # (re)generates latest.json for a rele
 ```
 
 `desktop:build` stages the server payload into `src-tauri/server/` (gitignored):
-a production `next` build via `OMP_WEB_DIST_DIR` (the dev `.next/` is never
+a production `next` build via `OMP_FROND_DIST_DIR` (the dev `.next/` is never
 touched), production-only dependencies, and the Bun runtime(s) for the host
 platform. The CI stage step passes `--universal`, which also bundles both
 macOS architectures' native runtimes (SWC + pi-natives) for the universal
@@ -335,7 +335,7 @@ Ed25519 signatures, and generates the updater manifest (`latest.json`). The
 updater fetches
 `https://github.com/flowtender/omp-frond/releases/latest/download/latest.json`.
 To enable that, configure two repository secrets — `TAURI_SIGNING_PRIVATE_KEY`
-(contents of `~/.omp/omp-web/omp-desktop-signing.key`, generated by
+(contents of `~/.omp/omp-frond/omp-desktop-signing.key`, generated by
 `bun run desktop:signer generate`) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 macOS builds are unsigned: the first launch needs right-click → Open (Gatekeeper),
 subsequent auto-updates are written by the app itself.

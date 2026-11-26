@@ -26,11 +26,11 @@ failures remain visible in the PR and linked workflow logs. Existing open
 update PRs are left untouched so source adaptations are preserved.
 
 Passing checks do not establish runtime compatibility. Review breaking changes,
-adapt omp-web, exercise affected runtime paths, and mark the draft ready only
+adapt omp-frond, exercise affected runtime paths, and mark the draft ready only
 after verification. If the release is not yet available on npm, the next daily
 run checks again.
 
-The updater does not bump omp-web's version, tag, create a release, publish npm
+The updater does not bump omp-frond's version, tag, create a release, publish npm
 packages, or merge anything. Publishing remains a separate deliberate action
 using the release procedures below. See [upstream maintenance](upstream-maintenance.md#github-automation-first-time-setup)
 for initial GitHub setup and upstream review tracking.

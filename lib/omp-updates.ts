@@ -8,13 +8,13 @@ import type {
   OmpWebUpdateResponse,
 } from "@/lib/api-types";
 
-const OMP_WEB_GITHUB_REPOSITORY = "flowtender/omp-frond";
-const OMP_WEB_GITHUB_URL = `https://github.com/${OMP_WEB_GITHUB_REPOSITORY}`;
+const OMP_FROND_GITHUB_REPOSITORY = "flowtender/omp-frond";
+const OMP_FROND_GITHUB_URL = `https://github.com/${OMP_FROND_GITHUB_REPOSITORY}`;
 
-export const OMP_WEB_GITHUB_RELEASE_API_URL = `https://api.github.com/repos/${OMP_WEB_GITHUB_REPOSITORY}/releases/latest`;
-const OMP_WEB_NPM_PACKAGE = "omp-frond";
+export const OMP_FROND_GITHUB_RELEASE_API_URL = `https://api.github.com/repos/${OMP_FROND_GITHUB_REPOSITORY}/releases/latest`;
+const OMP_FROND_NPM_PACKAGE = "omp-frond";
 
-export const OMP_WEB_NPM_LATEST_URL = `https://registry.npmjs.org/${OMP_WEB_NPM_PACKAGE}/latest`;
+export const OMP_FROND_NPM_LATEST_URL = `https://registry.npmjs.org/${OMP_FROND_NPM_PACKAGE}/latest`;
 
 const RELEASE_CACHE_SECONDS = 60 * 60;
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -126,9 +126,9 @@ function releaseFromPayload(payload: GitHubReleasePayload): OmpWebReleaseInfo {
   const tagName = typeof payload.tag_name === "string" && payload.tag_name.trim()
     ? payload.tag_name.trim()
     : `v${version}`;
-  const htmlUrl = typeof payload.html_url === "string" && payload.html_url.startsWith(`${OMP_WEB_GITHUB_URL}/`)
+  const htmlUrl = typeof payload.html_url === "string" && payload.html_url.startsWith(`${OMP_FROND_GITHUB_URL}/`)
     ? payload.html_url
-    : `${OMP_WEB_GITHUB_URL}/releases/tag/${encodeURIComponent(tagName)}`;
+    : `${OMP_FROND_GITHUB_URL}/releases/tag/${encodeURIComponent(tagName)}`;
   const body = typeof payload.body === "string" ? payload.body.slice(0, MAX_CHANGELOG_LENGTH) : "";
 
   return {
@@ -148,7 +148,7 @@ function releaseFromPackage(version: string): OmpWebReleaseInfo {
     tagName,
     name: tagName,
     body: "",
-    htmlUrl: `${OMP_WEB_GITHUB_URL}/releases/tag/${encodeURIComponent(tagName)}`,
+    htmlUrl: `${OMP_FROND_GITHUB_URL}/releases/tag/${encodeURIComponent(tagName)}`,
     publishedAt: null,
   };
 }
@@ -180,8 +180,8 @@ async function fetchJson(url: string, fetcher: Fetcher): Promise<unknown> {
 }
 
 function selectManager(env: NodeJS.ProcessEnv, runtime: "bun" | "node"): UpdateManager {
-  if (env.OMP_WEB_UPDATE_MANAGER === "npm") return "npm";
-  if (env.OMP_WEB_UPDATE_MANAGER === "bun") return "bun";
+  if (env.OMP_FROND_UPDATE_MANAGER === "npm") return "npm";
+  if (env.OMP_FROND_UPDATE_MANAGER === "bun") return "bun";
   if (env.npm_config_user_agent?.toLowerCase().includes("npm")) return "npm";
   return runtime === "node" ? "npm" : "bun";
 }
@@ -189,12 +189,12 @@ function selectManager(env: NodeJS.ProcessEnv, runtime: "bun" | "node"): UpdateM
 function commandForManager(manager: UpdateManager): { executable: string; args: string[]; command: string } {
   if (manager === "npm") {
     const executable = process.platform === "win32" ? "npm.cmd" : "npm";
-    const args = ["install", "--global", `${OMP_WEB_NPM_PACKAGE}@latest`, "--no-audit", "--no-fund"];
-    return { executable, args, command: `npm install --global ${OMP_WEB_NPM_PACKAGE}@latest` };
+    const args = ["install", "--global", `${OMP_FROND_NPM_PACKAGE}@latest`, "--no-audit", "--no-fund"];
+    return { executable, args, command: `npm install --global ${OMP_FROND_NPM_PACKAGE}@latest` };
   }
   const executable = process.platform === "win32" ? "bun.exe" : "bun";
-  const args = ["add", "--global", `${OMP_WEB_NPM_PACKAGE}@latest`];
-  return { executable, args, command: `bun add --global ${OMP_WEB_NPM_PACKAGE}@latest` };
+  const args = ["add", "--global", `${OMP_FROND_NPM_PACKAGE}@latest`];
+  return { executable, args, command: `bun add --global ${OMP_FROND_NPM_PACKAGE}@latest` };
 }
 
 export function buildInstallPlan({
@@ -215,10 +215,10 @@ export function buildInstallPlan({
     latestPackage
     && isNewerVersion(latestPackage.version, currentAppVersion),
   );
-  const canInstall = updateAvailable && env.OMP_WEB_DISABLE_SELF_UPDATE !== "1";
+  const canInstall = updateAvailable && env.OMP_FROND_DISABLE_SELF_UPDATE !== "1";
 
   let reason: OmpWebInstallPlan["reason"];
-  if (env.OMP_WEB_DISABLE_SELF_UPDATE === "1") reason = "disabled";
+  if (env.OMP_FROND_DISABLE_SELF_UPDATE === "1") reason = "disabled";
   else if (!latestPackage) reason = "latest-package-unavailable";
   else if (!currentAppVersion) reason = "current-version-unknown";
 
@@ -237,13 +237,13 @@ export async function getOmpWebUpdateStatus(options: UpdateStatusOptions = {}): 
   const fetcher = options.fetcher ?? fetch;
   const currentAppVersion = canonicalVersion(options.currentAppVersion ?? process.env.NEXT_PUBLIC_APP_VERSION) ?? "unknown";
 
-  const packagePayload = await fetchJson(OMP_WEB_NPM_LATEST_URL, fetcher) as NpmPackagePayload;
+  const packagePayload = await fetchJson(OMP_FROND_NPM_LATEST_URL, fetcher) as NpmPackagePayload;
   const latestPackage = publishedPackageFromPayload(packagePayload);
   if (!latestPackage) throw new Error("The npm registry did not return a valid omp-frond version");
 
   let latestRelease = releaseFromPackage(latestPackage.version);
   try {
-    const releasePayload = await fetchJson(OMP_WEB_GITHUB_RELEASE_API_URL, fetcher) as GitHubReleasePayload;
+    const releasePayload = await fetchJson(OMP_FROND_GITHUB_RELEASE_API_URL, fetcher) as GitHubReleasePayload;
     const candidate = releaseFromPayload(releasePayload);
     if (compareVersions(candidate.version, latestPackage.version) === 0) latestRelease = candidate;
   } catch {

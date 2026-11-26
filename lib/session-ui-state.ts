@@ -39,7 +39,7 @@ const LOCK_OPTIONS = {
   stale: 10_000,
   retries: { retries: 10, factor: 2, minTimeout: 25, maxTimeout: 500 },
   onCompromised: (error: Error) => {
-    console.warn(`[pi-web] the session UI state lock was compromised: ${error.message}`);
+    console.warn(`[omp-frond] the session UI state lock was compromised: ${error.message}`);
   },
 };
 
@@ -138,7 +138,7 @@ function loadState(path: string): SessionUiState {
     state = parsed.state;
     noteRevision(path, state.revision);
   } else {
-    console.warn(`[pi-web] ${path} is not valid session UI state; reading it as empty until the next change sets it aside`);
+    console.warn(`[omp-frond] ${path} is not valid session UI state; reading it as empty until the next change sets it aside`);
     state = emptySessionUiState();
   }
   cache().reads.set(path, { mtimeMs: stats.mtimeMs, size: stats.size, ino: stats.ino, state });
@@ -150,7 +150,7 @@ export function readSessionUiState(path?: string): SessionUiState {
   try {
     return copyState(loadState(path ?? getSessionUiStatePath()));
   } catch (error) {
-    console.warn(`[pi-web] could not read the session UI state: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`[omp-frond] could not read the session UI state: ${error instanceof Error ? error.message : String(error)}`);
     return emptySessionUiState();
   }
 }
@@ -169,9 +169,9 @@ function backUpCorruptFile(path: string): void {
   const backup = `${path}.corrupt-${Date.now()}`;
   try {
     renameSync(path, backup);
-    console.warn(`[pi-web] ${path} could not be parsed; moved it to ${backup} and started from an empty session UI state`);
+    console.warn(`[omp-frond] ${path} could not be parsed; moved it to ${backup} and started from an empty session UI state`);
   } catch (error) {
-    console.warn(`[pi-web] ${path} could not be parsed and could not be moved aside (${error instanceof Error ? error.message : String(error)}); starting from an empty session UI state`);
+    console.warn(`[omp-frond] ${path} could not be parsed and could not be moved aside (${error instanceof Error ? error.message : String(error)}); starting from an empty session UI state`);
   }
 }
 

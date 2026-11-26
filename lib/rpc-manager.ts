@@ -116,7 +116,7 @@ type ActiveExtensionWidget = {
   rendered: boolean;
 };
 
-/** The subset of pi's extension command context pi-web projects for `bindExtensions` hosts. */
+/** The subset of pi's extension command context omp-frond projects for `bindExtensions` hosts. */
 type ExtensionCommandContextActionsLike = {
   waitForIdle: () => Promise<void>;
   newSession: () => Promise<{ cancelled: boolean }>;
@@ -126,7 +126,7 @@ type ExtensionCommandContextActionsLike = {
   reload: () => Promise<void>;
 };
 
-/** Host settings surface omp-web reads; SDK builds and test doubles vary, so every member is optional. */
+/** Host settings surface omp-frond reads; SDK builds and test doubles vary, so every member is optional. */
 type HostSettingsLike = {
   setProjectTrusted?: (trusted: boolean) => void;
   getShellPath?: () => string | undefined;
@@ -238,7 +238,7 @@ const CUSTOM_UI_KEYBINDINGS = KeybindingsManager.inMemory();
 const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
- * Resolves the PI_WEB_IDLE_TIMEOUT_MS environment variable into a session idle
+ * Resolves the OMP_FROND_IDLE_TIMEOUT_MS environment variable into a session idle
  * timeout in milliseconds. An unset/blank value returns the 10-minute default,
  * `0` disables idle shutdown, and positive values up to Node's timer limit
  * (2147483647 ms) are used as-is. Invalid or out-of-range values fall back to
@@ -246,12 +246,12 @@ const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
  * @param rawValue Value to parse; defaults to the environment variable.
  */
 export function resolveSessionIdleTimeoutMs(
-  rawValue: string | undefined = process.env.PI_WEB_IDLE_TIMEOUT_MS,
+  rawValue: string | undefined = process.env.OMP_FROND_IDLE_TIMEOUT_MS,
 ): number {
   if (rawValue !== undefined && rawValue.trim() !== "") {
     const parsed = Number(rawValue);
     if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 2_147_483_647) return parsed;
-    console.warn(`[pi-web] invalid PI_WEB_IDLE_TIMEOUT_MS "${rawValue}", falling back to 10 minutes`);
+    console.warn(`[omp-frond] invalid OMP_FROND_IDLE_TIMEOUT_MS "${rawValue}", falling back to 10 minutes`);
   }
   return DEFAULT_SESSION_IDLE_TIMEOUT_MS;
 }
@@ -261,7 +261,7 @@ const SESSION_IDLE_TIMEOUT_MS = resolveSessionIdleTimeoutMs();
 const DEFAULT_SESSION_SHUTDOWN_DEADLINE_MS = 5_000;
 
 /**
- * Resolves the PI_WEB_SHUTDOWN_DEADLINE_MS environment variable into the time
+ * Resolves the OMP_FROND_SHUTDOWN_DEADLINE_MS environment variable into the time
  * extensions get to handle `session_shutdown` before the wrapper disposes the
  * SDK session anyway. An unset/blank value returns the 5-second default, and
  * positive values up to Node's timer limit (2147483647 ms) are used as-is.
@@ -270,12 +270,12 @@ const DEFAULT_SESSION_SHUTDOWN_DEADLINE_MS = 5_000;
  * @param rawValue Value to parse; defaults to the environment variable.
  */
 export function resolveSessionShutdownDeadlineMs(
-  rawValue: string | undefined = process.env.PI_WEB_SHUTDOWN_DEADLINE_MS,
+  rawValue: string | undefined = process.env.OMP_FROND_SHUTDOWN_DEADLINE_MS,
 ): number {
   if (rawValue !== undefined && rawValue.trim() !== "") {
     const parsed = Number(rawValue);
     if (Number.isFinite(parsed) && parsed > 0 && parsed <= 2_147_483_647) return parsed;
-    console.warn(`[pi-web] invalid PI_WEB_SHUTDOWN_DEADLINE_MS "${rawValue}", falling back to 5 seconds`);
+    console.warn(`[omp-frond] invalid OMP_FROND_SHUTDOWN_DEADLINE_MS "${rawValue}", falling back to 5 seconds`);
   }
   return DEFAULT_SESSION_SHUTDOWN_DEADLINE_MS;
 }
@@ -316,7 +316,7 @@ function appendSlashCommand(
 /**
  * Browser-native builtins with no shared SDK handler; advertised with their
  * canonical registry metadata. `/goal` is a mode command omp implements as a
- * TUI-only handler, so it never reaches ACP discovery; omp-web drives the same
+ * TUI-only handler, so it never reaches ACP discovery; omp-frond drives the same
  * GoalRuntime itself (lib/goal-mode.ts) and advertises it here.
  */
 export const BROWSER_NATIVE_SLASH_COMMANDS = ["fork", "goal"] as const;
@@ -776,7 +776,7 @@ export class AgentSessionWrapper {
         });
       } else if (typeof this.inner.extensionRunner?.initialize === "function") {
         // omp wires extensions the same way for every non-interactive host; reuse
-        // its shared initializer so omp-web sessions expose exactly the action set
+        // its shared initializer so omp-frond sessions expose exactly the action set
         // `omp --mode rpc` does, then layer our browser-backed UI context on top.
         await initializeExtensions(this.inner as never, {
           uiContext: uiContext as never,
@@ -1152,7 +1152,7 @@ export class AgentSessionWrapper {
         return;
       }
       void this.shutdown().catch((error) => {
-        console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
+        console.error("[omp-frond] failed to shut down idle session:", error instanceof Error ? error.message : error);
       });
     }, timeoutMs);
   }
@@ -1293,7 +1293,7 @@ export class AgentSessionWrapper {
       if (imageError) throw new Error(imageError);
     }
 
-    // A session whose folder was deleted outside pi-web stays readable, but a
+    // A session whose folder was deleted outside omp-frond stays readable, but a
     // run there would reach the model only for its tools to fail (and `write`
     // to recreate the folder). The omp CLI does not resume such a session
     // either; refuse as /api/agent/new does. (A `!` command already refuses.)
@@ -1870,8 +1870,8 @@ export class AgentSessionWrapper {
           undefined,
           {
             excludeFromContext: command.excludeFromContext as boolean | undefined,
-            // Project trust is a pi-web browser concern; the SDK runs commands
-            // through a host-supplied sandbox, which omp-web implements as a
+            // Project trust is an omp-frond browser concern; the SDK runs commands
+            // through a host-supplied sandbox, which omp-frond implements as a
             // per-command PATH overlay in front of the agent-bin directory.
             operations: createProjectCommandBashOperations({
               shellPath: settingsManager?.getShellPath?.(),
@@ -1964,7 +1964,7 @@ export class AgentSessionWrapper {
     void this.emitSessionShutdown(emit)
       .catch((error) => {
         console.error(
-          "[pi-web] session_shutdown before dispose failed:",
+          "[omp-frond] session_shutdown before dispose failed:",
           error instanceof Error ? error.message : error,
         );
       })
@@ -1984,7 +1984,7 @@ export class AgentSessionWrapper {
           await this.waitForExtensionsBound();
         } catch (error) {
           console.error(
-            "[pi-web] extension binding failed before session shutdown:",
+            "[omp-frond] extension binding failed before session shutdown:",
             error instanceof Error ? error.message : error,
           );
         }
@@ -2025,7 +2025,7 @@ export class AgentSessionWrapper {
     try {
       if (await Promise.race([handled, deadline]) === "timeout") {
         console.warn(
-          `[pi-web] extensions did not finish session_shutdown for session ${this.sessionId} within ${SESSION_SHUTDOWN_DEADLINE_MS} ms; disposing it anyway`,
+          `[omp-frond] extensions did not finish session_shutdown for session ${this.sessionId} within ${SESSION_SHUTDOWN_DEADLINE_MS} ms; disposing it anyway`,
         );
       }
     } finally {
@@ -2760,7 +2760,7 @@ function closingRpcSessionWait(sessionId: string): Promise<void> | null {
     const entry = { done: false, promise: Promise.resolve() };
     entry.promise = closing.waitUntilDisposed(SESSION_SHUTDOWN_DEADLINE_MS + CLOSING_SESSION_WAIT_MARGIN_MS)
       .then((disposed) => {
-        if (!disposed) console.warn(`[pi-web] session ${sessionId} is still shutting down; starting it again anyway`);
+        if (!disposed) console.warn(`[omp-frond] session ${sessionId} is still shutting down; starting it again anyway`);
       })
       .finally(() => { entry.done = true; });
     closingSessionWaits.set(closing, entry);
@@ -3169,7 +3169,7 @@ export async function startRpcSession(
         // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
         // set allowedToolNames to coding builtins only, which filtered every
         // extension/package-provided tool (e.g. subagents, web access) out of the
-        // tool registry — so they were unavailable in omp-web sessions even though the
+        // tool registry — so they were unavailable in omp-frond sessions even though the
         // `omp` CLI keeps them. Leaving the allow-list unset lets the SDK register all
         // tools (and activate extension tools); we narrow the ACTIVE set below.
         toolsOption = selectedToolNames.length === 0 ? [] : undefined;
@@ -3238,7 +3238,7 @@ export async function startRpcSession(
 
       // If specific tool names were requested (non-empty), set the active tools to the
       // requested builtin coding tools PLUS all extension/package tools, so installed
-      // extensions stay usable in omp-web just like in the `omp` CLI.
+      // extensions stay usable in omp-frond just like in the `omp` CLI.
       if (selectedToolNames && selectedToolNames.length > 0) {
         await session.setActiveToolsByName(withExtensionTools(session, selectedToolNames));
       }

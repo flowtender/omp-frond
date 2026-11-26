@@ -1,4 +1,4 @@
-# omp-web - Development Notes
+# omp-frond - Development Notes
 
 ## Quick Start
 
@@ -12,24 +12,24 @@ Lint: `bun run lint`
 Tests: `bun run test`
 **Never run `bun run build` during dev** — pollutes `.next/` and breaks `bun run dev`.
 Exception: `bun run desktop:build` (via `scripts/stage-desktop.mjs`) is safe — it builds
-into `src-tauri/server/.next` through `OMP_WEB_DIST_DIR` and never touches the dev `.next/`.
+into `src-tauri/server/.next` through `OMP_FROND_DIST_DIR` and never touches the dev `.next/`.
 
 ### Checking the UI in a browser without the password lock
 
 The dev server on 30141 uses the real agent dir, so it is usually locked
-(`omp-web-auth.json`). For a visual check, run a second dev server on a throwaway
+(`omp-frond-auth.json`). For a visual check, run a second dev server on a throwaway
 agent dir; it starts unlocked and never touches the real config:
 
 ```bash
-AGENT_DIR=$(mktemp -d /tmp/omp-web-verify.XXXXXX)/agent && mkdir "$AGENT_DIR"
-NODE_ENV=development PI_CODING_AGENT_DIR="$AGENT_DIR" OMP_WEB_DIST_DIR=.next-verify \
+AGENT_DIR=$(mktemp -d /tmp/omp-frond-verify.XXXXXX)/agent && mkdir "$AGENT_DIR"
+NODE_ENV=development PI_CODING_AGENT_DIR="$AGENT_DIR" OMP_FROND_DIST_DIR=.next-verify \
   bun --bun next dev --webpack -H 127.0.0.1 -p 30142
 ```
 
 - `PI_CODING_AGENT_DIR` moves both omp's agent dir and the password store
   (`bin/web-auth-store.js`). The empty dir means default settings: no sessions,
   no providers, omp's default `theme.light`/`theme.dark`.
-- `OMP_WEB_DIST_DIR=.next-verify` keeps it off the main server's `.next/`. It is
+- `OMP_FROND_DIST_DIR=.next-verify` keeps it off the main server's `.next/`. It is
   gitignored, and its `tsconfig.json` includes are already present, so Next does not
   rewrite that file. Use this name: another one makes Next add new includes there.
 - `NODE_ENV=development` is required when the shell exports `NODE_ENV=production`:
@@ -164,7 +164,7 @@ lib/
   omp-types.ts         structural view of omp's AgentSession
   project-trust.ts     gates a project's executable resources
   project-settings-file.ts  writes a project's .omp/config.yml (omp writes only model roles there)
-  seen-models.ts       models already shown, for the "new" tags (omp-web-seen-models.json)
+  seen-models.ts       models already shown, for the "new" tags (omp-frond-seen-models.json)
   prompt-cache.ts      prompt-cache status: a live session's warmer, or inferred from a transcript
   prompt-cache-shared.ts  client-safe prompt-cache report, view-at-time and indicator settings
   cache-miss-markers.ts  omp's cache-miss marker per assistant entry (history routes + live message_end)
@@ -234,7 +234,7 @@ hooks/
 
 ### One runtime, many requests (`lib/omp-runtime.ts`)
 omp's CLI builds `Settings` + `AuthStorage` + `ModelRegistry` once per process.
-omp-web does the same and caches them on `globalThis`; a second `AuthStorage`
+omp-frond does the same and caches them on `globalThis`; a second `AuthStorage`
 would open a second SQLite handle on `~/.omp/agent/agent.db` and split
 `credential_disabled` events. Per-project settings come from
 `settings.cloneForCwd(cwd)`, never from a second `Settings.init()`.
@@ -301,7 +301,7 @@ The `enabledModels` setting uses omp's `--models` syntax: globs against
 `provider/modelId` or a bare `modelId`, fuzzy matching for non-glob patterns, and
 an optional `:thinkingLevel` suffix. Never compare those patterns as literal
 strings — `lib/model-scope.ts` delegates to the SDK's `resolveModelScope()` so
-omp-web and the TUI agree on the visible model list, and falls back to all
+omp-frond and the TUI agree on the visible model list, and falls back to all
 available models when patterns resolve to nothing. Diagnostics are produced by
 re-resolving each pattern alone, because omp's resolver drops unmatched patterns
 silently.
@@ -312,10 +312,10 @@ global `config.yml` through the shared `Settings`, a project value or a
 path-scoped global entry makes the switches read-only, and models first seen
 since the last look are tagged "new" until switched or prompted with.
 
-### Project trust is omp-web's own
+### Project trust is omp-frond's own
 omp has no trust store — it runs a repository's extensions because you ran it
 there. A browser tab is not that decision, so `lib/project-trust.ts` keeps a
-store in `~/.omp/agent/omp-web-trusted-projects.json` and, for an untrusted
+store in `~/.omp/agent/omp-frond-trusted-projects.json` and, for an untrusted
 project, filters project-local entries out of omp's discovered extension and
 custom-tool paths and disables MCP. Skills and rules are data and always load.
 See `docs/project-trust.md`.
@@ -390,13 +390,13 @@ Newer omp emits `compaction_start` / `compaction_end`; older versions emitted `a
 ### Plugins and skills
 - `/api/plugins` lists and toggles pi's package list: the `packages` key of `~/.omp/agent/settings.json` (global scope) and of the project's own `settings.json` (`.omp/`, falling back to a legacy `.pi/`). A package is disabled by emptying its four resource lists, and enabling restores the entry minus those lists, so `autoload` and hand-written filters survive a toggle (`lib/plugin-package-settings.ts` owns that storage; omp's own `Settings` has no package list).
 - `/api/plugins` install/remove/update still drive omp's `PluginManager` (`~/.omp/plugins`), which has no in-place update, so "update" reinstalls the spec with `force`. `canCheckForUpdates` comes from `lib/plugin-updates.ts`, and `npm:` sources resolve their install under `~/.omp/plugins/node_modules`.
-- Top-level modules under `~/.omp/agent/extensions` (and a trusted project's `.omp/extensions`) are reported as `standaloneExtensions`, `enabled` following omp's own `disabledExtensions` ids (`extension-module:<name>`) from `settings.json`/`config.yml`. Project-scope writes need an explicit trust decision even when the folder only ships a `settings.json`, which omp-web's session gate alone would wave through.
+- Top-level modules under `~/.omp/agent/extensions` (and a trusted project's `.omp/extensions`) are reported as `standaloneExtensions`, `enabled` following omp's own `disabledExtensions` ids (`extension-module:<name>`) from `settings.json`/`config.yml`. Project-scope writes need an explicit trust decision even when the folder only ships a `settings.json`, which omp-frond's session gate alone would wave through.
 - `/api/skills` uses omp's own `loadSkills()`, so `.omp/skills`, `~/.omp/agent/skills`, `.claude/skills`, plugin skills and `.agents/skills` are listed exactly as a session sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.
 - `/api/skills/install` shells through `npx skills add ... --agent claude-code`. The `skills` CLI has no `omp` agent, and its `pi` agent writes `~/.pi/agent/skills`, which omp does **not** read; the Claude layout is discovered by default.
 
 ### Auth and model config
-- Credentials live in omp's SQLite `agent.db` via `AuthStorage`, not in `auth.json`. Writes go through `authStorage.set()` / `remove()` / `logout()` so the CLI and omp-web share one store and one lock.
+- Credentials live in omp's SQLite `agent.db` via `AuthStorage`, not in `auth.json`. Writes go through `authStorage.set()` / `remove()` / `logout()` so the CLI and omp-frond share one store and one lock.
 - Provider listing is capability-driven: `lib/provider-listing-runtime.ts` folds the catalog (`@oh-my-pi/pi-catalog`), the OAuth registry (`@oh-my-pi/pi-ai/oauth`) and stored credential types into the flat shape `lib/provider-listing.ts` expects, so a dual-auth provider appears exactly once. An OAuth login whose `storeCredentialsAs` differs from its id is keyed by the id the catalog uses.
 - OAuth flows are streamed by `GET /api/auth/login/[provider]` through `authStorage.login()`; `onAuth`/`onPrompt`/`onManualCodeInput` become browser input requests with short-lived tokens stored in `globalThis.__ompLoginCallbacks`.
 - API-key status endpoints must never return the raw key.
@@ -411,7 +411,7 @@ npm `files` list, so `lib/` cannot hold it. `bin/web-auth-store.d.ts` is what th
 TypeScript half type-checks against — keep the two in sync.
 
 - The password is stored **only** as a scrypt digest in
-  `<agentDir>/omp-web-auth.json` (`0600`, atomic replace). Nothing can read it
+  `<agentDir>/omp-frond-auth.json` (`0600`, atomic replace). Nothing can read it
   back, which is why `/recover` and `--reset-password` exist.
 - `proxy.ts` runs on Next.js 16's Node.js runtime (proxy always does), so
   `node:fs` and `node:crypto` are available there. Do **not** import the omp SDK

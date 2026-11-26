@@ -7,7 +7,7 @@ import { writeFileAtomicSync } from "./atomic-file";
 /**
  * A project's own omp settings file, `<project>/.omp/config.yml`.
  *
- * omp's `Settings` writes only model roles to the project layer, so omp-web
+ * omp's `Settings` writes only model roles to the project layer, so omp-frond
  * edits this file itself for every other setting. It holds the lock omp's own
  * writer takes (`withFileLock` on the real path), writes the same YAML
  * (`stringifyYamlConfig`), and keeps the file's mode. A file that does not

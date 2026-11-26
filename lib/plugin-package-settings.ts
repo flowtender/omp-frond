@@ -6,7 +6,7 @@ import { getGlobalSettingsPath } from "./global-settings-file";
 import { parseNpmSource } from "./npm-source";
 
 /**
- * The `packages` list of a settings file: the one place omp-web reads and
+ * The `packages` list of a settings file: the one place omp-frond reads and
  * writes which plugin packages the user or a project has configured.
  *
  * pi's SDK owns that list behind a `SettingsManager`
@@ -14,7 +14,7 @@ import { parseNpmSource } from "./npm-source";
  * `app/api/plugins` route still speaks that shape. omp 18 has no package list
  * at all: its `Settings` knows `extensions` and `disabledExtensions` but
  * nothing about package sources, and it migrates `settings.json` into
- * `config.yml` on first start. So omp-web keeps pi-web's storage contract —
+ * `config.yml` on first start. So omp-frond keeps pi-web's storage contract —
  * the `packages` key of `<agentDir>/settings.json`, plus the project's own
  * settings file for the project scope — and changes it through the same locked
  * read-modify-write the other settings keys use, so an `omp` run and a panel
@@ -25,7 +25,7 @@ import { parseNpmSource } from "./npm-source";
 export type PluginPackageEntryObject = { source: string } & Record<string, unknown>;
 export type PluginPackageEntry = string | PluginPackageEntryObject;
 
-/** The legacy pi folder, which earlier omp-web releases wrote packages into. */
+/** The legacy pi folder, which earlier omp-frond releases wrote packages into. */
 const LEGACY_PROJECT_CONFIG_DIR = ".pi";
 
 /** A package as the update checker and the panel want it. */
@@ -156,7 +156,7 @@ export function listConfiguredPackages(
  * `disabledExtensions` ids, the setting omp's extension loader honors
  * (`extensibility/settings.ts`, matched as `extension-module:<name>` by
  * `extensibility/extensions/loader.ts`). Both storage locations are read: the
- * `settings.json` omp-web and older omp versions write, and the `config.yml`
+ * `settings.json` omp-frond and older omp versions write, and the `config.yml`
  * omp migrates that file into on first start.
  */
 export function readDisabledExtensionIds(settingsPaths: readonly string[]): Set<string> {

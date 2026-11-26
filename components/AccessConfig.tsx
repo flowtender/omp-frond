@@ -20,7 +20,7 @@ const MIN_PASSWORD_LENGTH = 8;
 
 function describeState(status: WebAccessStatus): string {
   if (status.managedByEnvironment) {
-    return "Every request needs the password from OMP_WEB_PASSWORD.";
+    return "Every request needs the password from OMP_FROND_PASSWORD.";
   }
   if (status.unreadable) {
     return "The credential file exists but could not be read, so every request is being refused.";
@@ -120,7 +120,7 @@ export function AccessConfig() {
         </p>
         {readOnly && (
           <div className={styles.readOnlyNotice}>
-            Read-only · <code>OMP_WEB_PASSWORD</code> is set and overrides the stored credential. Unset it and restart
+            Read-only · <code>OMP_FROND_PASSWORD</code> is set and overrides the stored credential. Unset it and restart
             omp-frond to manage the password here.
           </div>
         )}

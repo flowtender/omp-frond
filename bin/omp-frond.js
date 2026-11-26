@@ -122,7 +122,7 @@ function requireTerminal(flag) {
   if (isInteractive()) return;
   throw new Error([
     `${flag} has to ask for a password, but omp-frond is not attached to a terminal.`,
-    "Run omp-frond once interactively to set the password, or pass OMP_WEB_PASSWORD in the environment.",
+    "Run omp-frond once interactively to set the password, or pass OMP_FROND_PASSWORD in the environment.",
   ].join("\n"));
 }
 
@@ -146,7 +146,7 @@ async function configurePasswordAccess() {
   if (resetPassword) {
     if (status.managedByEnvironment) {
       console.warn(
-        "Warning: OMP_WEB_PASSWORD is set and takes precedence over the stored password. Unset it for this reset to have any effect.",
+        "Warning: OMP_FROND_PASSWORD is set and takes precedence over the stored password. Unset it for this reset to have any effect.",
       );
     }
     requireTerminal("--reset-password");
@@ -157,7 +157,7 @@ async function configurePasswordAccess() {
   if (!authenticated) return;
 
   if (status.managedByEnvironment) {
-    console.log("Password access is already required: OMP_WEB_PASSWORD is set.");
+    console.log("Password access is already required: OMP_FROND_PASSWORD is set.");
     return;
   }
   if (status.stored) {
@@ -205,11 +205,11 @@ async function startServer() {
   // The TLS pair is the signal the server reads for secure cookies. It is set
   // only when this run serves HTTPS, so an ambient value cannot claim HTTPS.
   const childEnv = { ...withLoopbackNoProxy(process.env) };
-  delete childEnv.OMP_WEB_TLS_CERT;
-  delete childEnv.OMP_WEB_TLS_KEY;
+  delete childEnv.OMP_FROND_TLS_CERT;
+  delete childEnv.OMP_FROND_TLS_KEY;
   if (tlsPaths) {
-    childEnv.OMP_WEB_TLS_CERT = tlsPaths.cert;
-    childEnv.OMP_WEB_TLS_KEY = tlsPaths.key;
+    childEnv.OMP_FROND_TLS_CERT = tlsPaths.cert;
+    childEnv.OMP_FROND_TLS_KEY = tlsPaths.key;
   }
 
   // `--bun` forces Bun's own runtime for next's CLI entry (it would otherwise
@@ -221,11 +221,11 @@ async function startServer() {
     stdio: ["inherit", "pipe", "inherit"],
     env: {
       ...childEnv,
-      OMP_WEB_HOSTNAME: hostname,
-      OMP_WEB_AUTH_FILE: webAuthFile,
+      OMP_FROND_HOSTNAME: hostname,
+      OMP_FROND_AUTH_FILE: webAuthFile,
       // Preserve the directory from which `omp-frond` was launched so relative
       // project paths in the browser resolve against the user's shell cwd.
-      OMP_WEB_LAUNCH_CWD: process.cwd(),
+      OMP_FROND_LAUNCH_CWD: process.cwd(),
     },
   });
 

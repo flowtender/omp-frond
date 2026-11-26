@@ -44,12 +44,12 @@ function nonEmpty(value) {
 // HTTPS needs both halves of the pair; a lone certificate or key is an error,
 // never a silent fall back to plain HTTP.
 function resolveTls(values, env) {
-  const cert = values["tls-cert"] ?? nonEmpty(env.OMP_WEB_TLS_CERT);
-  const key = values["tls-key"] ?? nonEmpty(env.OMP_WEB_TLS_KEY);
+  const cert = values["tls-cert"] ?? nonEmpty(env.OMP_FROND_TLS_CERT);
+  const key = values["tls-key"] ?? nonEmpty(env.OMP_FROND_TLS_KEY);
   if (cert === undefined && key === undefined) return null;
   if (!cert || !key) {
     throw new Error(
-      "HTTPS needs both a certificate and a private key: pass --tls-cert and --tls-key, or set OMP_WEB_TLS_CERT and OMP_WEB_TLS_KEY.",
+      "HTTPS needs both a certificate and a private key: pass --tls-cert and --tls-key, or set OMP_FROND_TLS_CERT and OMP_FROND_TLS_KEY.",
     );
   }
   return { cert, key };
@@ -66,7 +66,7 @@ Commands:
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
-  -H, --hostname <host>      Bind hostname (default: 127.0.0.1, or OMP_WEB_HOSTNAME)
+  -H, --hostname <host>      Bind hostname (default: 127.0.0.1, or OMP_FROND_HOSTNAME)
       --no-open              Do not open a browser automatically
       --authenticated        Require password access through the login page
       --reset-password       Set a new password without knowing the old one
@@ -76,16 +76,16 @@ Options:
 
 Environment:
   PORT                       Default port when --port is omitted
-  OMP_WEB_HOSTNAME           Default hostname when --hostname is omitted
-  OMP_WEB_NO_OPEN            Set to 1/true/yes/on to disable browser open
-  OMP_WEB_APP_NAME           PWA manifest name (trimmed; default omp-frond)
-  OMP_WEB_PASSWORD           Override the stored password access credential
-  OMP_WEB_AUTHENTICATED      Set to 1/true/yes/on to enable password access
-  OMP_WEB_TLS_CERT           PEM certificate for HTTPS (same as --tls-cert)
-  OMP_WEB_TLS_KEY            PEM private key for HTTPS (same as --tls-key)
-  OMP_WEB_SECURE_COOKIES     Set to 1 when a reverse proxy serves HTTPS
-  OMP_WEB_AUTH_FILE          Password store location (default ~/.omp/agent/omp-web-auth.json)
-  OMP_WEB_DISABLE_SELF_UPDATE  Set to 1 to disable omp-frond update checks
+  OMP_FROND_HOSTNAME         Default hostname when --hostname is omitted
+  OMP_FROND_NO_OPEN          Set to 1/true/yes/on to disable browser open
+  OMP_FROND_APP_NAME         PWA manifest name (trimmed; default omp-frond)
+  OMP_FROND_PASSWORD         Override the stored password access credential
+  OMP_FROND_AUTHENTICATED    Set to 1/true/yes/on to enable password access
+  OMP_FROND_TLS_CERT         PEM certificate for HTTPS (same as --tls-cert)
+  OMP_FROND_TLS_KEY          PEM private key for HTTPS (same as --tls-key)
+  OMP_FROND_SECURE_COOKIES   Set to 1 when a reverse proxy serves HTTPS
+  OMP_FROND_AUTH_FILE        Password store location (default ~/.omp/agent/omp-frond-auth.json)
+  OMP_FROND_DISABLE_SELF_UPDATE  Set to 1 to disable omp-frond update checks
 `;
 }
 
@@ -134,9 +134,9 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   return {
     help: false,
     port: normalizePort(values.port ?? env.PORT ?? "30141"),
-    hostname: values.hostname ?? env.OMP_WEB_HOSTNAME ?? "127.0.0.1",
-    openBrowser: !values["no-open"] && !isEnabled(env.OMP_WEB_NO_OPEN),
-    authenticated: Boolean(values.authenticated) || isEnabled(env.OMP_WEB_AUTHENTICATED),
+    hostname: values.hostname ?? env.OMP_FROND_HOSTNAME ?? "127.0.0.1",
+    openBrowser: !values["no-open"] && !isEnabled(env.OMP_FROND_NO_OPEN),
+    authenticated: Boolean(values.authenticated) || isEnabled(env.OMP_FROND_AUTHENTICATED),
     resetPassword: Boolean(values["reset-password"]),
     tls: resolveTls(values, env),
   };

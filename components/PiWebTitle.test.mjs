@@ -35,7 +35,7 @@ function sequence(...values) {
   return () => values[index++ % values.length];
 }
 
-test("the versions read as the brand shows them: omp-web's, a slash, oh-my-pi's", () => {
+test("the versions read as the brand shows them: omp-frond's, a slash, oh-my-pi's", () => {
   assert.equal(brandVersionText("0.6.0", "18.10.4"), "0.6.0/18.10.4");
   assert.equal(brandVersionText(undefined, undefined), "0.0.0/0.0.0");
   assert.equal(BRAND_TEXT, "omp");

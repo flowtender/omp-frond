@@ -7,7 +7,7 @@ import { useI18n } from "@/hooks/useI18n";
  * The sidebar's brand with the files below the sessions (its toolbar row,
  * components/SessionSidebar.tsx; the tabs layout has its tabs there), with
  * the old sidebar's easter egg: a click scrambles "omp" into the versions
- * (omp-web's, a "/", the oh-my-pi SDK's) in the accent; they scramble back
+ * (omp-frond's, a "/", the oh-my-pi SDK's) in the accent; they scramble back
  * after VERSION_SHOWN_MS, or at once on a second click.
  */
 

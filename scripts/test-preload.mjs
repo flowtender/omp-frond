@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const agentDirsRoot = join(tmpdir(), "omp-web-test-agents");
+const agentDirsRoot = join(tmpdir(), "omp-frond-test-agents");
 const agentDir = join(agentDirsRoot, String(process.pid));
 
 function isRunning(pid) {

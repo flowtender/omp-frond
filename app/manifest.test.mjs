@@ -3,10 +3,10 @@ import test from "node:test";
 import manifest, { dynamic } from "./manifest.ts";
 
 test("manifest reads the app name at runtime without changing other metadata", () => {
-  const original = process.env.OMP_WEB_APP_NAME;
+  const original = process.env.OMP_FROND_APP_NAME;
   try {
     assert.equal(dynamic, "force-dynamic");
-    delete process.env.OMP_WEB_APP_NAME;
+    delete process.env.OMP_FROND_APP_NAME;
     const defaults = manifest();
     assert.equal(defaults.name, "omp-frond");
     assert.equal(defaults.short_name, "omp-frond");
@@ -20,7 +20,7 @@ test("manifest reads the app name at runtime without changing other metadata", (
       ["  工作 omp 🚀 \n", "工作 omp 🚀"],
       ["Another omp", "Another omp"],
     ]) {
-      process.env.OMP_WEB_APP_NAME = value;
+      process.env.OMP_FROND_APP_NAME = value;
       assert.deepEqual(manifest(), {
         ...defaults,
         name: expected,
@@ -28,7 +28,7 @@ test("manifest reads the app name at runtime without changing other metadata", (
       });
     }
   } finally {
-    if (original === undefined) delete process.env.OMP_WEB_APP_NAME;
-    else process.env.OMP_WEB_APP_NAME = original;
+    if (original === undefined) delete process.env.OMP_FROND_APP_NAME;
+    else process.env.OMP_FROND_APP_NAME = original;
   }
 });

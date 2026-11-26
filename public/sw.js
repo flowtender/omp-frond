@@ -30,7 +30,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => (key.startsWith(`${CACHE_PREFIX}-`) || key.startsWith("pi-web-")) && key !== STATIC_CACHE)
+            .filter((key) => (key.startsWith(`${CACHE_PREFIX}-`) || key.startsWith("omp-web-") || key.startsWith("pi-web-")) && key !== STATIC_CACHE)
             .map((key) => caches.delete(key)),
         ),
       )

@@ -56,7 +56,7 @@ export async function resolveModelDiscoveryAuth(
 
   let tempDir: string | undefined;
   try {
-    tempDir = mkdtempSync(join(tmpdir(), "omp-web-model-discovery-"));
+    tempDir = mkdtempSync(join(tmpdir(), "omp-frond-model-discovery-"));
     const modelsPath = join(tempDir, "models.json");
     const discoveryModelId = "__omp_web_model_discovery__";
     // omp rejects a custom-model provider without a key unless it declares

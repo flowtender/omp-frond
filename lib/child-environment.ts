@@ -7,7 +7,7 @@ export function sanitizeProjectCommandEnvironment(
   for (const name of Object.keys(env)) {
     const key = platform === "win32" ? name.toUpperCase() : name;
     if (key === "PORT" || key === "NODE_ENV" || key.startsWith("NEXT_")
-      || key === "PI_WEB_PASSWORD" || key === "OMP_WEB_PASSWORD") delete env[name];
+      || key === "OMP_FROND_PASSWORD") delete env[name];
   }
   return env;
 }

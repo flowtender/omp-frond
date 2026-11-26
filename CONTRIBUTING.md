@@ -1,4 +1,4 @@
-# Contributing to omp-web
+# Contributing to omp-frond
 
 [中文](./docs/CONTRIBUTING.zh-CN.md)
 

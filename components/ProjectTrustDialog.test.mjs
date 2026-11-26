@@ -147,10 +147,10 @@ test("each server shows its transport, what it would run or reach, and why it is
   // The omp CLI shares the trust decision and does not refuse the password, so this is a warning, not a reassurance.
   assert.equal(
     leaky,
-    "leaky stdio node References PI_WEB_PASSWORD or OMP_WEB_PASSWORD. omp-frond refuses to connect it, but the omp CLI reads this file too"
+    "leaky stdio node References OMP_FROND_PASSWORD. omp-frond refuses to connect it, but the omp CLI reads this file too"
       + " and would send the password on if that variable is set where the CLI runs: env PASS",
   );
-  assert.match(html, /<p class="project-trust-mcp-line is-warning">References PI_WEB_PASSWORD or OMP_WEB_PASSWORD\./);
+  assert.match(html, /<p class="project-trust-mcp-line is-warning">References OMP_FROND_PASSWORD\./);
   assert.equal(off, "off stdio node off.js Turned off in the file, so it does not connect.");
   assert.doesNotMatch(shown, /listed unchecked|declares no servers/);
 });
@@ -191,7 +191,7 @@ test("a file problem is explained, and one that hides servers the SDK still load
 
   const outside = render(h(ProjectTrustMcpSection, {
     listing: loaded({
-      file: { realPath: "/elsewhere/mcp.json", problems: [{ reason: "link-outside", error: "a symbolic link outside the folders omp-web may read" }] },
+      file: { realPath: "/elsewhere/mcp.json", problems: [{ reason: "link-outside", error: "a symbolic link outside the folders omp-frond may read" }] },
     }),
   }));
   assert.match(text(outside), /so its servers are not listed here\. omp still loads them once the project is trusted\. \/elsewhere\/mcp\.json$/);
