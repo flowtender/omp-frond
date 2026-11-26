@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, BackgroundJob, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
+import { useTokenDisplay } from "@/hooks/useTokenDisplay";
+import { useTokenFlowConnections } from "@/hooks/useTokenFlowConnections";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
 import { MessageView } from "./MessageView";
@@ -89,6 +91,8 @@ function SubagentDetail({
   const [loadingTranscript, setLoadingTranscript] = useState(true);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const tokenDisplay = useTokenDisplay();
+  useTokenFlowConnections(tokenDisplay === "flow", transcriptRef);
   const followTailRef = useRef(true);
 
   useEffect(() => {
@@ -201,6 +205,7 @@ function SubagentDetail({
 
       <div
         ref={transcriptRef}
+        className={tokenDisplay === "flow" ? "transcript-flow-layout" : undefined}
         onScroll={(event) => {
           const element = event.currentTarget;
           followTailRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -215,6 +220,7 @@ function SubagentDetail({
             cwd={cwd}
             showTimestamp
             prevTimestamp={entries[index - 1]?.message.timestamp}
+            tokenDisplay={tokenDisplay}
           />
         )) : (
           <div style={{ padding: "24px 8px", color: "var(--text-muted)", fontSize: 10.5, lineHeight: 1.6, textAlign: "center" }}>

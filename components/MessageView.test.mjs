@@ -137,7 +137,7 @@ test("marks only the matched text block after splitting thinking and the final a
       const html = renderMessage({ ...message, content }, { searchBlock });
       assert.equal((html.match(/data-search-target="true"/g) ?? []).length, content.includes(searchBlock) ? 1 : 0);
       if (content.includes(searchBlock)) {
-        assert.match(html, new RegExp(`data-search-target="true">(?:(?!data-message-text)[\\s\\S])*${searchBlock.text}`));
+        assert.match(html, new RegExp(`data-search-target="true"[^>]*>(?:(?!data-message-text)[\\s\\S])*${searchBlock.text}`));
       }
     }
   }
@@ -163,6 +163,19 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   assert.doesNotMatch(html, /secret-stream-fragment/);
   assert.equal(getToolCallInputText(block), block.rawInput);
   assert.equal(getTokenEstimateText(block), block.rawInput);
+});
+
+test("flow appears as soon as streaming starts and marks the growing output as estimated", () => {
+  const message = { role: "assistant", provider: "anthropic", model: "claude-test", content: [] };
+  const props = { isStreaming: true, tokenDisplay: "flow" };
+  const starting = renderMessage(message, props);
+  assert.match(starting, /Token display: anthropic\/claude-test/);
+  assert.match(starting, /New input: Not reported/);
+  const content = [{ type: "text", text: "A reply still being generated." }];
+  const generating = renderMessage({ ...message, content }, props);
+  assert.match(generating, /Output: \d+ · Estimated token count while streaming/);
+  assert.match(generating, /≈/);
+  assert.doesNotMatch(renderMessage({ ...message, content }, { ...props, tokenDisplay: "text" }), /Token display:/);
 });
 
 test("renders write tool content as readable file text", () => {

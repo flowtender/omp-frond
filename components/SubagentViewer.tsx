@@ -5,6 +5,8 @@ import { MessageView } from "./MessageView";
 import { StatusIcon, statusColor } from "./AgentSessionPanel";
 import { buildToolResultsMap, EMPTY_TRANSCRIPT, mergeTailPage, prependOlderPage, type SubagentTranscript } from "./subagent-viewer-state";
 import { useI18n } from "@/hooks/useI18n";
+import { useTokenDisplay } from "@/hooks/useTokenDisplay";
+import { useTokenFlowConnections } from "@/hooks/useTokenFlowConnections";
 import type { SessionInfo } from "@/lib/types";
 
 interface Props {
@@ -127,6 +129,8 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
   }, [sessionId, running, refreshKey]);
 
   const listRef = useRef<HTMLDivElement>(null);
+  const tokenDisplay = useTokenDisplay();
+  useTokenFlowConnections(tokenDisplay === "flow", listRef);
   const stickToBottomRef = useRef(true);
   // Distance from the bottom to keep while an older page is prepended.
   const prependAnchorRef = useRef<number | null>(null);
@@ -232,6 +236,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
 
       <div
         ref={listRef}
+        className={tokenDisplay === "flow" ? "transcript-flow-layout" : undefined}
         onScroll={handleScroll}
         style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "10px 0" }}
         lang={locale}
@@ -272,6 +277,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
                   onOpenFile={onOpenFile}
                   sessionId={sessionId}
                   entryId={entryIds[index]}
+                  tokenDisplay={tokenDisplay}
                 />
               </div>
             ))}

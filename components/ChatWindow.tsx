@@ -17,6 +17,7 @@ import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
 import { MessageView } from "./MessageView";
+import { TranscriptBlock } from "./TranscriptBlock";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -31,6 +32,8 @@ import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type Notice
 import { useSyncedDisplaySettings } from "@/hooks/useDisplaySettings";
 import { useProviderUsage } from "@/hooks/useProviderUsage";
 import { useShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
+import { useTokenDisplay, type TokenDisplayMode } from "@/hooks/useTokenDisplay";
+import { useTokenFlowConnections } from "@/hooks/useTokenFlowConnections";
 import type { ProviderUsageSummary } from "@/lib/provider-usage-types";
 import { formatTokenCount } from "@/lib/format-tokens";
 import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
@@ -212,7 +215,7 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; failureCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, renderAnswer, t }: { messageCount: number; toolCallCount: number; failureCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; renderAnswer?: (processVisible: boolean) => ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const preference = useExpansionPreference("process");
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
   const expanded = manualExpanded ?? (preference === "automatic" ? defaultExpanded : preference === "expanded");
@@ -227,8 +230,8 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durati
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
   const failureText = failureCount > 0 && !(expanded || reveal) ? t("chat.processFailures", { count: failureCount }) : undefined;
 
-  return (
-    <div style={{ marginBottom: 14 }}>
+  const process = (
+    <TranscriptBlock className="transcript-process" kind={expanded || reveal ? null : "context"}>
       <button
         type="button"
         aria-expanded={expanded || reveal}
@@ -265,8 +268,9 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durati
           {children}
         </div>
       )}
-    </div>
+    </TranscriptBlock>
   );
+  return renderAnswer ? <>{process}{renderAnswer(expanded || reveal)}</> : process;
 }
 
 export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onProviderUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, onSubagentsChange, onBackgroundJobsChange, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
@@ -933,6 +937,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [messages]);
 
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
+  const tokenDisplay = useTokenDisplay();
+  const showTokenFlow = tokenDisplay === "flow" && !loading && !error && !isEmptyNew;
+  useTokenFlowConnections(showTokenFlow, messageContentRef);
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -1200,7 +1207,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+            <div ref={messageContentRef} className={showTokenFlow ? "transcript-flow-layout" : undefined} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -1219,7 +1226,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean; flowUsage?: AssistantMessage["usage"] | null; suppressUserHandoff?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 if (isHiddenCustomMessage(msg)) return null;
                 // pi's showCacheMissNotices (#1265): read from the stored message, not a turn view's copy.
@@ -1244,6 +1251,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                let flowReturnsToUser = false;
+                if (tokenDisplay === "flow" && msg.role === "assistant" && msg.stopReason === "stop" && !options.suppressUserHandoff) {
+                  let nextIdx = idx + 1;
+                  while (messages[nextIdx]?.role === "toolResult") nextIdx++;
+                  const next = messages[nextIdx];
+                  flowReturnsToUser = next ? next.role === "user" : !sessionBusy && !isStreaming;
+                }
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${messageKey}`}
@@ -1269,6 +1283,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     isCompacting={options.recoverTruncation ? isCompacting : undefined}
                     compactError={options.recoverTruncation ? compactError : undefined}
                     hideCost={hideCost}
+                    tokenDisplay={tokenDisplay}
+                    flowUsage={options.flowUsage}
+                    flowReturnsToUser={flowReturnsToUser}
                   />
                 );
                 const noticeLines = notices.length > 0 ? <TranscriptNoticeLines key={`${keyPrefix}-notices-${messageKey}`} notices={notices} /> : null;
@@ -1328,6 +1345,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 const finalViews = getFinalAnswerViews(finalAnswerViewCache, messages[finalAssistantIdx] as AssistantMessage);
                 const finalAnswerMessage = finalViews.answer;
+                const splitFlowUsage = tokenDisplay === "flow" && finalAnswerMessage?.usage
+                  && getDisplayableAssistantBlocks(finalViews.process, displayOptions).length > 0
+                  ? finalAnswerMessage.usage : undefined;
 
                 const processViews: ReactNode[] = [];
                 // processViews also holds the notice lines of steps that show nothing else.
@@ -1339,7 +1359,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
                   const processMessage = messages[processIdx];
-                  if (processMessage.role === "custom") {
+                  if (processMessage.role === "custom" || processMessage.role === "bashExecution") {
                     // Not counted either: a turn whose only extra is a hidden message has no process details.
                     if (isHiddenCustomMessage(processMessage)) continue;
                     revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
@@ -1352,7 +1372,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   // The final message's notices go under its answer when it has one.
                   const withNotices = processIdx !== finalAssistantIdx || !finalAnswerMessage;
                   const blocks = getDisplayableAssistantBlocks(message, displayOptions);
-                  if (blocks.length === 0) {
+                  if (blocks.length === 0 && !(tokenDisplay === "flow" && message.usage)) {
                     const notices = withNotices ? getTranscriptNotices(processMessage) : [];
                     if (notices.length > 0) processViews.push(<TranscriptNoticeLines key={`process-notices-${messageKeys[processIdx]}`} notices={notices} />);
                     continue;
@@ -1368,25 +1388,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     messageOverride: message,
                     showTimestamp: false,
                     withNotices,
+                    flowUsage: processIdx === finalAssistantIdx ? splitFlowUsage : undefined,
+                    suppressUserHandoff: processIdx === finalAssistantIdx && Boolean(finalAnswerMessage),
                   }));
                 }
 
-                // Only notice lines, from steps that show nothing else: no fold for them.
-                if (processMessageCount === 0) rendered.push(...processViews);
-                else if (processViews.length > 0) {
-                  const answered = collapsesProcessDetails(finalAnswerMessage);
-                  const processCacheMisses = summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1));
-                  rendered.push(
-                    <div
-                      key={`process-group-${messageKeys[groupStartIdx]}`}
-                    >
-                      <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
-                        {processViews}
-                      </ProcessDetailsGroup>
-                    </div>,
-                  );
-                }
-
+                let renderAnswer: ((processVisible: boolean) => ReactNode) | undefined;
                 if (finalAnswerMessage) {
                   // Each tool call is stored as its own assistant entry, so the
                   // final answer alone carries no record of what the turn wrote.
@@ -1400,15 +1407,31 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     }
                   }
                   const writtenFiles = keepWrittenFiles(finalViews, extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd));
-                  rendered.push(renderMessage(finalAssistantIdx, {
+                  renderAnswer = (processVisible) => renderMessage(finalAssistantIdx, {
                     messageOverride: finalAnswerMessage,
                     showTimestamp: true,
                     writtenFiles,
                     // Without process details the turn's time goes under the answer.
                     turnDurationMs: processViews.length === 0 ? turnDurationMs : undefined,
                     recoverTruncation: endIdx === messages.length && !isStreaming && !hasAssistantAnswer(finalAnswerMessage),
-                  }));
+                    flowUsage: processVisible && splitFlowUsage ? null : undefined,
+                  });
                 }
+
+                // Only notice lines, from steps that show nothing else: no fold for them.
+                if (processMessageCount === 0) rendered.push(...processViews);
+                else if (processViews.length > 0) {
+                  const answered = collapsesProcessDetails(finalAnswerMessage);
+                  const processCacheMisses = summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1));
+                  rendered.push(
+                    <div key={`process-group-${messageKeys[groupStartIdx]}`}>
+                      <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} renderAnswer={splitFlowUsage ? renderAnswer : undefined} t={t}>
+                        {processViews}
+                      </ProcessDetailsGroup>
+                    </div>,
+                  );
+                }
+                if (renderAnswer && !splitFlowUsage) rendered.push(renderAnswer(false));
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
                   rendered.push(renderMessage(renderIdx));
                 }
@@ -1427,8 +1450,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 </>
               );
             })()}
-            {isStreaming && hasStreamingContent && (
-              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
+            {isStreaming && (hasStreamingContent || showTokenFlow) && (
+              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} />
             )}
 
             {agentRunning && !hasStreamingContent && (agentPhase || isCompacting) && (
@@ -1653,7 +1676,7 @@ function GoalBar({ goal, t }: { goal: GoalStatusInfo | null; t: (key: string, pa
 }
 
 // The reply being streamed: the one part of the chat a chunk re-renders.
-const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent }: {
+const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, tokenDisplay }: {
   store: StreamingStore;
   /** Runs after each chunk is in the DOM. */
   onCommit: () => void;
@@ -1662,11 +1685,12 @@ const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResul
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
+  tokenDisplay: TokenDisplayMode;
 }) {
   const message = useStreamingSelector(store, selectStreamingMessage);
   useLayoutEffect(onCommit, [message, onCommit]);
   if (!message) return null;
-  return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />;
+  return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} />;
 });
 
 // A one-line notice is exactly as tall as its entrance animation pins it, and

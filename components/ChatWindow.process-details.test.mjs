@@ -10,6 +10,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { MessageView } = await jiti.import("./MessageView.tsx");
+const { TranscriptBlock } = await jiti.import("./TranscriptBlock.tsx");
 const display = await import("../lib/message-display.ts");
 const views = await import("../lib/turn-views.ts");
 const duration = await import("../lib/turn-duration.ts");
@@ -45,6 +46,7 @@ function renderTranscript(messages, overrides = {}) {
     React, Fragment: React.Fragment, useState: React.useState, useLayoutEffect: React.useLayoutEffect,
     ...display, ...views, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, countToolCallFailures,
     useExpansionPreference: () => "automatic",
+    TranscriptBlock,
     MessageView, messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
     displayOptions: {}, finalAnswerViewCache: new WeakMap(), toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
     sessionBusy: false, isStreaming: false, bashRunning: false, isNew: false, isCompacting: false, compactError: null,
@@ -53,6 +55,7 @@ function renderTranscript(messages, overrides = {}) {
     handleFork: undefined, handleEditContent: undefined, cancelEdit: undefined, handleOpenFile: undefined,
     onOpenFile: undefined, onOpenSubagent: undefined, handleCompact: undefined, setSentinel: undefined, setVisibleCount: undefined,
     hideCost: false, t: (key) => key,
+    tokenDisplay: "text",
     ...overrides,
   });
   const Transcript = script.runInContext(context);
@@ -147,6 +150,7 @@ test("manual process choice survives an answer and later preference changes", ()
   let preference = "automatic";
   const context = createContext({
     React,
+    TranscriptBlock,
     useState: () => [state, (value) => { state = value; }],
     useLayoutEffect: () => {},
     useExpansionPreference: () => preference,
@@ -175,4 +179,73 @@ test("collapsed process header reports failed calls and hides the count when ope
   const t = (key, params) => key === "chat.processFailures" ? `${params.count} failures` : key;
   assert.ok(renderTranscript(messages, { toolResultsMap, t }).includes("1 failures"));
   assert.ok(!renderTranscript(messages, { toolResultsMap, t, useExpansionPreference: () => "expanded" }).includes("1 failures"));
+});
+
+test("flow shows one set of counts when a reply's thinking and answer are split", () => {
+  const usage = { input: 374, output: 120, cacheRead: 16, cacheWrite: 0, cost: { total: 0.125 } };
+  const messages = [user, reply("answer", { usage, content: [{ type: "thinking", thinking: "review" }, { type: "text", text: "answer" }] })];
+  const options = { useExpansionPreference: () => "expanded" };
+  const flow = renderTranscript(messages, { ...options, tokenDisplay: "flow" });
+  assert.equal((flow.match(/New input: 374/g) ?? []).length, 1);
+  assert.match(flow, /Cache Read: 16/);
+  assert.match(flow, /Cache Write: 0 · A zero can mean/);
+  const withWrites = [{ ...messages[1], usage: { ...usage, cacheWrite: 52 } }];
+  assert.ok(flow.indexOf("New input: 374") < flow.indexOf("review"));
+  assert.equal((flow.match(/data-transcript-block="response"/g) ?? []).length, 2);
+  const folded = renderTranscript(messages, { tokenDisplay: "flow" });
+  assert.equal((folded.match(/New input: 374/g) ?? []).length, 1);
+  assert.equal((folded.match(/data-transcript-block="response"/g) ?? []).length, 1);
+  assert.doesNotMatch(folded, /review/);
+  assert.match(renderTranscript([user, ...withWrites], { ...options, tokenDisplay: "flow" }), /title="Cache Write: 52"/);
+  assert.doesNotMatch(flow, /374 in/);
+  assert.match(renderTranscript(messages, options), /374 in · 120 out · 16 cache R/);
+  const off = renderTranscript(messages, { ...options, tokenDisplay: "off" });
+  assert.doesNotMatch(off, /374 in|New input: 374/);
+  assert.match(off, /\$0\.1250/);
+});
+
+test("tool results and appended steering are input boxes, not model output", () => {
+  const usage = { input: 40, output: 8, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } };
+  const call = (toolCallId, toolName) => ({ type: "toolCall", toolCallId, toolName, input: { path: `${toolCallId}.txt`, pattern: "match" } });
+  const batch = reply("", {
+    stopReason: "toolUse", usage, content: [
+      { type: "thinking", thinking: "Check both files" },
+      { type: "text", text: "I’ll inspect both." },
+      call("first", "read"),
+      call("second", "grep"),
+    ],
+  });
+  const steering = { role: "user", content: "Only summarize.", attribution: "user" };
+  const html = renderTranscript([user, batch, steering, reply("Summary", { usage })], {
+    tokenDisplay: "flow", useExpansionPreference: () => "expanded",
+  });
+  const sequence = Array.from(html.matchAll(/data-token-flow=""|data-token-handoff="([^"]+)"|data-transcript-block="([^"]+)"/g), (match) => match[1] ?? match[2] ?? "model");
+  assert.deepEqual(sequence, ["context", "model", "response", "response", "tools", "context", "context", "context", "model", "response", "user"]);
+  assert.match(html, /data-token-handoff="tools"[^>]*aria-label="2 tool calls".*?title="read".*?data-tool-icon="read".*?title="grep".*?data-tool-icon="grep"/s);
+  assert.doesNotMatch(renderTranscript([user, batch, steering, reply("Summary", { usage })]), /data-token-handoff/);
+});
+
+test("shows the request, compaction and user handoff times without a false user handoff before compaction", () => {
+  const usage = { input: 40, output: 8, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } };
+  const started = new Date();
+  started.setHours(12, 0, 0, 0);
+  const stamp = (minutes) => started.getTime() + minutes * 60_000;
+  const localTime = (minutes) => new Date(stamp(minutes)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const messages = [
+    user,
+    reply("Before compaction", { usage, timestamp: stamp(0), durationMs: 60_000 }),
+    { role: "custom", customType: "compaction", display: true, content: "Earlier context", timestamp: stamp(2) },
+    reply("After compaction", { usage, timestamp: stamp(3), durationMs: 60_000, content: [
+      { type: "thinking", thinking: "review" }, { type: "text", text: "After compaction" },
+    ] }),
+  ];
+  for (const preference of ["expanded", "collapsed"]) {
+    const options = { tokenDisplay: "flow", useExpansionPreference: () => preference };
+    const html = renderTranscript(messages, options);
+    const rows = Array.from(html.matchAll(/data-token-(?:flow=""|handoff="([^"]+)")[\s\S]*?class="token-flow-time">([^<]+)/g),
+      ([, kind, time]) => [kind ?? "model", time]);
+    assert.deepEqual(rows, [["model", localTime(0)], ["compaction", localTime(2)], ["model", localTime(3)], ["user", localTime(4)]]);
+    assert.ok(html.indexOf("After compaction") < html.indexOf('data-token-handoff="user"'));
+    assert.doesNotMatch(renderTranscript(messages, { ...options, sessionBusy: true }), /data-token-handoff="user"/);
+  }
 });

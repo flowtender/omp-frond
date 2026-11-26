@@ -14,6 +14,7 @@ import {
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useChatScrollMode, setChatScrollMode } from "@/hooks/useChatScrollMode";
 import { useShowCostWithUsage, setShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
+import { setTokenDisplay, TOKEN_DISPLAY_MODES, useTokenDisplay } from "@/hooks/useTokenDisplay";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { headerLanguageSwitch, headerThemeSwitch } from "@/hooks/useHeaderControls";
 import { setPromptCacheIndicatorSettings, usePromptCacheIndicatorSettings } from "@/hooks/usePromptCacheIndicator";
@@ -87,6 +88,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
   const enterSendMode = useEnterSendMode();
   const chatScrollMode = useChatScrollMode();
   const showCostWithUsage = useShowCostWithUsage();
+  const tokenDisplay = useTokenDisplay();
   const filesPlacement = useFilesPlacement();
   const showThemeSwitch = headerThemeSwitch.useVisible();
   const showLanguageSwitch = headerLanguageSwitch.useVisible();
@@ -205,6 +207,17 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
           <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.showHeaderLanguageSwitch")}</span>
             <ConfigSwitch checked={showLanguageSwitch} label={t("settings.showHeaderLanguageSwitch")} onChange={headerLanguageSwitch.setVisible} />
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.tokenDisplay")}>
+            <span>{t("settings.tokenDisplay")}</span>
+            <div className="settings-send-mode-options">
+              {TOKEN_DISPLAY_MODES.map((mode) => (
+                <label key={mode} className="settings-send-mode-option">
+                  <input type="radio" name="token-display" value={mode} checked={tokenDisplay === mode} onChange={() => setTokenDisplay(mode)} className="sr-only" />
+                  <span className="settings-send-mode-label">{t(`settings.tokenDisplay.${mode}`)}</span>
+                </label>
+              ))}
+            </div>
           </div>
           <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.promptCacheSource")}>
             <span>{t("settings.promptCacheSource")}</span>

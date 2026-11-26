@@ -21,6 +21,9 @@ import { markdownRemarkPlugins } from "@/lib/markdown";
 import { readToolPreview, type ReadToolPreview } from "@/lib/read-tool-display";
 import { formatEvalJavaScript } from "@/lib/eval-code-format";
 import { useToolDisplayPreference } from "@/hooks/useToolDisplayPreference";
+import type { TokenDisplayMode } from "@/hooks/useTokenDisplay";
+import { TokenFlow, TokenFlowHandoff } from "./TokenFlow";
+import { TranscriptBlock } from "./TranscriptBlock";
 import type { TranslationParams } from "@/lib/i18n/types";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, isHiddenAssistantBlock, splitThinkingPieces } from "@/lib/message-display";
@@ -48,6 +51,7 @@ import { getTranscriptNotices } from "@/lib/transcript-notices";
 import { TRANSCRIPT_NOTICE_WARNING_COLOR, transcriptNoticeText } from "@/components/TranscriptNotices";
 import type {
   AgentMessage,
+  AgentUsage,
   UserMessage,
   AssistantMessage,
   CustomMessage,
@@ -298,6 +302,10 @@ interface Props {
   compactError?: string | null;
   /** Leave the per-request cost out of the usage line (the session shows subscription usage instead). */
   hideCost?: boolean;
+  tokenDisplay?: TokenDisplayMode;
+  /** A split reply draws its one diagram before its first visible content. */
+  flowUsage?: AgentUsage | null;
+  flowReturnsToUser?: boolean;
 }
 
 export function getModelDisplayName(
@@ -365,12 +373,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError, hideCost }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError, hideCost, tokenDisplay = "text", flowUsage, flowReturnsToUser }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} hideCost={hideCost} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} hideCost={hideCost} tokenDisplay={tokenDisplay} flowUsage={flowUsage} flowReturnsToUser={flowReturnsToUser} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -378,7 +386,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   }
   if (message.role === "custom") {
     if ((message as CustomMessage).customType === "compaction") {
-      return <CompactionMessageView message={message as CustomMessage} />;
+      return <CompactionMessageView message={message as CustomMessage} showFlow={tokenDisplay === "flow"} />;
     }
     return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
   }
@@ -409,7 +417,10 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onCompact === next.onCompact
     && prev.isCompacting === next.isCompacting
     && prev.compactError === next.compactError
-    && prev.hideCost === next.hideCost;
+    && prev.hideCost === next.hideCost
+    && prev.tokenDisplay === next.tokenDisplay
+    && prev.flowUsage === next.flowUsage
+    && prev.flowReturnsToUser === next.flowReturnsToUser;
 });
 
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing }: {
@@ -499,14 +510,15 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   return (
     <div
-      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      className="transcript-message"
+      style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
+      <TranscriptBlock style={{ display: "flex", alignSelf: "stretch", justifyContent: "flex-end" }}>
         <div
           style={{
-            flex: 1,
+            maxWidth: "85%",
             minWidth: 0,
             background: isEditing ? "color-mix(in srgb, var(--accent) 14%, var(--user-bg))" : "var(--user-bg)",
             border: isEditing ? "1px solid color-mix(in srgb, var(--accent) 62%, var(--user-bg))" : "1px solid rgba(59,130,246,0.2)",
@@ -591,7 +603,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
         </div>
 
-      </div>
+      </TranscriptBlock>
 
       {/* Bottom row: action buttons + timestamp */}
       {(time || canFork || canEdit || true) && (
@@ -746,6 +758,9 @@ function AssistantMessageView({
   isCompacting,
   compactError,
   hideCost,
+  tokenDisplay,
+  flowUsage = message.usage,
+  flowReturnsToUser,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -765,10 +780,13 @@ function AssistantMessageView({
   isCompacting?: boolean;
   compactError?: string | null;
   hideCost?: boolean;
+  tokenDisplay: TokenDisplayMode;
+  flowUsage?: AgentUsage | null;
+  flowReturnsToUser?: boolean;
 }) {
   const { t } = useI18n();
   const { hideThinkingBlock } = useDisplaySettings();
-  const time = showTimestamp ? formatTime(message.timestamp) : null;
+  const time = useMemo(() => showTimestamp || tokenDisplay === "flow" ? formatTime(message.timestamp) : null, [message.timestamp, showTimestamp, tokenDisplay]);
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isHiddenAssistantBlock(block, { isStreaming, hideThinking: hideThinkingBlock })), [message.content, isStreaming, hideThinkingBlock]);
@@ -898,18 +916,37 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming && !providerError && !truncated) return null;
+  const showFlow = tokenDisplay === "flow" && (isStreaming || Boolean(flowUsage));
+  const modelName = message.provider ? getModelDisplayName(message.provider, message.model, modelNames) : message.model;
+  const flow = showFlow ? (
+    <TokenFlow usage={isStreaming ? undefined : flowUsage ?? undefined} provider={message.provider} model={message.model} modelName={modelName}
+      estimatedOutput={isStreaming && estimatedTokens > 0 ? Math.round(estimatedTokens) : undefined} tokensPerSecond={isStreaming ? tps : undefined} time={time} />
+  ) : null;
+  const toolBlocks = tokenDisplay === "flow" && !isStreaming
+    ? blockItems.filter((item): item is typeof item & { block: ToolCallContent } => item.block.type === "toolCall")
+    : undefined;
+  const hasToolHandoff = Boolean(toolBlocks?.length);
+  const hasUserHandoff = tokenDisplay === "flow" && !isStreaming && flowReturnsToUser && !hasToolHandoff;
+  const handoffTime = (hasToolHandoff || hasUserHandoff) && message.timestamp && messageDurationMs !== undefined
+    ? formatTime(message.timestamp + messageDurationMs) : null;
+  if (blocks.length === 0 && !isStreaming && !providerError && !truncated && !hasUserHandoff) return flow ?? null;
+  const usageText = !isStreaming && message.usage ? formatUsage(message.usage, hideCost, tokenDisplay === "text") : "";
+  const renderBlock = ({ block, originalIndex }: typeof blockItems[number]) => {
+    const view = <BlockView key={originalIndex} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />;
+    return block.type === "toolCall" ? <TranscriptBlock key={originalIndex}>{view}</TranscriptBlock> : view;
+  };
 
   return (
     <div
       data-message-role="assistant"
+      className="transcript-message"
       data-entry-id={entryId}
-      style={{ marginBottom: 16 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {flow}
       {/* Model label */}
-      <div
+      {!flow && flowUsage !== null && <div
         style={{
           fontSize: 11,
           color: "var(--text-dim)",
@@ -920,7 +957,7 @@ function AssistantMessageView({
         }}
       >
         {message.provider && (
-          <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
+          <span>{modelName}</span>
         )}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
@@ -948,18 +985,16 @@ function AssistantMessageView({
             </>
           );
         })()}
-      </div>
+      </div>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {/* Not keyed by the entry id: a message of this run gets one when the file is
             read again, and its blocks keep their state across that read (#1184). */}
-        {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={originalIndex} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
-        ))}
+        {blockItems.map((item) => hasToolHandoff && item.block.type === "toolCall" ? null : renderBlock(item))}
       </div>
 
       {providerError && (
-        <div
+        <TranscriptBlock kind="response"
           role="alert"
           style={{
             marginTop: blocks.length > 0 ? 8 : 0,
@@ -976,11 +1011,11 @@ function AssistantMessageView({
           }}
         >
           Error: {providerError}
-        </div>
+        </TranscriptBlock>
       )}
 
       {truncated && (
-        <div
+        <TranscriptBlock kind="response"
           role="alert"
           style={{
             marginTop: blocks.length > 0 || providerError ? 8 : 0,
@@ -1020,19 +1055,33 @@ function AssistantMessageView({
           {unansweredTruncation && compactError && (
             <div style={{ marginTop: 8, color: "#ef4444", whiteSpace: "pre-wrap" }}>{compactError}</div>
           )}
-        </div>
+        </TranscriptBlock>
       )}
+      {toolBlocks && toolBlocks.length > 0 && (
+        <>
+          <TokenFlowHandoff kind="tools" label={`${toolBlocks.length} ${t(toolBlocks.length === 1 ? "chat.toolCall" : "chat.toolCalls")}`} time={handoffTime}>
+            {toolBlocks.map(({ block, originalIndex }) => (
+              <span key={originalIndex} className="token-flow-handoff-icon" title={block.toolName}>
+                <span className="sr-only">{block.toolName}</span>
+                <ToolBlockIcon toolName={block.toolName} mcpLabel={mcpToolLabel(block.toolName)} isError={false} />
+              </span>
+            ))}
+          </TokenFlowHandoff>
+          <div className="flex flex-col gap-2">{toolBlocks.map(renderBlock)}</div>
+        </>
+      )}
+      {hasUserHandoff && <TokenFlowHandoff kind="user" label={t("session.user")} time={handoffTime} />}
       {writtenFiles && writtenFiles.length > 0 && (
         <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenFile} />
       )}
 
-      <div style={{
+      <div className="transcript-reply-footer" style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
-        {(message.usage || turnDurationMs !== undefined) && !isStreaming && (
+        {(usageText || turnDurationMs !== undefined) && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
             {[
-              message.usage ? formatUsage(message.usage, hideCost) : null,
+              usageText,
               turnDurationMs !== undefined ? t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) }) : null,
             ].filter(Boolean).join(" \u00b7 ")}
           </div>
@@ -1070,7 +1119,7 @@ function AssistantMessageView({
              {copied ? t("i18n.copied") : t("i18n.copy")}
           </button>
         )}
-        {time && !isStreaming && (
+        {showTimestamp && time && !isStreaming && !flow && !hasUserHandoff && !hasToolHandoff && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
         )}
       </div>
@@ -1080,16 +1129,29 @@ function AssistantMessageView({
 
 function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
-    return <div data-message-text data-search-target={searchTarget || undefined}><TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} /></div>;
+    if (!block.text.trim()) return null;
+    return <TranscriptBlock kind="response" data-message-text data-search-target={searchTarget || undefined}><TextBlock block={block} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} /></TranscriptBlock>;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <TranscriptBlock kind="response"><ThinkingBlock block={block} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} /></TranscriptBlock>;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
     return <ToolCallBlock block={tc} result={result} duration={duration} onOpenSubagent={onOpenSubagent} />;
+  }
+  if (block.type === "image") {
+    const src = imageSource(block);
+    if (!src) return null;
+    return (
+      <TranscriptBlock kind="response" data-search-target={searchTarget || undefined}>
+        <ImagePreview src={src} style={{ maxWidth: "100%" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="" loading="lazy" style={{ display: "block", maxWidth: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 6 }} />
+        </ImagePreview>
+      </TranscriptBlock>
+    );
   }
   return null;
 }
@@ -2613,7 +2675,7 @@ function PairedResult({ text, isEmpty, isError, language, preview, writeAcknowle
   );
 }
 
-function CompactionMessageView({ message }: { message: CustomMessage }) {
+function CompactionMessageView({ message, showFlow }: { message: CustomMessage; showFlow: boolean }) {
   const { t } = useI18n();
   const [expanded, toggleExpanded] = useBlockExpansion("compaction");
   const summary = getMessageText(message.content);
@@ -2623,8 +2685,9 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const costNotice = getTranscriptNotices(message).find((notice) => notice.kind === "summary_cost" && notice.source === "compaction");
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div
+    <div className="transcript-message">
+      {showFlow && <TokenFlowHandoff kind="compaction" label={t("i18n.conversationCompacted")} time={time} />}
+      <TranscriptBlock
         style={{
           border: "1px solid var(--border)",
           borderRadius: 8,
@@ -2646,7 +2709,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
             compaction
           </span>
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
+          {!showFlow && time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
 
         <div style={{ padding: "11px 13px 12px" }}>
@@ -2690,7 +2753,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           </button>
           {expanded && <CompactionSummaryDetails summary={summary} />}
         </div>
-      </div>
+      </TranscriptBlock>
     </div>
   );
 }
@@ -2767,8 +2830,8 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   };
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div
+    <div className="transcript-message">
+      <TranscriptBlock
         style={{
           border: "1px solid var(--border)",
           borderRadius: 8,
@@ -2916,7 +2979,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
             )}
           </>
         )}
-      </div>
+      </TranscriptBlock>
     </div>
   );
 }
@@ -3246,12 +3309,14 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}, hideCost?: boolean): string {
+}, hideCost: boolean | undefined, includeCounts: boolean): string {
   const parts = [];
-  if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
-  if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
-  if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
-  if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
+  if (includeCounts) {
+    if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
+    if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
+    if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
+    if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
+  }
   if (usage.cost?.total && !hideCost) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }
@@ -3310,6 +3375,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
 
   return (
     <div style={{ margin: "6px 0" }}>
+      <TranscriptBlock>
       <ToolCallBlock block={block} result={result} />
       {message.truncated && fullOutputUrl && (
         <div style={{ padding: "4px 10px", fontSize: 11, marginTop: -1 }}>
@@ -3331,6 +3397,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>
       )}
+      </TranscriptBlock>
     </div>
   );
 }
