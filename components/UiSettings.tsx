@@ -24,6 +24,8 @@ import { useSessionReload } from "@/hooks/useSessionReload";
 import type { ToolSettingsResponse } from "@/lib/api-types";
 import { setExpansionPreference, useExpansionPreference, type ExpansionKind, type ExpansionMode } from "@/lib/expansion-preference";
 import { setToolDisplayPreference, useToolDisplayPreference, type ToolDisplayPreference } from "@/hooks/useToolDisplayPreference";
+import { setPythonFormatSettings, useInstalledPythonFormatters, usePythonFormatSettings } from "@/hooks/usePythonFormat";
+import { PYTHON_FORMATTERS, type InstalledPythonFormatters, type PythonFormatterChoice } from "@/lib/python-format-shared";
 import { setupPushSubscription } from "@/lib/push-client";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
@@ -73,6 +75,38 @@ function ToolDisplaySetting({ kind }: { kind: ToolDisplayPreference }) {
   </div>;
 }
 
+function PythonFormatSetting({ installed }: { installed: InstalledPythonFormatters | null }) {
+  const { t } = useI18n();
+  const { enabled, formatter } = usePythonFormatSettings();
+  const noneInstalled = installed !== null && !PYTHON_FORMATTERS.some((name) => installed[name]);
+  const label = t("settings.pythonFormat");
+  return <>
+    <div className="settings-chat-option settings-chat-switch-option">
+      <span>{label}</span>
+      <ConfigSwitch
+        checked={enabled}
+        label={label}
+        disabled={noneInstalled && !enabled}
+        describedBy="settings-python-format-description"
+        onChange={(next) => setPythonFormatSettings({ enabled: next })}
+      />
+    </div>
+    <label className="settings-chat-option settings-chat-switch-option">
+      <span>{t("settings.pythonFormatter")}</span>
+      <select
+        value={formatter}
+        onChange={(event) => setPythonFormatSettings({ formatter: event.target.value as PythonFormatterChoice })}
+        style={{ color: "var(--text)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px" }}
+      >
+        <option value="auto">{t("settings.pythonFormatterAuto")}</option>
+        {PYTHON_FORMATTERS.map((name) => (
+          <option key={name} value={name} disabled={installed !== null && !installed[name]}>{name}</option>
+        ))}
+      </select>
+    </label>
+  </>;
+}
+
 interface UiSettingsProps {
   sessionId: string | null;
   runtimeId?: string;
@@ -93,6 +127,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
   const showThemeSwitch = headerThemeSwitch.useVisible();
   const showLanguageSwitch = headerLanguageSwitch.useVisible();
   const promptCacheIndicator = usePromptCacheIndicatorSettings();
+  const installedPythonFormatters = useInstalledPythonFormatters();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -361,8 +396,14 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
         <div className="settings-chat-options">
           <ToolDisplaySetting kind="compactJson" />
           <ToolDisplaySetting kind="readPreviews" />
+          <PythonFormatSetting installed={installedPythonFormatters} />
         </div>
         <p className="settings-general-description">{t("settings.toolDisplayDescription")}</p>
+        <p id="settings-python-format-description" className="settings-general-description">
+          {installedPythonFormatters !== null && !PYTHON_FORMATTERS.some((name) => installedPythonFormatters[name])
+            ? t("settings.pythonFormatNoneInstalled")
+            : t("settings.pythonFormatDescription")}
+        </p>
       </section>
 
       <section className="settings-general-section">

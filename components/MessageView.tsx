@@ -19,8 +19,9 @@ import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import { fileLanguage } from "@/lib/file-language";
 import { markdownRemarkPlugins } from "@/lib/markdown";
 import { readToolPreview, type ReadToolPreview } from "@/lib/read-tool-display";
-import { formatEvalJavaScript } from "@/lib/eval-code-format";
+import { formatEvalJavaScript, formatEvalPython } from "@/lib/eval-code-format";
 import { useToolDisplayPreference } from "@/hooks/useToolDisplayPreference";
+import { usePythonFormatSettings } from "@/hooks/usePythonFormat";
 import type { TokenDisplayMode } from "@/hooks/useTokenDisplay";
 import { TokenFlow, TokenFlowHandoff } from "./TokenFlow";
 import { TranscriptBlock } from "./TranscriptBlock";
@@ -1141,7 +1142,7 @@ function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDur
     const result = snapshot && liveTiming && liveTiming.endedAt === undefined && !snapshot.details && snapshot.content.length === 0
       ? undefined : snapshot;
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} liveTiming={liveTiming} onOpenSubagent={onOpenSubagent} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} liveTiming={liveTiming} cwd={cwd} onOpenSubagent={onOpenSubagent} />;
   }
   if (block.type === "image") {
     const src = imageSource(block);
@@ -1325,7 +1326,7 @@ export function formatToolDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
 }
 
-function ToolCallBlock({ block, result, duration, liveTiming, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; liveTiming?: ToolResultMessage["liveTiming"]; onOpenSubagent?: (sessionId: string, label: string) => void }) {
+function ToolCallBlock({ block, result, duration, liveTiming, cwd, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; liveTiming?: ToolResultMessage["liveTiming"]; cwd?: string; onOpenSubagent?: (sessionId: string, label: string) => void }) {
   const { t } = useI18n();
   const compactJson = useToolDisplayPreference("compactJson");
   const readPreviews = useToolDisplayPreference("readPreviews");
@@ -1379,6 +1380,7 @@ function ToolCallBlock({ block, result, duration, liveTiming, onOpenSubagent }: 
     if (dispatches.length > 0) {
       return <MountedToolCards
         callId={block.toolCallId}
+        cwd={cwd}
         dispatches={dispatches}
         result={result}
         command={typeof block.input.command === "string" ? block.input.command : ""}
@@ -1480,7 +1482,7 @@ function ToolCallBlock({ block, result, duration, liveTiming, onOpenSubagent }: 
         )
       )}
       {expanded && inputView.fileContent !== undefined && <WrittenToolCode text={inputView.fileContent} args={block.input} />}
-      {expanded && inputView.evalCode && <EvalToolCode {...inputView.evalCode} />}
+      {expanded && inputView.evalCode && <EvalToolCode {...inputView.evalCode} cwd={cwd} />}
 
       {/* ── Expanded: the calls a codemode script made ── */}
       {expanded && codemode && (
@@ -2171,7 +2173,7 @@ function ShellOutput({ output, pending = false, isError, showLabel = true, langu
   );
 }
 
-function MountedToolCards({ callId, dispatches, result, command, output, isError, hasFinalTiming, duration, liveTiming }: {
+function MountedToolCards({ callId, dispatches, result, command, output, isError, hasFinalTiming, duration, liveTiming, cwd }: {
   callId: string;
   dispatches: readonly ToolDispatch[];
   result?: ToolResultMessage;
@@ -2181,6 +2183,7 @@ function MountedToolCards({ callId, dispatches, result, command, output, isError
   hasFinalTiming: boolean;
   duration?: number;
   liveTiming?: ToolResultMessage["liveTiming"];
+  cwd?: string;
 }) {
   const { t } = useI18n();
   const readPreviews = useToolDisplayPreference("readPreviews");
@@ -2229,7 +2232,7 @@ function MountedToolCards({ callId, dispatches, result, command, output, isError
             {(expanded) => expanded && <>
               {args && visibleArgs && Object.keys(visibleArgs).length > 0 && <ShellToolArguments tool={tool} args={visibleArgs} sourceArgs={args} />}
               {args && inputView?.fileContent !== undefined && <WrittenToolCode text={inputView.fileContent} args={args} />}
-              {inputView?.evalCode && <EvalToolCode {...inputView.evalCode} />}
+              {inputView?.evalCode && <EvalToolCode {...inputView.evalCode} cwd={cwd} />}
               {mode === "execute" ? (
                 <TaskResultOutput callId={dispatchId} tool={tool} details={inner} result={result} slot={index} output={single ? output : ""}>
                   {single && ((preview || isWrite || isLsp) ? (
@@ -3258,20 +3261,26 @@ function WrittenToolCode({ text, args }: { text: string; args: Record<string, un
   return <pre className="tool-source-code"><ToolSyntax text={text} language={toolFileLanguage(args)} /></pre>;
 }
 
-function EvalToolCode({ text, language }: NonNullable<ToolInputView["evalCode"]>) {
+function EvalToolCode({ text, language, cwd }: NonNullable<ToolInputView["evalCode"]> & { cwd?: string }) {
   const [raw, setRaw] = useState(false);
   const [formatted, setFormatted] = useState<{ source: string; text: string }>();
+  const pythonFormat = usePythonFormatSettings();
+  // JavaScript is always formatted; Python only when the user opted in and a formatter answers.
+  const formatEnabled = language === "js" || pythonFormat.enabled;
   useEffect(() => {
-    if (language !== "js" || text.length > MAX_MARKDOWN_CHARS) return;
+    if (!formatEnabled || text.length > MAX_MARKDOWN_CHARS) return;
     let active = true;
-    void formatEvalJavaScript(text).then((result) => {
+    const formatting = language === "js"
+      ? formatEvalJavaScript(text)
+      : formatEvalPython(text, { cwd, formatter: pythonFormat.formatter });
+    void formatting.then((result) => {
       if (active) setFormatted({ source: text, text: result });
     });
     return () => { active = false; };
-  }, [text, language]);
+  }, [text, language, cwd, formatEnabled, pythonFormat.formatter]);
 
   if (text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{text}</OversizedText>;
-  const preview = language === "js" && formatted?.source === text && formatted.text !== text ? formatted.text : null;
+  const preview = formatEnabled && formatted?.source === text && formatted.text !== text ? formatted.text : null;
   return <pre className="tool-source-code">
     {preview !== null && <RawToolToggle raw={raw} toggle={() => setRaw(!raw)} />}
     <ToolSyntax text={raw ? text : preview ?? text} language={language === "js" ? "javascript" : "python"} />
