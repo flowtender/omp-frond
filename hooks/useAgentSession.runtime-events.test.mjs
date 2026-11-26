@@ -59,7 +59,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
   const requests = [];
   const replies = [];
   const timers = new Map();
-  const state = { stream: { isStreaming: false, streamingMessage: null }, ExtensionDialog: null, Messages: [] };
+  const state = { stream: { isStreaming: false, streamingMessage: null }, ExtensionDialog: null, Messages: [], ActiveToolResults: new Map() };
   let nextTimer = 0;
   class FakeEventSource {
     static CONNECTING = 0;
@@ -143,7 +143,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
   for (const name of ["AgentRunning", "AgentPhase", "ExtensionDialog", "ExtensionCustomUi",
     "ExtensionStatuses", "ExtensionWidgets", "CurrentModelOverride", "ContextUsage",
     "RetryInfo", "IsCompacting", "QueuedMessages", "Subagents", "GoalStatus", "SystemPrompt",
-    "Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error", "PromptAnchorActive"]) {
+    "Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error", "PromptAnchorActive", "ActiveToolResults"]) {
     bindings[`set${name}`] = (value) => {
       state[name] = typeof value === "function" ? value(state[name]) : value;
       effects.push([name, state[name]]);

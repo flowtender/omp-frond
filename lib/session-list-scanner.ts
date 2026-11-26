@@ -18,7 +18,7 @@ import fsDefault, { existsSync, readFileSync } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
+import { getAgentDir, parseSessionOrigin, type SessionOrigin } from "@oh-my-pi/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 
 export type SessionRowStatus = "complete" | "interrupted" | "aborted" | "error" | "pending" | "unknown";
@@ -38,6 +38,8 @@ export interface ScannedSessionInfo {
 	parentSessionPath?: string;
 	/** Id of the session whose conversation this one continues (header `continuationOf`). */
 	continuationOf?: string;
+	/** Client other than the terminal that started the session (header `origin`). */
+	origin?: SessionOrigin;
 	/** True when only header/stat metadata was available for this listing. */
 	detailsPending?: boolean;
 }
@@ -87,9 +89,10 @@ function isRecord(value: unknown): value is RawEntry {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-// Bump on any change to what foldEntry() counts: a resumed scan adds to totals
-// counted under the rules its prefix was scanned with.
-const INDEX_FORMAT_VERSION = 4;
+// Bump on any change to what foldEntry() counts or to the fields a row keeps:
+// a resumed scan adds to totals counted under the rules its prefix was scanned
+// with, and a row read back from the index has only the fields it was saved with.
+const INDEX_FORMAT_VERSION = 5;
 /** A trailing throttle: a run's rescans rewrite the index once per window. */
 const INDEX_PERSIST_DELAY_MS = 5_000;
 const RESUME_SAMPLE_BYTES = 512;
@@ -198,6 +201,7 @@ async function deferredSessionInfo(
 		firstMessage: "",
 		...(typeof header.parentSession === "string" ? { parentSessionPath: header.parentSession } : {}),
 		...(typeof header.continuationOf === "string" ? { continuationOf: header.continuationOf } : {}),
+		origin: parseSessionOrigin(header.origin),
 		detailsPending: true,
 	};
 }
@@ -224,6 +228,7 @@ interface SessionHeader {
 	created: Date;
 	parentSessionPath?: string;
 	continuationOf?: string;
+	origin?: SessionOrigin;
 	/** NaN unless the header's timestamp is a string. */
 	time: number;
 	/** The header line and its newline, kept when a later scan may resume. */
@@ -248,6 +253,7 @@ function readHeader(entry: RawEntry, head: Buffer | undefined): SessionHeader {
 		created: new Date(entry.timestamp as string),
 		parentSessionPath: typeof entry.parentSession === "string" ? entry.parentSession : undefined,
 		continuationOf: typeof entry.continuationOf === "string" ? entry.continuationOf : undefined,
+		origin: parseSessionOrigin(entry.origin),
 		time: typeof entry.timestamp === "string" ? new Date(entry.timestamp).getTime() : NaN,
 		// A resumed scan rebuilds the header from the row, which holds it
 		// faithfully only for a string id and timestamp.
@@ -460,6 +466,7 @@ async function scanSessionFile(
 				created: new Date(info.created.getTime()),
 				parentSessionPath: info.parentSessionPath,
 				continuationOf: info.continuationOf,
+				origin: info.origin,
 				time: info.created.getTime(),
 				head: resumed.head,
 			};
@@ -514,7 +521,7 @@ async function scanSessionFile(
 			if (!parseLines(scan.rest, null)) return null;
 		}
 		if (!header) return null;
-		const { id, cwd, created, parentSessionPath, continuationOf, head } = header;
+		const { id, cwd, created, parentSessionPath, continuationOf, origin, head } = header;
 
 		return {
 			info: {
@@ -524,6 +531,7 @@ async function scanSessionFile(
 				title: resolveScanTitle(totals),
 				parentSessionPath,
 				continuationOf,
+				origin,
 				created,
 				modified: stats.mtime,
 				messageCount: totals.messageCount,
@@ -676,6 +684,7 @@ function loadPersistedIndex(): void {
 					title: info.title,
 					parentSessionPath: info.parentSessionPath,
 					continuationOf: info.continuationOf,
+					origin: parseSessionOrigin(info.origin),
 					firstMessage: info.firstMessage,
 					messageCount: info.messageCount,
 					...(info.assistantTurns !== undefined ? { assistantTurns: info.assistantTurns } : {}),

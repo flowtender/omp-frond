@@ -10,7 +10,7 @@ const settingsConfigCss = await readFile(new URL("./SettingsConfig.module.css", 
 const loginRouteSource = await readFile(new URL("../app/api/auth/login/[provider]/route.ts", import.meta.url), "utf8");
 
 test("project trust stacks above the unified settings dialog", () => {
-  const zIndex = (source, selector) => Number(source.match(new RegExp(`\\.${selector} \\{[^}]*z-index: (\\d+);`))?.[1]);
+  const zIndex = (source, selector) => Number(source.match(new RegExp(`\\.${selector}(?:,\\s*\\.[\\w-]+)* \\{[^}]*z-index: (\\d+);`))?.[1]);
   assert.ok(zIndex(cssSource, "project-trust-backdrop") > zIndex(settingsConfigCss, "backdrop"));
 });
 

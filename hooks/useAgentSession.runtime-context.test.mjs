@@ -6,6 +6,7 @@ import ts from "typescript";
 const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
 const clientSource = await readFile(new URL("../lib/agent-client.ts", import.meta.url), "utf8");
 const memorySource = await readFile(new URL("../lib/workspace-memory.ts", import.meta.url), "utf8");
+const promptCacheSource = await readFile(new URL("../lib/prompt-cache-shared.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("useAgentSession.ts", source, ts.ScriptTarget.Latest, true);
 const callbacks = new Map();
 function collect(node) {
@@ -107,6 +108,7 @@ function harness() {
   }
   const client = productionModule(clientSource, { fetch: (...args) => bindings.fetch(...args) }, {
     "./workspace-memory": memory,
+    "./prompt-cache-shared": productionModule(promptCacheSource, {}),
   });
   const commands = [];
   bindings.canApplySessionIdentity = client.canApplySessionIdentity;

@@ -82,7 +82,7 @@ function harness() {
   for (const name of ["Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error",
     "ContextUsage", "PromptCache", "CurrentModelOverride", "SystemPrompt", "ThinkingLevel", "EffectiveThinkingLevel",
     "ExtensionStatuses", "ExtensionWidgets", "QueuedMessages", "Subagents", "BackgroundJobs", "IsCompacting",
-    "AgentPhase", "RetryInfo", "GoalStatus", "BashRunning", "PendingBash"]) {
+    "AgentPhase", "RetryInfo", "GoalStatus", "BashRunning", "PendingBash", "ActiveToolResults"]) {
     bindings[`set${name}`] = (...args) => effects.push([name, ...args]);
   }
   bindings.followSessionIdentity = callback("followSessionIdentity", bindings);

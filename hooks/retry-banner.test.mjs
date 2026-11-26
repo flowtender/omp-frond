@@ -20,16 +20,18 @@ const handler = new Script(ts.transpileModule(`((event) => { switch (event.type)
 function setup() {
   const banner = { current: null };
   const context = createContext({
-    agentRunningRef: { current: true }, sdkAgentActiveRef: { current: true }, sessionIdRef: { current: null },
+    agentRunningRef: { current: true }, sdkAgentActiveRef: { current: true }, rpcPromptPendingRef: { current: false }, sessionIdRef: { current: null },
     setRetryInfo: (value) => { banner.current = value; },
-    cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {}, dispatch() {},
+    cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {}, setActiveToolResults() {}, dispatch() {},
   });
   return { handle: handler.runInContext(context), banner };
 }
 
 test("the retry banner shows while a retry waits and goes once the retried run starts", () => {
   const { handle, banner } = setup();
-  handle({ type: "agent_end", willRetry: true });
+  // A loop that stops for a retry reaches the browser as omp's wire shape for a
+  // paused run (`toWireEvent` of `agent_pause`): a non-terminal agent_end.
+  handle({ type: "agent_end", isTerminal: false, yielded: false });
   handle({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "overloaded" });
   assert.deepEqual({ ...banner.current }, { attempt: 1, maxAttempts: 3, errorMessage: "overloaded" });
   // pi emits the successful auto_retry_end only after the retry's first complete reply.

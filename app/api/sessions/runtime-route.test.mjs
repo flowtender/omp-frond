@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { Settings } from "@oh-my-pi/pi-coding-agent";
 import { createJiti } from "jiti";
 
 const listRoute = await readFile(new URL("./route.ts", import.meta.url), "utf8");
@@ -64,11 +65,21 @@ test("live detail and state routes work without a persisted JSONL file", async (
     getTree: () => [],
     getSessionName: () => undefined,
     getSessionFile: () => `/tmp/pi-web-live-route-not-persisted-${process.pid}.jsonl`,
+    getLastModelChangeRole: () => undefined,
+  };
+  // What the detail route reads off a live AgentSession for its composer snapshot.
+  const inner = {
+    sessionManager,
+    settings: Settings.isolated(),
+    model: undefined,
+    agent: { state: { thinkingLevel: "off" } },
+    configuredThinkingLevel: () => undefined,
+    getActiveToolNames: () => [],
   };
   globalThis.__ompSessions = new Map([[id, {
     isAlive: () => true,
     isRunning: () => true,
-    inner: { sessionManager },
+    inner,
     sessionFile: sessionManager.getSessionFile(),
     sessionId: runtimeId,
     runtimeId: handle,
