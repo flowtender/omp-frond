@@ -73,3 +73,15 @@ export async function reloadProjectSettings(cwd: string): Promise<void> {
 export function invalidateOmpRuntime(): void {
   globalThis.__ompRuntimePromise = undefined;
 }
+
+/**
+ * After `models.yml` or credentials changed: reload the shared registry in place.
+ *
+ * Live sessions hold this registry, so replacing the runtime (as
+ * `invalidateOmpRuntime` does) would leave them resolving keys from the old
+ * config until they close. `AuthStorage` already updates in place on writes.
+ */
+export async function refreshOmpRuntime(): Promise<void> {
+  const { modelRegistry } = await getOmpRuntime();
+  await modelRegistry.refresh("offline");
+}

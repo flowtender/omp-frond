@@ -5,7 +5,7 @@ import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { invalidateOmpRuntime } from "@/lib/omp-runtime";
+import { refreshOmpRuntime } from "@/lib/omp-runtime";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { ModelsConfigReadError } from "@/lib/models-config-store";
 import { ContextWindowError, normalizeContextWindowOverrides } from "@/lib/model-context";
@@ -131,9 +131,8 @@ export async function PUT(req: Request) {
     readModelsConfig();
     writeModelsConfig(normalized);
     invalidateModelsCache();
-    // The registry caches models.yml at construction; drop it so the next
-    // request rebuilds against the edited providers.
-    invalidateOmpRuntime();
+    // The registry caches models.yml; reload it in place so open sessions follow.
+    await refreshOmpRuntime();
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof ContextWindowError) {

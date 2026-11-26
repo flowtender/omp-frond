@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { getOmpRuntime, invalidateOmpRuntime } from "@/lib/omp-runtime";
+import { getOmpRuntime, refreshOmpRuntime } from "@/lib/omp-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,7 @@ export async function POST(req: Request, { params }: Params) {
     // AuthStorage keeps the CLI and omp-frond on the same store and lock.
     await authStorage.credentials.set(provider, { type: "api_key", key: apiKey.trim(), source: "login" });
     invalidateModelsCache();
+    await refreshOmpRuntime();
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -57,7 +58,7 @@ export async function DELETE(_req: Request, { params }: Params) {
     }
     await authStorage.credentials.remove(provider);
     invalidateModelsCache();
-    invalidateOmpRuntime();
+    await refreshOmpRuntime();
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

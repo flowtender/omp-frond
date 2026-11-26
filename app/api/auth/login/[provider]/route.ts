@@ -1,6 +1,6 @@
 import type { OAuthAuthInfo, OAuthPrompt } from "@oh-my-pi/pi-ai/oauth";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { getOmpRuntime, invalidateOmpRuntime } from "@/lib/omp-runtime";
+import { getOmpRuntime, refreshOmpRuntime } from "@/lib/omp-runtime";
 import { resolveOAuthLoginId } from "@/lib/provider-listing-runtime";
 
 export const dynamic = "force-dynamic";
@@ -154,7 +154,7 @@ export async function GET(
         });
 
         invalidateModelsCache();
-        invalidateOmpRuntime();
+        await refreshOmpRuntime();
         send(controller, { type: "success" });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

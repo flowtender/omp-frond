@@ -240,7 +240,10 @@ would open a second SQLite handle on `~/.omp/agent/agent.db` and split
 `settings.cloneForCwd(cwd)`, never from a second `Settings.init()`.
 
 Anything that mutates credentials or `models.yml` must call
-`invalidateOmpRuntime()` as well as `invalidateModelsCache()`.
+`refreshOmpRuntime()` as well as `invalidateModelsCache()`: it reloads the shared
+registry in place, which live sessions hold. `invalidateOmpRuntime()` replaces the
+whole runtime and strands those sessions on the old registry, so reserve it for
+changes the registry cannot reload (plugins).
 
 ### Model roles are the model selector
 omp assigns a model per scope of work (`default`, `smol`, `slow`, `vision`,

@@ -1,5 +1,5 @@
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { getOmpRuntime, invalidateOmpRuntime } from "@/lib/omp-runtime";
+import { getOmpRuntime, refreshOmpRuntime } from "@/lib/omp-runtime";
 import { resolveOAuthLoginId } from "@/lib/provider-listing-runtime";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,6 @@ export async function POST(
 
   await authStorage.credentials.remove(provider);
   invalidateModelsCache();
-  invalidateOmpRuntime();
+  await refreshOmpRuntime();
   return Response.json({ ok: true });
 }
