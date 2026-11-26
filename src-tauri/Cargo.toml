@@ -1,6 +1,6 @@
 [package]
 name = "omp-desktop"
-version = "0.2.10"
+version = "0.0.1"
 description = "Tauri v2 desktop shell for omp-frond"
 authors = ["omp-frond contributors"]
 edition = "2021"
