@@ -1,8 +1,8 @@
 [package]
 name = "omp-desktop"
 version = "0.2.10"
-description = "Tauri v2 desktop shell for omp-web"
-authors = ["omp-web contributors"]
+description = "Tauri v2 desktop shell for omp-frond"
+authors = ["omp-frond contributors"]
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/flowtender/omp-frond"

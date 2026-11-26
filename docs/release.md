@@ -62,7 +62,7 @@ Expected:
 Before bumping, confirm the next version is free (replace `<version>`):
 
 ```bash
-npm view omp-web@<version> version --registry https://registry.npmjs.org/   # expect E404
+npm view omp-frond@<version> version --registry https://registry.npmjs.org/   # expect E404
 git ls-remote --tags origin v<version>                                            # expect empty
 ```
 
@@ -96,12 +96,12 @@ Notes:
 
 - This bumps `package.json` and `package-lock.json`.
 - It intentionally runs a production build. Do not run `next build` during normal development; release work is the exception.
-- A newly published version may take a few minutes to show up. `npm view omp-web@<version> version` can return E404 and `npm view omp-web version` can show the previous version even though the publish printed `+ omp-web@<version>`. This is registry propagation, not a failed publish: do not publish again. Poll the registry until the version appears:
+- A newly published version may take a few minutes to show up. `npm view omp-frond@<version> version` can return E404 and `npm view omp-frond version` can show the previous version even though the publish printed `+ omp-frond@<version>`. This is registry propagation, not a failed publish: do not publish again. Poll the registry until the version appears:
 
 ```bash
-curl -s https://registry.npmjs.org/omp-web/<version> | head -c 80   # JSON once it exists, "version not found" before
-npm view omp-web dist-tags --registry https://registry.npmjs.org/
-npm view omp-web versions --json --registry https://registry.npmjs.org/
+curl -s https://registry.npmjs.org/omp-frond/<version> | head -c 80   # JSON once it exists, "version not found" before
+npm view omp-frond dist-tags --registry https://registry.npmjs.org/
+npm view omp-frond versions --json --registry https://registry.npmjs.org/
 ```
 
 ## 3. Commit the Version Bump
@@ -144,7 +144,7 @@ Write the release notes from those commits, not from memory. Include both Chines
 
 - Check commands, flags and setting names against `README.md` and the code before writing them down.
 - Thank outside contributors by name: `git log --format='%h %an | %s' v<previous>..v<version>` lists authors, and the previous release's notes show the style.
-- Open with the install or upgrade instructions for this fork's source checkout (see README), not `npm install -g omp-web@latest`, unless this release is also published to npm.
+- Open with the install or upgrade instructions for this fork's source checkout (see README), not `npm install -g omp-frond@latest`, unless this release is also published to npm.
 - Write the notes to a file outside the repo (for example `NOTES=$(mktemp)`), or pass them through stdin as shown below. A `release-notes.md` in the repo root is an untracked file in the next release's `git status`.
 
 Suggested structure:
@@ -229,9 +229,9 @@ EOF
 
 ```bash
 gh release view v<version> --repo flowtender/omp-frond
-# only if this release was published to npm by an owner of omp-web
-npm view omp-web@<version> version --registry https://registry.npmjs.org/
-npm view omp-web dist-tags --registry https://registry.npmjs.org/
+# only if this release was published to npm by an owner of omp-frond
+npm view omp-frond@<version> version --registry https://registry.npmjs.org/
+npm view omp-frond dist-tags --registry https://registry.npmjs.org/
 git status --short --branch
 git log --oneline --decorate -3
 git ls-remote --tags origin

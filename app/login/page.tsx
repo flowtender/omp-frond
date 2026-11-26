@@ -31,9 +31,9 @@ export default function LoginPage() {
   return (
     <main className={styles.page}>
       <form className={styles.card} onSubmit={(event) => void signIn(event)}>
-        <div className={styles.eyebrow}>omp-web</div>
+        <div className={styles.eyebrow}>omp-frond</div>
         <h1 className={styles.title}>Sign in</h1>
-        <p className={styles.lead}>Enter your password to open omp-web. This device stays signed in for 30 days.</p>
+        <p className={styles.lead}>Enter your password to open omp-frond. This device stays signed in for 30 days.</p>
         <input name="username" autoComplete="username" value="omp" readOnly hidden />
         <label className={styles.field}>
           <span>Password</span>

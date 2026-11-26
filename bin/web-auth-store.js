@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Credential store for omp-web's password lock.
+ * Credential store for omp-frond's password lock.
  *
  * The password protects a server that can run a high-privilege agent, so it is
  * never written to disk in a recoverable form: the file keeps a `scrypt` digest
@@ -9,7 +9,7 @@
  * the digest. Recovery codes are stored the same way.
  *
  * This module lives in `bin/` rather than `lib/` on purpose. Both halves of
- * omp-web need it — the launcher (`bin/omp-web.js`, plain Node CommonJS, before
+ * omp-frond need it — the launcher (`bin/omp-frond.js`, plain Node CommonJS, before
  * Bun is even resolved) and the server (`proxy.ts` and the `/api/web-access`
  * routes) — and only `bin/` is part of the published npm `files` list. It
  * therefore stays dependency-free CommonJS that both runtimes can load.
@@ -229,13 +229,13 @@ function writeWebAuthConfig(config, file = resolveWebAuthFile()) {
  * mutation that dropped a credential it could not parse would unlock the
  * server. `setWebPassword` is the deliberate exception (`replaceUnreadable`):
  * it writes a complete config, so nothing is lost, and it is the escape hatch
- * `omp-web --reset-password` needs when the file has been corrupted.
+ * `omp-frond --reset-password` needs when the file has been corrupted.
  */
 function currentConfig(file, { replaceUnreadable = false } = {}) {
   const state = readWebAuthState(file);
   if (state.status === "unreadable") {
     if (replaceUnreadable) return { version: WEB_AUTH_VERSION };
-    throw new Error(`The omp-web credential file at ${file} could not be read. Run \`omp-web --reset-password\` to replace it.`);
+    throw new Error(`The omp-frond credential file at ${file} could not be read. Run \`omp-frond --reset-password\` to replace it.`);
   }
   return state.config ?? { version: WEB_AUTH_VERSION };
 }

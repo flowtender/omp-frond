@@ -29,7 +29,7 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseCommandLine, getHelpText } = require("./omp-web-options");
+const { parseCommandLine, getHelpText } = require("./omp-frond-options");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { once } = require("events");
 const {
@@ -74,7 +74,7 @@ try {
 
 const launch = parseCommandLine();
 
-// `omp-web version` / `--help` must answer even without build artifacts.
+// `omp-frond version` / `--help` must answer even without build artifacts.
 if (launch.command === "version") {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   console.log(require(path.join(pkgDir, "package.json")).version);
@@ -121,17 +121,17 @@ if (launch.tls) {
 function requireTerminal(flag) {
   if (isInteractive()) return;
   throw new Error([
-    `${flag} has to ask for a password, but omp-web is not attached to a terminal.`,
-    "Run omp-web once interactively to set the password, or pass OMP_WEB_PASSWORD in the environment.",
+    `${flag} has to ask for a password, but omp-frond is not attached to a terminal.`,
+    "Run omp-frond once interactively to set the password, or pass OMP_WEB_PASSWORD in the environment.",
   ].join("\n"));
 }
 
 async function setPasswordInteractively(intro) {
   console.log(intro);
-  console.log(`It is stored as a scrypt hash in ${webAuthFile} — omp-web never keeps the password itself.`);
+  console.log(`It is stored as a scrypt hash in ${webAuthFile} — omp-frond never keeps the password itself.`);
   const password = await readNewPassword();
   setWebPassword(password, { file: webAuthFile });
-  console.log("Password saved. Sign in with this password on the omp-web login page.");
+  console.log("Password saved. Sign in with this password on the omp-frond login page.");
 }
 
 /**
@@ -150,7 +150,7 @@ async function configurePasswordAccess() {
       );
     }
     requireTerminal("--reset-password");
-    await setPasswordInteractively("Setting a new omp-web password.");
+    await setPasswordInteractively("Setting a new omp-frond password.");
     return;
   }
 
@@ -169,7 +169,7 @@ async function configurePasswordAccess() {
   }
 
   requireTerminal("--authenticated");
-  await setPasswordInteractively("--authenticated was requested and no omp-web password has been set yet.");
+  await setPasswordInteractively("--authenticated was requested and no omp-frond password has been set yet.");
 }
 
 function warnAboutExposure() {
@@ -178,12 +178,12 @@ function warnAboutExposure() {
     // TLS protects both the login password and session cookie in transit.
     if (!tlsCredentials) {
       console.warn(
-        `Warning: omp-web is listening on ${hostname} with password access over HTTP. Use HTTPS or a trusted VPN to protect the password and session cookie.`,
+        `Warning: omp-frond is listening on ${hostname} with password access over HTTP. Use HTTPS or a trusted VPN to protect the password and session cookie.`,
       );
     }
   } else {
     console.warn(
-      `Warning: omp-web is listening on ${hostname} without authentication. Only use this on a trusted network, or start it with --authenticated.`,
+      `Warning: omp-frond is listening on ${hostname} without authentication. Only use this on a trusted network, or start it with --authenticated.`,
     );
   }
 }
@@ -223,14 +223,14 @@ async function startServer() {
       ...childEnv,
       OMP_WEB_HOSTNAME: hostname,
       OMP_WEB_AUTH_FILE: webAuthFile,
-      // Preserve the directory from which `omp-web` was launched so relative
+      // Preserve the directory from which `omp-frond` was launched so relative
       // project paths in the browser resolve against the user's shell cwd.
       OMP_WEB_LAUNCH_CWD: process.cwd(),
     },
   });
 
   child.on("error", (error) => {
-    console.error(`Failed to launch omp-web through Bun (${bunPath}): ${error.message}`);
+    console.error(`Failed to launch omp-frond through Bun (${bunPath}): ${error.message}`);
     process.exit(1);
   });
 
@@ -242,7 +242,7 @@ async function startServer() {
     process.stdout.write(text);
     if (!browserOpened && text.includes("Ready")) {
       browserOpened = true;
-      if (tlsCredentials) console.log(`omp-web HTTPS: ${url}`);
+      if (tlsCredentials) console.log(`omp-frond HTTPS: ${url}`);
       if (!openBrowser) return;
       const isWindows = process.platform === "win32";
       const isMac = process.platform === "darwin";

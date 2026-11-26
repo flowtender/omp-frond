@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     if (!status.install.canInstall) {
       return NextResponse.json(
         {
-          error: "No installable omp-web update is available",
+          error: "No installable omp-frond update is available",
           status,
         },
         { status: 409 },

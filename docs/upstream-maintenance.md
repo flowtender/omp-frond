@@ -11,7 +11,6 @@ translations, and the scope of inherited Pi Web implementation notes.
 | --- | --- | --- |
 | `origin` | `flowtender/omp-frond` | Publish this fork and its PR branches |
 | `pi-web` | `agegr/pi-web` | Original UI upstream |
-| `ddallabenetta` | `ddallabenetta/omp-web` | OMP adaptation upstream |
 | `kd-mm2` | `KD-MM2/omp-web` | OMP fork with a newer pi-web integration |
 
 OMP itself is a pinned package dependency, not another UI branch to merge.
@@ -93,7 +92,6 @@ For each upstream, inspect what is not yet in integration:
 
 ```bash
 git log --oneline integration..kd-mm2/main
-git log --oneline integration..ddallabenetta/main
 git log --oneline integration..pi-web/main
 ```
 
@@ -134,7 +132,7 @@ git push -u origin submit/kd-typing-focus
 gh pr create --repo KD-MM2/omp-web --base main --head flowtender:submit/kd-typing-focus
 ```
 
-For ddallabenetta or pi-web, start from that remote's main instead. A patch
+For pi-web, start from that remote's main instead. A patch
 working in daily is not proof that it works on a different recipient baseline.
 
 ## SDK upgrades
@@ -243,7 +241,7 @@ next run reopens it.
 
 The durable review checkpoints live in `.github/upstreams.json` on `main`.
 Initial checkpoints are the pi-web merge base of integration and the existing
-ddallabenetta/kd-mm2 upstream tips. This intentionally exposes the pi-web
+kd-mm2 upstream tip. This intentionally exposes the pi-web
 backlog instead of treating today's latest pi-web as already reviewed.
 After reviewing a batch, update that stream's `reviewed` field to the full
 40-character upstream commit SHA and commit/push the configuration change.

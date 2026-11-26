@@ -9,9 +9,9 @@ import "./sidebar.css";
 import "./sidebar-menu.css";
 
 export const metadata: Metadata = {
-  title: "omp-web",
+  title: "omp-frond",
   description: "Web view for the omp (oh-my-pi) coding agent",
-  applicationName: "omp-web",
+  applicationName: "omp-frond",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "omp-web",
+    title: "omp-frond",
   },
   formatDetection: {
     telephone: false,

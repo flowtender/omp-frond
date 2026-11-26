@@ -47,11 +47,11 @@ Windows で `bunx` が起動前に `EPERM: Operation not permitted (NtSetInforma
 コマンドラインオプションは、対応する環境変数より優先されます。
 
 ```bash
-omp-web --port 8080              # ポートを変更
-omp-web --hostname 0.0.0.0       # 信頼できるネットワークに公開
-omp-web --no-open                # ブラウザーを自動的に開かない
-omp-web --authenticated          # パスワードを有効化（未設定なら端末で入力を求める）
-omp-web --reset-password         # パスワードを忘れた場合に新しく設定
+omp-frond --port 8080              # ポートを変更
+omp-frond --hostname 0.0.0.0       # 信頼できるネットワークに公開
+omp-frond --no-open                # ブラウザーを自動的に開かない
+omp-frond --authenticated          # パスワードを有効化（未設定なら端末で入力を求める）
+omp-frond --reset-password         # パスワードを忘れた場合に新しく設定
 ```
 
 | オプションまたは環境変数 | 用途 | デフォルト |
@@ -67,7 +67,7 @@ omp-web --reset-password         # パスワードを忘れた場合に新しく
 
 ## パスワードとアクセス
 
-**Settings → Access** でパスワードを設定し、ロックのオン／オフを切り替えられます。`--authenticated` または `OMP_WEB_PASSWORD` を使うこともできます。パスワードは `scrypt` ハッシュとして `~/.omp/agent/omp-web-auth.json`（モード `0600`）に保存されます。パスワードを忘れた場合は、サーバーで `omp-web --reset-password` を実行するか、`/recover` を開いてサーバーのコンソールに表示された一度限りのコードを入力してください。
+**Settings → Access** でパスワードを設定し、ロックのオン／オフを切り替えられます。`--authenticated` または `OMP_WEB_PASSWORD` を使うこともできます。パスワードは `scrypt` ハッシュとして `~/.omp/agent/omp-web-auth.json`（モード `0600`）に保存されます。パスワードを忘れた場合は、サーバーで `omp-frond --reset-password` を実行するか、`/recover` を開いてサーバーのコンソールに表示された一度限りのコードを入力してください。
 
 omp-web は高い権限を持つエージェントを呼び出せるため、ログインパスワードとセッション Cookie は[ネイティブ HTTPS](./https.md)、信頼できる HTTPS リバースプロキシ、または信頼できる VPN で保護してください。脅威モデルの詳細は [authentication.md](./authentication.md) にあります。
 

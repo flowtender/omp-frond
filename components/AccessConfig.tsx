@@ -8,7 +8,7 @@ import styles from "./SettingsConfig.module.css";
 /**
  * The password lock, from the settings dialog.
  *
- * omp-web can drive a high-privilege agent, so the panel is deliberately blunt
+ * omp-frond can drive a high-privilege agent, so the panel is deliberately blunt
  * about what the lock does and does not protect: it authenticates, it does not
  * encrypt, and the password itself is never readable back — which is why the
  * recovery paths are spelled out here rather than left to the documentation.
@@ -116,12 +116,12 @@ export function AccessConfig() {
         <p className={styles.contentDescription}>
           A password locks the web interface and every API endpoint behind a sign-in page.
           It is stored as a scrypt hash in <code>{status.file}</code> —
-          omp-web never keeps the password itself, which is why forgetting it means recovering rather than reading it back.
+          omp-frond never keeps the password itself, which is why forgetting it means recovering rather than reading it back.
         </p>
         {readOnly && (
           <div className={styles.readOnlyNotice}>
             Read-only · <code>OMP_WEB_PASSWORD</code> is set and overrides the stored credential. Unset it and restart
-            omp-web to manage the password here.
+            omp-frond to manage the password here.
           </div>
         )}
         {notice && (
@@ -236,8 +236,8 @@ export function AccessConfig() {
             <div>
               <div className={styles.settingLabel}>Recovery</div>
               <div className={styles.settingDescription}>
-                Run <code>omp-web --reset-password</code> on this machine to set a new one, or open <code>/recover</code> in
-                the browser: omp-web prints a one-time code on its own console, and entering that code sets a new password.
+                Run <code>omp-frond --reset-password</code> on this machine to set a new one, or open <code>/recover</code> in
+                the browser: omp-frond prints a one-time code on its own console, and entering that code sets a new password.
                 Both paths require access to the machine running the server — nothing can hand the password back.
               </div>
             </div>

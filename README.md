@@ -16,7 +16,7 @@ The web view for [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi). omp-web 
 
 It is not a separate agent: omp-web runs omp's own SDK in-process, against the same `~/.omp/agent` directory, so a session started in the terminal continues in the browser and back again.
 
-This fork, `flowtender/omp-frond`, tracks three UI upstreams: [agegr/pi-web](https://github.com/agegr/pi-web) (the original UI), [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) (the OMP adaptation), and [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) (an OMP fork with a newer pi-web integration). The OMP SDK ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) is an exact pinned package dependency, not a branch to merge. Branch roles and update workflows are documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
+This fork, `flowtender/omp-frond`, tracks two UI upstreams: [agegr/pi-web](https://github.com/agegr/pi-web) (the original UI) and [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web) (an OMP fork with a newer pi-web integration). It also builds on the OMP adaptation in [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web), which is archived and no longer tracked. The OMP SDK ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) is an exact pinned package dependency, not a branch to merge. Branch roles and update workflows are documented in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).
 
 Expand a task or subagent tool call to see its result cards, with status, duration when available, and formatted output. Deferred completions are linked back to the task that started them; results collected by `wait` also appear in that tool's output.
 
@@ -81,20 +81,20 @@ The `omp-web` entrypoint itself runs under Node or Bun; it locates Bun and re-ex
 **Options:**
 
 ```bash
-omp-web --port 8080              # custom port
-omp-web --hostname 0.0.0.0       # expose on a trusted network
-omp-web -p 8080 -H 0.0.0.0       # combine options
-omp-web --no-open                # do not open the browser automatically
-omp-web --authenticated          # require a password (asks for one if none is set)
-omp-web --reset-password         # set a new password when the old one is lost
-omp-web --tls-cert cert.pem --tls-key key.pem --authenticated  # native HTTPS
+omp-frond --port 8080              # custom port
+omp-frond --hostname 0.0.0.0       # expose on a trusted network
+omp-frond -p 8080 -H 0.0.0.0       # combine options
+omp-frond --no-open                # do not open the browser automatically
+omp-frond --authenticated          # require a password (asks for one if none is set)
+omp-frond --reset-password         # set a new password when the old one is lost
+omp-frond --tls-cert cert.pem --tls-key key.pem --authenticated  # native HTTPS
 
-PORT=8080 omp-web                 # environment variable is also supported
-OMP_WEB_HOSTNAME=0.0.0.0 omp-web  # explicit network exposure
-OMP_WEB_ALLOWED_HOSTS=omp.internal omp-web  # allow an exact proxy/custom hostname
-OMP_WEB_AUTHENTICATED=1 omp-web   # same as --authenticated
-OMP_WEB_PASSWORD='a-long-random-password' omp-web  # override the stored password
-OMP_WEB_NO_OPEN=1 omp-web         # useful when running as a background service
+PORT=8080 omp-frond               # environment variable is also supported
+OMP_WEB_HOSTNAME=0.0.0.0 omp-frond  # explicit network exposure
+OMP_WEB_ALLOWED_HOSTS=omp.internal omp-frond  # allow an exact proxy/custom hostname
+OMP_WEB_AUTHENTICATED=1 omp-frond # same as --authenticated
+OMP_WEB_PASSWORD='a-long-random-password' omp-frond  # override the stored password
+OMP_WEB_NO_OPEN=1 omp-frond       # useful when running as a background service
 ```
 
 ## Docker
@@ -116,10 +116,10 @@ Volume layout, UID/GID matching and reverse-proxy notes: [docs/docker.md](./docs
 A password locks the web interface and every API endpoint behind a sign-in page that works in browsers and installed PWAs. Turn it on wherever suits you:
 
 - **Settings → Access** in the browser, to set the password and switch the lock on or off.
-- **`omp-web --authenticated`**, which turns it on for this run and every later one, and asks for a password on the terminal if none has been set yet.
+- **`omp-frond --authenticated`**, which turns it on for this run and every later one, and asks for a password on the terminal if none has been set yet.
 - **`OMP_WEB_PASSWORD`**, which overrides the stored credential for as long as it is set.
 
-The password is stored as a `scrypt` hash in `~/.omp/agent/omp-web-auth.json` (mode `0600`) — never in plaintext, and never recoverable from the file. Forgotten it? Run `omp-web --reset-password` on the server, or open `/recover` and enter the one-time code omp-web prints on its own console.
+The password is stored as a `scrypt` hash in `~/.omp/agent/omp-web-auth.json` (mode `0600`) — never in plaintext, and never recoverable from the file. Forgotten it? Run `omp-frond --reset-password` on the server, or open `/recover` and enter the one-time code omp-frond prints on its own console.
 
 Sign in at `/login`; the device stays signed in for 30 days using an HttpOnly session cookie. **Settings → Access → Sign out of this device** revokes that session. Changing or recovering the password invalidates existing sessions.
 
@@ -333,7 +333,7 @@ Pushing a `v*` tag triggers `.github/workflows/publish-desktop.yml`: it builds
 macOS (universal) and Windows bundles, uploads them to a GitHub release with
 Ed25519 signatures, and generates the updater manifest (`latest.json`). The
 updater fetches
-`https://github.com/ddallabenetta/omp-web/releases/latest/download/latest.json`.
+`https://github.com/flowtender/omp-frond/releases/latest/download/latest.json`.
 To enable that, configure two repository secrets — `TAURI_SIGNING_PRIVATE_KEY`
 (contents of `~/.omp/omp-web/omp-desktop-signing.key`, generated by
 `bun run desktop:signer generate`) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
@@ -401,7 +401,7 @@ hooks/
   useDragDrop.ts      # image drag/drop
   useTheme.ts         # theme switching
 bin/
-  omp-web.js          # CLI entrypoint; re-executes the server under Bun
+  omp-frond.js        # CLI entrypoint; re-executes the server under Bun
   runtime.js          # Node/Bun version checks and Bun discovery
 instrumentation.ts    # initializes the server HTTP dispatcher
 ```

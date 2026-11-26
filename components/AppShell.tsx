@@ -1426,7 +1426,7 @@ export function AppShell() {
   // Subagent work tabs: like files, only the active one is mounted.
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - omp-web` : "omp-web";
+  const windowTitle = activeCwdName ? `${activeCwdName} - omp-frond` : "omp-frond";
 
   useEffect(() => {
     const syncWindowTitle = () => {

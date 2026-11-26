@@ -15,7 +15,7 @@ Pass the certificate and key with flags or environment variables. Both are
 required together:
 
 ```bash
-omp-web --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
+omp-frond --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
 ```
 
 | Flag | Environment variable | Meaning |
@@ -56,7 +56,7 @@ This writes two files to the current directory, named after the first name
 (`localhost+2.pem` and `localhost+2-key.pem`). Then start omp-web:
 
 ```bash
-omp-web --hostname 127.0.0.1 \
+omp-frond --hostname 127.0.0.1 \
   --tls-cert ./localhost+2.pem \
   --tls-key ./localhost+2-key.pem
 ```
@@ -97,7 +97,7 @@ tailnet. Phones on the tailnet trust them without extra setup.
 
    ```bash
    OMP_WEB_ALLOWED_HOSTS=<machine>.<tailnet>.ts.net \
-   omp-web --hostname 0.0.0.0 --no-open \
+   omp-frond --hostname 0.0.0.0 --no-open \
      --tls-cert ./<machine>.<tailnet>.ts.net.crt \
      --tls-key ./<machine>.<tailnet>.ts.net.key \
      --authenticated
@@ -130,7 +130,7 @@ Caddy, and similar) serve HTTPS in front of it. Run omp-web without the TLS
 options and tell it that the public connection is HTTPS:
 
 ```bash
-OMP_WEB_SECURE_COOKIES=1 omp-web --no-open
+OMP_WEB_SECURE_COOKIES=1 omp-frond --no-open
 ```
 
 `OMP_WEB_SECURE_COOKIES=1` is the required setting for a reverse proxy. omp-web

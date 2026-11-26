@@ -72,7 +72,7 @@ function forwardRequest(req, res, upstreamPort) {
       return;
     }
     res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
-    res.end("omp-web is not reachable on its local port.\n");
+    res.end("omp-frond is not reachable on its local port.\n");
   });
 
   // Client went away before the response finished: stop the upstream work too.

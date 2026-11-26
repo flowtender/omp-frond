@@ -8,14 +8,14 @@ test("manifest reads the app name at runtime without changing other metadata", (
     assert.equal(dynamic, "force-dynamic");
     delete process.env.OMP_WEB_APP_NAME;
     const defaults = manifest();
-    assert.equal(defaults.name, "omp-web");
-    assert.equal(defaults.short_name, "omp-web");
+    assert.equal(defaults.name, "omp-frond");
+    assert.equal(defaults.short_name, "omp-frond");
 
     // Reuse the same imported function: the environment must not be captured
     // at module load time (or baked into a statically generated manifest).
     for (const [value, expected] of [
-      ["", "omp-web"],
-      [" \t\n ", "omp-web"],
+      ["", "omp-frond"],
+      [" \t\n ", "omp-frond"],
       ["Work omp", "Work omp"],
       ["  工作 omp 🚀 \n", "工作 omp 🚀"],
       ["Another omp", "Another omp"],

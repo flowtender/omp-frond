@@ -7,7 +7,7 @@ This repository, `flowtender/omp-frond`, is a fork of omp-web, the browser front
 ## Where a change belongs
 
 - **Fixes and docs for this fork** (`flowtender/omp-frond`): open an issue or pull request here. Open an issue first for anything larger than a bug fix.
-- **OMP-based UI features**: these are prepared against the `main` branch of the recipient repository, either [ddallabenetta/omp-web](https://github.com/ddallabenetta/omp-web) or [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web). Follow that repository's own contribution rules. A patch that works in this fork is not proof that it works on another recipient's baseline.
+- **OMP-based UI features**: these are prepared against the `main` branch of the recipient repository, [KD-MM2/omp-web](https://github.com/KD-MM2/omp-web). Follow that repository's own contribution rules. A patch that works in this fork is not proof that it works on another recipient's baseline.
 - **Changes to the original pi-based UI** that do not depend on OMP: propose them to [agegr/pi-web](https://github.com/agegr/pi-web), and follow its [CONTRIBUTING.md](https://github.com/agegr/pi-web/blob/main/CONTRIBUTING.md). That document's scope rules govern submissions to pi-web, not to this fork.
 - **OMP SDK behavior** (sessions, tools, prompts, retries, or SDK APIs): report it to [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi). This repository consumes the SDK as an exact pinned package.
 - **SDK version changes**: a version bump is not proof of compatibility. SDK upgrades follow the process in [docs/upstream-maintenance.md](./docs/upstream-maintenance.md).

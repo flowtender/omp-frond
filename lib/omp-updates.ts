@@ -8,8 +8,13 @@ import type {
   OmpWebUpdateResponse,
 } from "@/lib/api-types";
 
-export const OMP_WEB_GITHUB_RELEASE_API_URL = "https://api.github.com/repos/ddallabenetta/omp-web/releases/latest";
-export const OMP_WEB_NPM_LATEST_URL = "https://registry.npmjs.org/omp-web/latest";
+const OMP_WEB_GITHUB_REPOSITORY = "flowtender/omp-frond";
+const OMP_WEB_GITHUB_URL = `https://github.com/${OMP_WEB_GITHUB_REPOSITORY}`;
+
+export const OMP_WEB_GITHUB_RELEASE_API_URL = `https://api.github.com/repos/${OMP_WEB_GITHUB_REPOSITORY}/releases/latest`;
+const OMP_WEB_NPM_PACKAGE = "omp-frond";
+
+export const OMP_WEB_NPM_LATEST_URL = `https://registry.npmjs.org/${OMP_WEB_NPM_PACKAGE}/latest`;
 
 const RELEASE_CACHE_SECONDS = 60 * 60;
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -116,14 +121,14 @@ function isNewerVersion(latest: string | null, current: string | null): boolean 
 
 function releaseFromPayload(payload: GitHubReleasePayload): OmpWebReleaseInfo {
   const version = canonicalVersion(payload.tag_name);
-  if (!version) throw new Error("The omp-web release did not contain a valid version tag");
+  if (!version) throw new Error("The omp-frond release did not contain a valid version tag");
 
   const tagName = typeof payload.tag_name === "string" && payload.tag_name.trim()
     ? payload.tag_name.trim()
     : `v${version}`;
-  const htmlUrl = typeof payload.html_url === "string" && payload.html_url.startsWith("https://github.com/ddallabenetta/omp-web/")
+  const htmlUrl = typeof payload.html_url === "string" && payload.html_url.startsWith(`${OMP_WEB_GITHUB_URL}/`)
     ? payload.html_url
-    : `https://github.com/ddallabenetta/omp-web/releases/tag/${encodeURIComponent(tagName)}`;
+    : `${OMP_WEB_GITHUB_URL}/releases/tag/${encodeURIComponent(tagName)}`;
   const body = typeof payload.body === "string" ? payload.body.slice(0, MAX_CHANGELOG_LENGTH) : "";
 
   return {
@@ -143,7 +148,7 @@ function releaseFromPackage(version: string): OmpWebReleaseInfo {
     tagName,
     name: tagName,
     body: "",
-    htmlUrl: `https://github.com/ddallabenetta/omp-web/releases/tag/${encodeURIComponent(tagName)}`,
+    htmlUrl: `${OMP_WEB_GITHUB_URL}/releases/tag/${encodeURIComponent(tagName)}`,
     publishedAt: null,
   };
 }
@@ -160,7 +165,7 @@ async function fetchJson(url: string, fetcher: Fetcher): Promise<unknown> {
     const response = await fetcher(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "omp-web-update-check",
+        "User-Agent": "omp-frond-update-check",
       },
       signal: controller.signal,
       // Next.js caches this server-side request so every browser tab does not
@@ -184,12 +189,12 @@ function selectManager(env: NodeJS.ProcessEnv, runtime: "bun" | "node"): UpdateM
 function commandForManager(manager: UpdateManager): { executable: string; args: string[]; command: string } {
   if (manager === "npm") {
     const executable = process.platform === "win32" ? "npm.cmd" : "npm";
-    const args = ["install", "--global", "omp-web@latest", "--no-audit", "--no-fund"];
-    return { executable, args, command: "npm install --global omp-web@latest" };
+    const args = ["install", "--global", `${OMP_WEB_NPM_PACKAGE}@latest`, "--no-audit", "--no-fund"];
+    return { executable, args, command: `npm install --global ${OMP_WEB_NPM_PACKAGE}@latest` };
   }
   const executable = process.platform === "win32" ? "bun.exe" : "bun";
-  const args = ["add", "--global", "omp-web@latest"];
-  return { executable, args, command: "bun add --global omp-web@latest" };
+  const args = ["add", "--global", `${OMP_WEB_NPM_PACKAGE}@latest`];
+  return { executable, args, command: `bun add --global ${OMP_WEB_NPM_PACKAGE}@latest` };
 }
 
 export function buildInstallPlan({
@@ -234,7 +239,7 @@ export async function getOmpWebUpdateStatus(options: UpdateStatusOptions = {}): 
 
   const packagePayload = await fetchJson(OMP_WEB_NPM_LATEST_URL, fetcher) as NpmPackagePayload;
   const latestPackage = publishedPackageFromPayload(packagePayload);
-  if (!latestPackage) throw new Error("The npm registry did not return a valid omp-web version");
+  if (!latestPackage) throw new Error("The npm registry did not return a valid omp-frond version");
 
   let latestRelease = releaseFromPackage(latestPackage.version);
   try {

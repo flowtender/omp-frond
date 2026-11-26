@@ -44,7 +44,7 @@ const linkedNode = {
 test("an expanded link that leaves the project names its target and offers to allow it", () => {
   const html = renderNode(linkedNode);
   assert.match(html, /Links to \/elsewhere\/project, outside this project/);
-  assert.match(html, /<button type="button" title="Browse \/elsewhere\/project until omp-web restarts[^"]*"[^>]*>Allow browsing<\/button>/);
+  assert.match(html, /<button type="button" title="Browse \/elsewhere\/project until omp-frond restarts[^"]*"[^>]*>Allow browsing<\/button>/);
   assert.doesNotMatch(html, />empty</);
 });
 

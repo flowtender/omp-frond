@@ -1,5 +1,5 @@
 {
-  "name": "omp-web",
+  "name": "omp-frond",
   "version": "0.6.0",
   "description": "Web view for the omp (oh-my-pi) coding agent CLI",
   "homepage": "https://github.com/flowtender/omp-frond#readme",
@@ -29,7 +29,7 @@
     "ios_saf 16.2"
   ],
   "bin": {
-    "omp-web": "bin/omp-web.js"
+    "omp-frond": "bin/omp-frond.js"
   },
   "files": [
     "bin",

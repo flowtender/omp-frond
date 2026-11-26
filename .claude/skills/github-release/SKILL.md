@@ -36,7 +36,7 @@ Rules:
 - Derive every bullet from the commit subject/body and, when necessary, its diff. Never describe an unverified change.
 - Use only non-empty sections. Keep the template's section order: `Added`, `Improved`, `Internal`.
 - Put bug fixes and user-facing refinements under `Improved` unless the user explicitly requests another heading. Do not add unrelated headings by habit.
-- Mention the package bump in `Internal` when that commit is part of the release range, for example `Bumped the package to \`omp-web@<version>\`.`.
+- Mention the package bump in `Internal` when that commit is part of the release range, for example `Bumped the package to \`omp-frond@<version>\`.`.
 - Keep the prose concise, past-tense, and user-facing. Preserve relevant backticks around commands, package names, selectors, and configuration keys.
 - Do not add an `Assets` section: GitHub supplies source archives and displays them separately.
 

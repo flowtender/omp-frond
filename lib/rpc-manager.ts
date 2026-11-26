@@ -672,7 +672,7 @@ export class AgentSessionWrapper {
     this.syncPlanModeFromSession();
     void this.goalMode.restore().catch((error) => {
       console.error(
-        "[omp-web] failed to restore goal mode:",
+        "[omp-frond] failed to restore goal mode:",
         error instanceof Error ? error.message : error,
       );
     });
@@ -709,7 +709,7 @@ export class AgentSessionWrapper {
       if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
       void this.goalMode.handleSessionEvent(event).catch((error) => {
         console.error(
-          "[omp-web] goal mode failed to handle a session event:",
+          "[omp-frond] goal mode failed to handle a session event:",
           error instanceof Error ? error.message : error,
         );
       });
@@ -725,7 +725,7 @@ export class AgentSessionWrapper {
 
   beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
     void this.ensureExtensionsBound(options).catch((err) => {
-      console.error("[omp-web] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
+      console.error("[omp-frond] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
     });
   }
 
@@ -757,7 +757,7 @@ export class AgentSessionWrapper {
         id: randomUUID(),
         method: "notify",
         notifyType: "warning",
-        message: "Extension requested shutdown, but shutdown is not supported in omp-web.",
+        message: "Extension requested shutdown, but shutdown is not supported in omp-frond.",
       } as ExtensionUiRequest as AgentEvent);
       if (typeof bindExtensions === "function") {
         // SDKs that let the host bind extensions at session_start: hand them the
@@ -800,7 +800,7 @@ export class AgentSessionWrapper {
       }
       this.extensionsBound = true;
       this.applyForcedEmptySystemPrompt();
-      console.log(`[omp-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
+      console.log(`[omp-frond] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
       this.extensionBindingError = err;
       throw err;
@@ -849,7 +849,7 @@ export class AgentSessionWrapper {
       // The forked session is already persisted. Cleanup failures must not
       // hide its id from the browser and strand the committed transition.
       console.error(
-        `[omp-web] fork created session ${newSessionId}, but wrapper shutdown failed:`,
+        `[omp-frond] fork created session ${newSessionId}, but wrapper shutdown failed:`,
         error instanceof Error ? error.message : error,
       );
     }
@@ -1038,7 +1038,7 @@ export class AgentSessionWrapper {
         l(event);
       } catch (error) {
         console.error(
-          `[omp-web] failed to deliver ${event.type} event:`,
+          `[omp-frond] failed to deliver ${event.type} event:`,
           error instanceof Error ? error.message : error,
         );
       }
@@ -1102,7 +1102,7 @@ export class AgentSessionWrapper {
     try {
       this.onAgentRunComplete?.(this.sessionId, this.inner.sessionManager.getSessionName?.());
     } catch (error) {
-      console.error("[omp-web] completion listener failed:", error instanceof Error ? error.message : error);
+      console.error("[omp-frond] completion listener failed:", error instanceof Error ? error.message : error);
     }
   }
 
@@ -1417,7 +1417,7 @@ export class AgentSessionWrapper {
             }
           }).catch((error) => {
             console.error(
-              "[omp-web] prompt completion handler failed:",
+              "[omp-frond] prompt completion handler failed:",
               error instanceof Error ? error.message : error,
             );
           });
@@ -1429,7 +1429,7 @@ export class AgentSessionWrapper {
             try {
               markModelsSeen(getAgentDir(), [modelRef(promptedModel)]);
             } catch (error) {
-              console.error("[omp-web] could not record a used model:", error instanceof Error ? error.message : error);
+              console.error("[omp-frond] could not record a used model:", error instanceof Error ? error.message : error);
             }
           }
           return null;
@@ -1457,7 +1457,7 @@ export class AgentSessionWrapper {
             } catch (error) {
               // The SDK's own unwind may fail while the wrapper-side Stop of
               // extension work already succeeded; report, but do not strand Stop.
-              console.error("[omp-web] SDK abort failed:", error instanceof Error ? error.message : error);
+              console.error("[omp-frond] SDK abort failed:", error instanceof Error ? error.message : error);
             }
           });
           return null;
@@ -2682,7 +2682,7 @@ export class AgentSessionWrapper {
       get theme() { return PLAIN_TEXT_THEME; },
       getAllThemes: () => [],
       getTheme: () => undefined,
-      setTheme: () => ({ success: false, error: "Theme switching is not supported in omp-web extension UI yet" }),
+      setTheme: () => ({ success: false, error: "Theme switching is not supported in omp-frond extension UI yet" }),
       getToolsExpanded: () => false,
       setToolsExpanded: () => {},
     };

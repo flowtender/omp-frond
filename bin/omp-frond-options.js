@@ -56,13 +56,13 @@ function resolveTls(values, env) {
 }
 
 function getHelpText() {
-  return `Usage: omp-web [command] [options]
+  return `Usage: omp-frond [command] [options]
 
-Start the omp-web server for the omp (oh-my-pi) coding agent, or run one of
+Start the omp-frond server for the omp (oh-my-pi) coding agent, or run one of
 the commands below.
 
 Commands:
-  version                    Print the installed omp-web version (also -v, --version)
+  version                    Print the installed omp-frond version (also -v, --version)
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
@@ -78,14 +78,14 @@ Environment:
   PORT                       Default port when --port is omitted
   OMP_WEB_HOSTNAME           Default hostname when --hostname is omitted
   OMP_WEB_NO_OPEN            Set to 1/true/yes/on to disable browser open
-  OMP_WEB_APP_NAME           PWA manifest name (trimmed; default omp-web)
+  OMP_WEB_APP_NAME           PWA manifest name (trimmed; default omp-frond)
   OMP_WEB_PASSWORD           Override the stored password access credential
   OMP_WEB_AUTHENTICATED      Set to 1/true/yes/on to enable password access
   OMP_WEB_TLS_CERT           PEM certificate for HTTPS (same as --tls-cert)
   OMP_WEB_TLS_KEY            PEM private key for HTTPS (same as --tls-key)
   OMP_WEB_SECURE_COOKIES     Set to 1 when a reverse proxy serves HTTPS
   OMP_WEB_AUTH_FILE          Password store location (default ~/.omp/agent/omp-web-auth.json)
-  OMP_WEB_DISABLE_SELF_UPDATE  Set to 1 to disable omp-web update checks
+  OMP_WEB_DISABLE_SELF_UPDATE  Set to 1 to disable omp-frond update checks
 `;
 }
 

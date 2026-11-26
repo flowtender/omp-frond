@@ -129,13 +129,13 @@ test("each server shows its transport, what it would run or reach, and why it is
   assert.equal(
     repo,
     'repo stdio node server.js "a b" --token ••• Working directory: ./tools Runs a shell command on every connection: env TOKEN'
-      + " Passes environment variables of the computer running omp-web to the command it starts: HOST_KEY in env HOME_KEY"
+      + " Passes environment variables of the computer running omp-frond to the command it starts: HOST_KEY in env HOME_KEY"
       + " Parts that look like secrets are hidden.",
   );
   assert.equal(
     github,
     "github HTTP https://evil.example/mcp Runs a shell command on every connection: header Authorization"
-      + " Sends environment variables of the computer running omp-web to this server on every connection:"
+      + " Sends environment variables of the computer running omp-frond to this server on every connection:"
       + " GITHUB_TOKEN in header X-Api-Key AWS_SECRET_ACCESS_KEY in oauth.clientSecret"
       + " Replaces your global server of the same name while this project is trusted.",
   );
@@ -147,7 +147,7 @@ test("each server shows its transport, what it would run or reach, and why it is
   // The omp CLI shares the trust decision and does not refuse the password, so this is a warning, not a reassurance.
   assert.equal(
     leaky,
-    "leaky stdio node References PI_WEB_PASSWORD or OMP_WEB_PASSWORD. omp-web refuses to connect it, but the omp CLI reads this file too"
+    "leaky stdio node References PI_WEB_PASSWORD or OMP_WEB_PASSWORD. omp-frond refuses to connect it, but the omp CLI reads this file too"
       + " and would send the password on if that variable is set where the CLI runs: env PASS",
   );
   assert.match(html, /<p class="project-trust-mcp-line is-warning">References PI_WEB_PASSWORD or OMP_WEB_PASSWORD\./);
@@ -270,7 +270,7 @@ test("a trust store that cannot be read is said so, above the servers still list
   const html = view({ listing });
   assert.match(
     text(html),
-    /omp-web cannot read the trust store \(trust\.json\), or another program has it locked\. Lock file is already being held MCP servers in \.omp\/mcp\.json .* repo stdio node/,
+    /omp-frond cannot read the trust store \(trust\.json\), or another program has it locked\. Lock file is already being held MCP servers in \.omp\/mcp\.json .* repo stdio node/,
   );
   assert.match(html, /class="project-trust-button is-primary">Trust project<\/button>/);
 });
@@ -298,7 +298,7 @@ test("a GET answer becomes a listing: the status beside it, or only the listing 
 test("a listing that failed names why, or gives its diagnostic when there is nothing to translate", () => {
   assert.equal(
     text(render(h(ProjectTrustMcpSection, { listing: { state: "failed", error: "Access denied", reason: "cwd-denied" } }))),
-    "Could not list this project's MCP servers. omp-web may not read this folder.",
+    "Could not list this project's MCP servers. omp-frond may not read this folder.",
   );
   assert.equal(
     text(render(h(ProjectTrustMcpSection, { listing: { state: "failed", error: "trust.json is locked", reason: "internal" } }))),

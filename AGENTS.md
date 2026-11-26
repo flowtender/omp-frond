@@ -42,7 +42,7 @@ NODE_ENV=development PI_CODING_AGENT_DIR="$AGENT_DIR" OMP_WEB_DIST_DIR=.next-ver
 
 `@oh-my-pi/pi-*` is published as **TypeScript sources** and imports `bun:sqlite`,
 so Node cannot load it at all (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`).
-The server half of omp-web therefore only runs on Bun; `bin/omp-web.js` finds a
+The server half of omp-frond therefore only runs on Bun; `bin/omp-frond.js` finds a
 Bun binary and re-executes `next start` through it.
 
 Two consequences worth remembering:

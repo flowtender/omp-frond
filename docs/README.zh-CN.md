@@ -47,11 +47,11 @@ Windows 上如果 `bunx` 在启动前因 `EPERM: Operation not permitted (NtSetI
 命令行参数优先于对应的环境变量。
 
 ```bash
-omp-web --port 8080              # 自定义端口
-omp-web --hostname 0.0.0.0       # 在可信网络中对外开放
-omp-web --no-open                # 不自动打开浏览器
-omp-web --authenticated          # 启用密码（尚未设置时会在终端提示输入）
-omp-web --reset-password         # 忘记密码时设置新密码
+omp-frond --port 8080              # 自定义端口
+omp-frond --hostname 0.0.0.0       # 在可信网络中对外开放
+omp-frond --no-open                # 不自动打开浏览器
+omp-frond --authenticated          # 启用密码（尚未设置时会在终端提示输入）
+omp-frond --reset-password         # 忘记密码时设置新密码
 ```
 
 | 参数或环境变量 | 用途 | 默认值 |
@@ -67,7 +67,7 @@ HTTPS 使用 `--tls-cert cert.pem --tls-key key.pem`。详见 [HTTPS](./https.md
 
 ## 密码与访问
 
-在 **Settings → Access** 中设置密码并开关密码锁；也可以使用 `--authenticated`，或设置 `OMP_WEB_PASSWORD`。密码以 `scrypt` 哈希保存在 `~/.omp/agent/omp-web-auth.json`（权限 `0600`）中。忘记密码时，在服务器上运行 `omp-web --reset-password`，或打开 `/recover` 并输入服务器控制台打印的一次性验证码。
+在 **Settings → Access** 中设置密码并开关密码锁；也可以使用 `--authenticated`，或设置 `OMP_WEB_PASSWORD`。密码以 `scrypt` 哈希保存在 `~/.omp/agent/omp-web-auth.json`（权限 `0600`）中。忘记密码时，在服务器上运行 `omp-frond --reset-password`，或打开 `/recover` 并输入服务器控制台打印的一次性验证码。
 
 omp-web 可以调用高权限的智能体，请用 [原生 HTTPS](./https.md)、可信的 HTTPS 反向代理或可信 VPN 保护登录密码和会话 Cookie。完整的威胁模型见 [authentication.md](./authentication.md)。
 

@@ -20,7 +20,7 @@ password, and removes the password entirely.
 **From the command line.**
 
 ```bash
-omp-web --authenticated
+omp-frond --authenticated
 ```
 
 Turns password access on for this run and for every later one. If no password
@@ -37,7 +37,7 @@ the password once interactively, or use the environment variable below.
 **From the environment.**
 
 ```bash
-OMP_WEB_PASSWORD='a-long-random-password' omp-web
+OMP_WEB_PASSWORD='a-long-random-password' omp-frond
 ```
 
 The variable overrides the stored credential completely: while it is set, the
@@ -56,7 +56,7 @@ nothing on the machine can turn the file back into the password.
 
 `OMP_WEB_AUTH_FILE` overrides the location. Set it if you have migrated omp's
 state to XDG directories, or if you want the credential somewhere else entirely;
-`bin/omp-web.js` resolves the path once and passes it to the server, so the two
+`bin/omp-frond.js` resolves the path once and passes it to the server, so the two
 halves can never disagree.
 
 Password verification is timing-safe. Successful password verifications are
@@ -106,7 +106,7 @@ old password back.
 **From a shell on that machine:**
 
 ```bash
-omp-web --reset-password
+omp-frond --reset-password
 ```
 
 Asks for a new password, stores it, and starts the server.

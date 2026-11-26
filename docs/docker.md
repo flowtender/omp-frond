@@ -1,6 +1,6 @@
-# Running omp-web in Docker
+# Running omp-frond in Docker
 
-The image builds omp-web from source and runs that checkout's `bin/omp-web.js` launcher
+The image builds omp-frond from source and runs that checkout's `bin/omp-frond.js` launcher
 inside the container, so every flag and environment variable from the
 [Quick Start](../README.md#quick-start) works the same way.
 
@@ -37,7 +37,7 @@ needs neither — see [File ownership](#file-ownership).
 ## Without compose
 
 ```bash
-docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t omp-web .
+docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t omp-frond .
 
 docker run --rm \
   -p 127.0.0.1:30141:30141 \
@@ -45,13 +45,13 @@ docker run --rm \
   -v "$HOME/code:/workspace" \
   -e OMP_WEB_AUTHENTICATED=1 \
   -e OMP_WEB_PASSWORD='a-long-random-password' \
-  omp-web
+  omp-frond
 ```
 
 Arguments after the image name reach the launcher directly:
 
 ```bash
-docker run --rm -p 127.0.0.1:8080:8080 -e PORT=8080 omp-web --port 8080
+docker run --rm -p 127.0.0.1:8080:8080 -e PORT=8080 omp-frond --port 8080
 ```
 
 ## File ownership
