@@ -601,6 +601,7 @@ test("locks built-in command submission until it settles", async () => {
     }
     return ts.forEachChild(node, findCallback);
   }
+  const suppressed = [];
   const callback = new Script(ts.transpileModule(findCallback(source).getText(source), {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText).runInNewContext({
@@ -609,6 +610,9 @@ test("locks built-in command submission until it settles", async () => {
     builtinCommandPendingRef: { current: false },
     canClearBuiltinCommandInput,
     clearInput() {},
+    draftKeyRef: { current: "session" },
+    holdStoredDraft: () => () => {},
+    suppressIssuedCommandDraft: (...args) => suppressed.push(args),
     onBuiltinCommand: async () => new Promise((resolve) => { callback.resolve = resolve; }),
     setBuiltinCommandPending(value) { callback.pendingStates.push(value); },
     valueRef: { current: "/reload" },
@@ -622,6 +626,10 @@ test("locks built-in command submission until it settles", async () => {
   callback.resolve({ handled: true });
   assert.equal(await first, true);
   assert.deepEqual(callback.pendingStates, [true, false]);
+  const failed = callback("/reload");
+  callback.resolve({ handled: true, error: "failed" });
+  assert.equal(await failed, true);
+  assert.deepEqual(suppressed, [["session", "/reload"]]);
 });
 
 test("keeps only read-only built-ins available while a run is active", () => {

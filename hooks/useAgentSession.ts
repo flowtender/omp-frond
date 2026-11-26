@@ -21,7 +21,7 @@ import { TRANSCRIPT_NOTICES_KEY, withTranscriptNotices, type TranscriptNotice } 
 import { stripAnsi } from "@/lib/ansi";
 import { agentStatusUrl, canApplySessionIdentity, isPromptRejectedError, sendAgentCommand, sendConfirmingCacheLoss, type RuntimeSessionBinding } from "@/lib/agent-client";
 import { rememberSessionContinuation, clearSessionContinuation } from "@/lib/workspace-memory";
-import { getDraft, restoreDraftSubmission } from "@/lib/draft-store";
+import { getDraft, holdStoredDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { isScrollAtTail, shouldShowScrollToLatest } from "@/lib/chat-lazy-load";
@@ -339,6 +339,18 @@ const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 // Session id -> user entry being edited. ChatWindow remounts per session, so a
 // pending edit lives here as long as that session's in-memory draft does.
 const pendingHistoryEdits = new Map<string, string>();
+const historyEditDraftHolds = new Map<string, () => void>();
+
+function setPendingHistoryEdit(sessionId: string, entryId: string | null): void {
+  if (entryId) {
+    pendingHistoryEdits.set(sessionId, entryId);
+    if (!historyEditDraftHolds.has(sessionId)) historyEditDraftHolds.set(sessionId, holdStoredDraft(sessionId));
+  } else {
+    pendingHistoryEdits.delete(sessionId);
+    historyEditDraftHolds.get(sessionId)?.();
+    historyEditDraftHolds.delete(sessionId);
+  }
+}
 
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Space", "Spacebar"]);
 
@@ -518,7 +530,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // edit lives with the session's draft, so it survives a remount (#1146).
   const [editEntryId, setEditEntryId] = useState(() => {
     const sid = session?.id;
-    if (sid && !getDraft(sid)) pendingHistoryEdits.delete(sid);
+    if (sid && !getDraft(sid)) setPendingHistoryEdit(sid, null);
     return (sid && pendingHistoryEdits.get(sid)) || null;
   });
   const [streamState, dispatchStreamReducer] = useReducer(streamReducer, { isStreaming: false, streamingMessage: null });
@@ -657,6 +669,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const contextUsageAppliedIdRef = useRef(0);
   const sessionHookMountedRef = useRef(true);
   const optimisticUserMessageRef = useRef<UserMessage | null>(null);
+  const landedPromptRunIdRef = useRef<number | null>(null);
+  const pendingRecoveryRef = useRef<{
+    runId: number;
+    sid: string;
+    text: string;
+    images?: AttachedImage[];
+    draftKey?: string;
+    bubble: UserMessage;
+    lastEntryId: string | null;
+    previousCount: number;
+  } | null>(null);
+  const recoveryReadRef = useRef<{ requestId: number; data: SessionData } | null>(null);
   const modelSwitchPendingRef = useRef(false);
 
   const applyComposer = useCallback((snapshot: SessionComposerSnapshot, connected = false) => {
@@ -807,6 +831,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
       if (!ownsHistory()) return null;
+      recoveryReadRef.current = { requestId, data: d };
       if (d.runtimeId || d.sessionId !== sid) {
         followSessionIdentity(d.sessionId, d.runtimeId);
         sid = d.sessionId;
@@ -1091,8 +1116,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // so cancelling or reloading never hides the rest of the conversation.
   const setEdit = useCallback((entryId: string | null) => {
     if (!session?.id) return;
-    if (entryId) pendingHistoryEdits.set(session.id, entryId);
-    else pendingHistoryEdits.delete(session.id);
+    setPendingHistoryEdit(session.id, entryId);
     setEditEntryId(entryId);
   }, [session?.id]);
   const handleEditContent = useCallback((message: UserMessage, entryId: string) => {
@@ -1542,13 +1566,38 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
   }, [cancelEventStreamGrace, closeEvents, followRuntimeState]);
 
-  const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
+  const loadSettledPrompt = useCallback(async (sid: string, runId: number) => {
     // Bail out before loadSession too: a stale finish for a previous run
     // must not overwrite the messages of the run currently streaming.
     if (!mountedRef.current || promptRunIdRef.current !== runId) return;
+    const readBefore = historyRequestRef.current;
+    try {
+      await loadSession(sid);
+    } finally {
+      if (!mountedRef.current || promptRunIdRef.current !== runId) return;
+      const pending = pendingRecoveryRef.current;
+      if (pending?.runId === runId) {
+        pendingRecoveryRef.current = null;
+        const read = recoveryReadRef.current;
+        const context = read && read.requestId > readBefore ? read.data.context : null;
+        const ids = context?.entryIds ?? [];
+        const start = pending.lastEntryId === null ? 0 : ids.indexOf(pending.lastEntryId) + 1;
+        const found = context && (pending.lastEntryId === null || start > 0)
+          && context.messages.slice(start).filter((item) => item.role === "user" && userMessageKey(item) === userMessageKey(pending.bubble)).length > pending.previousCount;
+        if (!found) {
+          restoreSubmission(pending.text, pending.images, pending.draftKey);
+          setMessages((prev) => prev.filter((item) => item !== pending.bubble));
+          addNotice({ type: "warning", message: "Delivery could not be confirmed. The message was returned to your draft; check the conversation before sending again." });
+        }
+      }
+    }
+  }, [addNotice, loadSession, restoreSubmission]);
+
+  const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
+    if (!mountedRef.current || promptRunIdRef.current !== runId) return;
     sid = sessionIdRef.current ?? sid;
     try {
-      if (sid) await loadSession(sid);
+      if (sid) await loadSettledPrompt(sid, runId);
     } finally {
       if (!mountedRef.current || promptRunIdRef.current !== runId) return;
       const promptWasPending = rpcPromptPendingRef.current;
@@ -1564,21 +1613,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (sid) scheduleEventStreamClose(sid);
     }
-  }, [loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [loadSettledPrompt, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
     const startedAt = Date.now();
 
     while (agentRunningRef.current && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
-      if (!mountedRef.current || sessionIdRef.current !== sid) return;
+      if (!mountedRef.current || sessionIdRef.current !== sid) {
+        const pending = pendingRecoveryRef.current;
+        if (pending && (runId === undefined || pending.runId === runId)) {
+          pendingRecoveryRef.current = null;
+          restoreSubmission(pending.text, pending.images, pending.draftKey);
+        }
+        return;
+      }
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
       try {
         const requestedRuntimeId = runtimeIdRef.current;
         const res = await fetch(agentStatusUrl(requestedRuntimeId ?? sid));
         if (res.ok) {
           const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
-          if (runId !== undefined && promptRunIdRef.current !== runId) return;
+          if (!agentRunningRef.current || (runId !== undefined && promptRunIdRef.current !== runId)) return;
           const state = data.state;
           if (followRuntimeState(state, sid, requestedRuntimeId)) {
             await delay(PROMPT_SETTLE_POLL_MS);
@@ -1595,7 +1651,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       await delay(PROMPT_SETTLE_POLL_MS);
     }
-  }, [finishPromptWithoutStream, followRuntimeState]);
+    // The deadline ends fast polling, not the run. SSE and the regular
+    // reconciliation poll still own completion and transcript recovery.
+  }, [finishPromptWithoutStream, followRuntimeState, restoreSubmission]);
 
   const waitForBashSettlement = useCallback(async (sid: string) => {
     const recoveryId = bashRecoveryIdRef.current + 1;
@@ -1765,8 +1823,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // stream attach, tool and context loads, usage updates) drops its result.
   useEffect(() => {
     sessionHookMountedRef.current = true;
-    return () => { sessionHookMountedRef.current = false; };
-  }, []);
+    return () => {
+      sessionHookMountedRef.current = false;
+      const pending = pendingRecoveryRef.current;
+      pendingRecoveryRef.current = null;
+      if (pending?.draftKey) {
+        const key = isNew && newSessionCwd && !newSessionPromotedRef.current
+          ? `parked-new:${newSessionCwd}` : pending.draftKey;
+        restoreDraftSubmission(key, pending.text, pending.images?.map(({ data, mimeType }) => ({ data, mimeType })));
+      }
+    };
+  }, [isNew, newSessionCwd]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
@@ -1866,7 +1933,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (!promptWasPending && !firstNotification) break;
 
           const sid = sessionIdRef.current;
-          if (sid) void loadSession(sid);
+          if (sid && pendingRecoveryRef.current?.runId === runId) void loadSettledPrompt(sid, runId);
+          else if (sid) void loadSession(sid);
           // A newer continuation may have started before this prompt_done.
           // Its terminal agent_end owns the next completion transition.
           if (!sdkAgentActiveRef.current) {
@@ -1907,6 +1975,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
           const optimistic = optimisticUserMessageRef.current;
+          if (optimistic && userMessageKey(optimistic) === userMessageKey(completed)) {
+            landedPromptRunIdRef.current = promptRunIdRef.current;
+            pendingRecoveryRef.current = null;
+          }
           setMessages((prev) => {
             // A history read can install the saved user message before its SSE
             // event arrives. Match the SDK's timestamp and attribution as well
@@ -2167,7 +2239,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialog((current) => current?.id === event.id ? null : current);
         break;
     }
-  }, [addNotice, applyComposer, cancelEventStreamGrace, handleExtensionUiRequest, isNew, loadSession, notifyPromptStage, onAgentEnd, followSessionIdentity, followRuntimeState, refreshContextUsage, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, applyComposer, cancelEventStreamGrace, handleExtensionUiRequest, isNew, loadSession, loadSettledPrompt, notifyPromptStage, onAgentEnd, followSessionIdentity, followRuntimeState, refreshContextUsage, scheduleEventStreamClose, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -2214,6 +2286,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         : message,
       timestamp: Date.now(),
     };
+    const lastEntryId = entryIdsRef.current.at(-1) ?? null;
+    const previousCount = lastEntryId === null
+      ? messagesRef.current.filter((item) => item.role === "user" && userMessageKey(item) === userMessageKey(userMsg)).length
+      : 0;
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageRef.current = userMsg;
     promptRunIdRef.current = promptRunId;
@@ -2280,6 +2356,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // have accepted the prompt before the response was lost. Keep SSE alive
       // until server state confirms the run is idle.
       if (!definitivelyRejected && sentSessionId) {
+        if (landedPromptRunIdRef.current !== promptRunId && !isSlashCommandPrompt) {
+          const draftKey = isNew && newSessionCwd && !newSessionPromotedRef.current
+            ? (sessionHookMountedRef.current ? composerDraftKey : `parked-new:${newSessionCwd}`)
+            : (sentSessionId ?? composerDraftKey);
+          pendingRecoveryRef.current = { runId: promptRunId, sid: sentSessionId, text: message, images, draftKey, bubble: userMsg, lastEntryId, previousCount };
+          if (!sessionHookMountedRef.current && draftKey) {
+            pendingRecoveryRef.current = null;
+            restoreDraftSubmission(draftKey, message, images?.map(({ data, mimeType }) => ({ data, mimeType })));
+          } else if (!agentRunningRef.current) {
+            // Completion can arrive before the POST reports its transport error.
+            await loadSettledPrompt(sentSessionId, promptRunId);
+          }
+        } else if (isSlashCommandPrompt && landedPromptRunIdRef.current !== promptRunId && sessionHookMountedRef.current) {
+          addNotice({ type: "warning", message: "Command delivery could not be confirmed. Check the conversation before issuing it again." });
+        }
         void waitForPromptSettlement(sentSessionId, promptRunId);
         return;
       }
@@ -2291,7 +2382,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // any attached images) into the input instead of losing it. Mirrors the
       // shell-command recovery in executeBash; restoreSubmission avoids
       // clobbering anything typed since.
-      restoreSubmission(message, images, sessionIdRef.current ?? sentSessionId ?? session?.id ?? undefined);
+      restoreSubmission(message, images, sentSessionId ?? composerDraftKey);
       optimisticUserMessageRef.current = null;
       // Rejection only describes this submission. Another tab or an event we
       // missed may still have a real run active for the same session, so keep
@@ -2306,7 +2397,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, dispatch, restoreSubmission, editEntryId, setEdit, chatScrollMode]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, loadSettledPrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, dispatch, restoreSubmission, editEntryId, setEdit, chatScrollMode]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -2315,9 +2406,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAutoFollowRef.current(true);
     setPendingBash({ command, excludeFromContext });
     setBashRunning(true);
+    let commandStarted = false;
+    let sentSessionId: string | null = null;
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
+      sentSessionId = sid;
+      commandStarted = true;
       await sendAgentCommand(sid, {
         type: "bash",
         command,
@@ -2327,9 +2422,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       promoteNewSession(1, inputText);
     } catch (e) {
       console.error("Failed to execute shell command:", e);
-      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      // The command never ran: give the text back instead of losing it.
-      restoreSubmission(inputText, undefined, sessionIdRef.current ?? session?.id ?? composerDraftKey);
+      if (commandStarted && !isPromptRejectedError(e)) {
+        addNotice({ type: "warning", message: "Command delivery could not be confirmed. Check the conversation before issuing it again." });
+      } else {
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+        restoreSubmission(inputText, undefined, sentSessionId ?? composerDraftKey);
+      }
     } finally {
       bashRunningRef.current = false;
       setPendingBash(null);
@@ -2792,55 +2890,80 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // the real user message when pi delivers it (user message_end event). An
   // optimistic chat bubble here would duplicate the queue panel and turn into
   // a ghost message if the queue is recalled.
-  const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
-    try {
-      await sendAgentCommand(sid, {
-        type: "steer",
-        message,
-        ...(piImages?.length ? { images: piImages } : {}),
-      }, runtimeIdRef);
-    } catch (e) {
-      console.error("Failed to steer:", e);
-    }
-  }, []);
-
-  const handlePromptWithStreamingBehavior = useCallback(async (
+  const sendStreamingPrompt = useCallback(async (
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
+    asPrompt = false,
   ) => {
     const sid = sessionIdRef.current;
-    if (!sid) return;
+    const draftKey = composerDraftKey ?? sid ?? undefined;
+    if (!sid) {
+      restoreSubmission(message, images, draftKey);
+      return;
+    }
+    const runtimeId = runtimeIdRef.current;
+    const lastEntryId = entryIdsRef.current.at(-1) ?? null;
+    const baselineQueue = (behavior === "steer" ? queuedMessages.steering : queuedMessages.followUp)
+      .filter((item) => item === message).length;
+    const key = userMessageKey({
+      role: "user",
+      content: images?.length
+        ? [...(message.trim() ? [{ type: "text" as const, text: message }] : []),
+          ...images.map((image) => ({ type: "image" as const, source: { type: "base64" as const, media_type: image.mimeType, data: image.data } }))]
+        : message,
+    });
+    const baselineMessages = messagesRef.current.filter((item) => item.role === "user" && userMessageKey(item) === key).length;
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
       await sendAgentCommand(sid, {
-        type: "prompt",
+        type: asPrompt ? "prompt" : behavior === "steer" ? "steer" : "follow_up",
         message,
-        streamingBehavior: behavior,
+        ...(asPrompt ? { streamingBehavior: behavior } : {}),
         ...(piImages?.length ? { images: piImages } : {}),
       }, runtimeIdRef);
-    } catch (e) {
-      console.error("Failed to queue prompt:", e);
+    } catch (error) {
+      let confirmed = false;
+      if (!isPromptRejectedError(error)) {
+        try {
+          const [statusResponse, historyResponse] = await Promise.all([
+            fetch(agentStatusUrl(runtimeId ?? sid)),
+            fetch(`/api/sessions/${encodeURIComponent(sid)}?deferThinking=1&deferMedia=1`),
+          ]);
+          if (statusResponse.ok) {
+            const status = await statusResponse.json() as { state?: AgentStateResponse };
+            const queue = normalizeQueuedMessages(status.state?.queuedMessages);
+            confirmed = !images?.length && (behavior === "steer" ? queue.steering : queue.followUp)
+              .filter((item) => item === message).length > baselineQueue;
+          }
+          if (!confirmed && historyResponse.ok) {
+            const history = await historyResponse.json() as SessionData;
+            const ids = history.context.entryIds ?? [];
+            const start = lastEntryId === null ? 0 : ids.indexOf(lastEntryId) + 1;
+            confirmed = (lastEntryId === null || start > 0)
+              && history.context.messages.slice(start).filter((item) => item.role === "user" && userMessageKey(item) === key).length
+                > (lastEntryId === null ? baselineMessages : 0);
+          }
+        } catch {
+          // An unavailable read cannot prove either delivery or rejection.
+        }
+      }
+      if (confirmed) return;
+      restoreSubmission(message, images, draftKey);
+      if (sessionHookMountedRef.current && sessionIdRef.current === sid) {
+        addNotice(isPromptRejectedError(error)
+          ? { type: "error", message: error.message }
+          : { type: "warning", message: "Delivery could not be confirmed. The message was returned to your draft; check the conversation before sending again." });
+      }
     }
-  }, []);
+  }, [addNotice, composerDraftKey, queuedMessages, restoreSubmission]);
 
-  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
-    try {
-      await sendAgentCommand(sid, {
-        type: "follow_up",
-        message,
-        ...(piImages?.length ? { images: piImages } : {}),
-      }, runtimeIdRef);
-    } catch (e) {
-      console.error("Failed to follow up:", e);
-    }
-  }, []);
+  const handleSteer = useCallback((message: string, images?: AttachedImage[]) =>
+    sendStreamingPrompt(message, "steer", images), [sendStreamingPrompt]);
+  const handlePromptWithStreamingBehavior = useCallback((message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) =>
+    sendStreamingPrompt(message, behavior, images, true), [sendStreamingPrompt]);
+  const handleFollowUp = useCallback((message: string, images?: AttachedImage[]) =>
+    sendStreamingPrompt(message, "followUp", images), [sendStreamingPrompt]);
 
   const handleAbortCompaction = useCallback(async () => {
     const sid = sessionIdRef.current;

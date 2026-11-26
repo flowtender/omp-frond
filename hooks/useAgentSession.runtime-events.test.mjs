@@ -6,6 +6,7 @@ import { isBlockingExtensionUiRequest } from "../lib/browser-notifications.ts";
 import { normalizeToolCalls } from "../lib/normalize.ts";
 import { toClientAgentEvent } from "../lib/agent-event-wire.ts";
 import { userMessageKey } from "../lib/prompt-recovery.ts";
+import { AgentCommandError, isPromptRejectedError } from "../lib/agent-client.ts";
 import { TRANSCRIPT_NOTICES_KEY, withTranscriptNotices } from "../lib/transcript-notices.ts";
 
 const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
@@ -29,7 +30,7 @@ const callbackNames = [
   "closeEvents", "followSessionIdentity", "followRuntimeState", "cancelEventStreamGrace",
   "handleExtensionUiRequest", "handleAgentEvent", "connectEvents", "resolveCommandSession", "ensureEventsConnected", "applyContextUsage", "refreshContextUsage",
   "settleUiStage", "notifyPromptStage", "finishPromptWithoutStream", "reconcileAgentState",
-  "handleSend",
+  "loadSettledPrompt", "waitForPromptSettlement", "handleSend", "executeBash",
 ];
 const helperNames = ["streamReducer", "EventStreamConnectionError"];
 for (const name of callbackNames) assert.ok(callbacks.has(name), `Missing callback: ${name}`);
@@ -54,7 +55,7 @@ function track(promise) {
   return result;
 }
 
-function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
+function harness({ sessionId = "a", runtimeId = "runtime:r1", overrides = {} } = {}) {
   const sources = [];
   const effects = [];
   const requests = [];
@@ -80,6 +81,12 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
     TRANSCRIPT_NOTICES_KEY,
     withTranscriptNotices,
     userMessageKey,
+    isPromptRejectedError,
+    executeBashRef: { current: null },
+    PROMPT_SETTLE_INITIAL_DELAY_MS: 800,
+    PROMPT_SETTLE_POLL_MS: 600,
+    PROMPT_SETTLE_MAX_MS: 20_000,
+    delay: (ms) => new Promise((resolve) => bindings.setTimeout(resolve, ms)),
     mountedRef: { current: true },
     sessionIdRef: { current: sessionId },
     runtimeIdRef: { current: runtimeId },
@@ -101,6 +108,13 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
     rpcPromptPendingRef: { current: false },
     notifiedPromptRunIdRef: { current: -1 },
     optimisticUserMessageRef: { current: null },
+    landedPromptRunIdRef: { current: null },
+    pendingRecoveryRef: { current: null },
+    recoveryReadRef: { current: null },
+    entryIdsRef: { current: [] },
+    messagesRef: { current: [] },
+    restoreSubmission: (text, images, key) => effects.push(["restore", text, images, key]),
+    composerDraftKey: sessionId,
     normalizeQueuedMessages: (queue) => queue ?? { steering: [], followUp: [] },
     mergeSubagentSnapshots: (_current, incoming) => incoming,
     loadSession: async () => {},
@@ -142,11 +156,13 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
       effects.push(["dispatch", action]);
       state.stream = api.streamReducer(state.stream, action);
     },
+    ...overrides,
   };
   for (const name of ["AgentRunning", "AgentPhase", "ExtensionDialog", "ExtensionCustomUi",
     "ExtensionStatuses", "ExtensionWidgets", "CurrentModelOverride", "ContextUsage",
     "RetryInfo", "IsCompacting", "QueuedMessages", "Subagents", "GoalStatus", "SystemPrompt",
-    "Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error", "PromptAnchorActive", "ActiveToolResults"]) {
+    "Loading", "Data", "ActiveLeafId", "Messages", "EntryIds", "Error", "PromptAnchorActive", "ActiveToolResults",
+    "BashRunning", "PendingBash", "PromptCache"]) {
     bindings[`set${name}`] = (value) => {
       state[name] = typeof value === "function" ? value(state[name]) : value;
       effects.push([name, state[name]]);
@@ -154,6 +170,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
   }
   const api = new Function(...Object.keys(bindings), outputText)(...Object.values(bindings));
   bindings.handleAgentEventRef.current = api.handleAgentEvent;
+  bindings.executeBashRef.current = api.executeBash;
   return {
     ...api, bindings, sources, effects, requests, replies, timers, state,
     runTimers(delay) {
@@ -839,3 +856,102 @@ test("a reply's live cache-miss marker comes beside it and stays on the appended
   stream.frame({ type: "message_end", message: { ...reply, content: [{ type: "text", text: "warm" }] } });
   assert.deepEqual(h.state.Messages.map((message) => message.transcriptNotices), [[miss], undefined]);
 });
+
+
+test("an unrelated agent start does not confirm an uncertain prompt", () => {
+  const h = harness();
+  const pending = {
+    runId: 1, sid: "a", text: "lost response", draftKey: "a",
+    bubble: { role: "user", content: "lost response" }, lastEntryId: null, previousCount: 0,
+  };
+  h.bindings.pendingRecoveryRef.current = pending;
+  h.handleAgentEvent({ type: "agent_start" });
+  assert.equal(h.bindings.pendingRecoveryRef.current, pending);
+  assert.equal(h.bindings.landedPromptRunIdRef.current, null);
+});
+for (const delivered of [false, true]) {
+  test(`an unconfirmed prompt is ${delivered ? "recognized in the transcript" : "returned without resending"}`, async () => {
+    const h = harness();
+    const bubble = { role: "user", content: "lost response", timestamp: 1 };
+    h.bindings.pendingRecoveryRef.current = {
+      runId: 1, sid: "a", text: "lost response", draftKey: "a", bubble,
+      lastEntryId: "before", previousCount: 0,
+    };
+    h.bindings.recoveryReadRef.current = {
+      requestId: 1,
+      data: { context: {
+        entryIds: delivered ? ["before", "after"] : ["before"],
+        messages: delivered ? [{ role: "assistant", content: [] }, { role: "user", content: "lost response" }] : [{ role: "assistant", content: [] }],
+      } },
+    };
+    await h.finishPromptWithoutStream("a", 1);
+    const restored = h.effects.filter(([kind]) => kind === "restore");
+    assert.equal(restored.length, delivered ? 0 : 1);
+    if (!delivered) {
+      assert.deepEqual(restored[0], ["restore", "lost response", undefined, "a"]);
+      assert.ok(h.effects.some(([kind, notice]) => kind === "notice" && notice.type === "warning"));
+    }
+    assert.equal(h.effects.some(([kind]) => kind === "command"), false);
+  });
+}
+
+for (const completion of ["idle poll after deadline", "prompt_done during polling"]) {
+  test(`a delivered prompt stays out of the draft: ${completion}`, async () => {
+    let now = 0;
+    const text = "lost response";
+    const saved = { role: "user", content: text, timestamp: 1 };
+    const h = harness({ runtimeId: null, overrides: {
+      Date: { now: () => now },
+      sendAgentCommand: async () => { throw new TypeError("connection lost"); },
+      loadSession: (...args) => h.loadTranscript(...args),
+    } });
+    const sending = h.handleSend(text);
+    const stream = h.sources[0];
+    stream.open();
+    stream.frame({ type: "connected", sessionId: "a", runtimeId: "runtime:r1" });
+    await sending;
+    h.replies.push(response({ running: true, state: { isPromptRunning: true } }));
+    h.runTimers(800);
+    await tick();
+
+    let releaseHistory;
+    const history = new Promise((resolve) => { releaseHistory = resolve; });
+    if (completion === "prompt_done during polling") {
+      h.replies.push(history);
+      stream.frame({ type: "prompt_done" });
+    } else {
+      now += 21_000;
+    }
+    h.runTimers(600);
+    await tick();
+    assert.deepEqual(h.state.Messages.map((message) => message.content), [text]);
+    assert.equal(h.effects.some(([kind]) => kind === "restore"), false);
+
+    if (completion === "idle poll after deadline") {
+      h.replies.push(response({ running: false }), history);
+    }
+    const settled = completion === "idle poll after deadline" ? h.reconcileAgentState("a") : null;
+    releaseHistory(response({ sessionId: "a", leafId: "sent", context: { messages: [saved], entryIds: ["sent"] } }));
+    await settled;
+    await tick();
+    assert.deepEqual(h.state.Messages, [saved]);
+    assert.equal(h.bindings.pendingRecoveryRef.current, null);
+    assert.equal(h.effects.some(([kind]) => kind === "restore"), false);
+  });
+}
+
+for (const text of ["!pwd", "!!pwd", "/example"]) {
+  test(`a confirmed rejection returns ${text} to the originating draft`, async () => {
+    const h = harness({ runtimeId: null, overrides: {
+      sendAgentCommand: async () => { throw new AgentCommandError("command refused", 409, "prompt_rejected", false); },
+    } });
+    const sending = h.handleSend(text);
+    if (text.startsWith("/")) {
+      h.sources[0].open();
+      h.sources[0].frame({ type: "connected", sessionId: "a", runtimeId: "runtime:r1" });
+    }
+    await sending;
+    assert.deepEqual(h.effects.filter(([kind]) => kind === "restore"), [["restore", text, undefined, "a"]]);
+    assert.deepEqual(h.state.Messages, []);
+  });
+}

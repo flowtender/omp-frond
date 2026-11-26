@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { WebAccessStatus } from "@/lib/api-types";
+import { clearStoredDrafts } from "@/lib/draft-store";
 import styles from "./SettingsConfig.module.css";
 
 /**
@@ -159,6 +160,7 @@ export function AccessConfig() {
               try {
                 const response = await fetch("/api/web-access/logout", { method: "POST" });
                 if (!response.ok) throw new Error("Unable to sign out.");
+                clearStoredDrafts();
                 window.location.replace("/login");
               } catch (caught) {
                 setError(caught instanceof Error ? caught.message : String(caught));

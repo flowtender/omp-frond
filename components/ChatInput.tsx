@@ -9,11 +9,14 @@ import type { SessionComposerSnapshot } from "@/lib/session-composer";
 import type { WebSessionAccent } from "@/lib/omp-theme";
 import {
   clearDraft,
+  flushStoredDrafts,
   getDraft,
+  holdStoredDraft,
   mergeRestoredSubmissionDraft,
   mergeRestoredSubmissionText,
   rekeyDraft as rekeyStoredDraft,
   setDraft,
+  suppressIssuedCommandDraft,
   type ChatDraftImage,
 } from "@/lib/draft-store";
 import {
@@ -1048,6 +1051,27 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, [attachedImages, draftKey, saveSharedDraftSoon, value]);
 
   useEffect(() => {
+    const flush = () => {
+      if (draftKeyRef.current) {
+        setDraft(draftKeyRef.current, {
+          value: valueRef.current,
+          images: attachedImagesRef.current.map(imageToDraftImage),
+        });
+      }
+      flushStoredDrafts();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
     if (previousDraftKey === draftKey) return;
 
@@ -1103,15 +1127,26 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (builtinCommandPendingRef.current) return true;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
+    const commandDraftKey = draftKeyRef.current;
+    const commandDraftText = valueRef.current;
+    const releaseStoredDraft = commandDraftKey ? holdStoredDraft(commandDraftKey) : null;
+    let issued = true;
+    let cleared = false;
     try {
       const result = await onBuiltinCommand(msg);
+      issued = result.handled;
       if (!result.handled) return false;
-      if (!result.error && canClearBuiltinCommandInput(valueRef.current, attachedImagesRef.current.length, msg)) clearInput();
+      if (!result.error && draftKeyRef.current === commandDraftKey && canClearBuiltinCommandInput(valueRef.current, attachedImagesRef.current.length, msg)) {
+        clearInput();
+        cleared = true;
+      }
       // omp's built-ins (e.g. /name flows) can ask the composer to send a
       // follow-up prompt once the command succeeded.
       if (!result.error && result.prompt) onSend(result.prompt);
       return true;
     } finally {
+      if (issued && !cleared && commandDraftKey) suppressIssuedCommandDraft(commandDraftKey, commandDraftText);
+      releaseStoredDraft?.();
       builtinCommandPendingRef.current = false;
       setBuiltinCommandPending(false);
     }
