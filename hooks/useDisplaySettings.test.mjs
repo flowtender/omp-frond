@@ -9,6 +9,7 @@ const settingsSource = readFileSync(new URL("../components/SettingsConfig.tsx", 
 test("serves the render-affecting settings for the requested cwd", () => {
   assert.match(routeSource, /getSettingsForCwd\(cwd\)/);
   assert.match(routeSource, /hideThinkingBlock: getSetting\(settings, "hideThinkingBlock"\) === true/);
+  assert.match(routeSource, /cacheMissMarker: getSetting\(settings, "display\.cacheMissMarker"\) === true/);
   // Same guards as the other settings-derived endpoints.
   assert.match(routeSource, /isApiRequestAllowed\(req\)/);
   assert.match(routeSource, /isExistingFilePathAllowed\(cwd, allowedRoots\)/);
@@ -22,6 +23,6 @@ test("shares one store so message components do not each fetch", () => {
 });
 
 test("applies the toggle to the open transcript instead of asking for a reload", () => {
-  assert.match(settingsSource, /const DISPLAY_SETTING_PATHS = new Set\(\["hideThinkingBlock"\]\)/);
+  assert.match(settingsSource, /const DISPLAY_SETTING_PATHS = new Set\(\["hideThinkingBlock", "display\.cacheMissMarker"\]\)/);
   assert.match(settingsSource, /DISPLAY_SETTING_PATHS\.has\(field\.path\)\) \{[\s\S]*?refreshDisplaySettings\(cwd\)/);
 });

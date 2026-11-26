@@ -73,6 +73,8 @@ import type {
   SubagentSnapshot,
 } from "./types";
 import { createHeadlessExtensionUiHost, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
+import { findLiveCacheMiss } from "./cache-miss-markers";
+import { TRANSCRIPT_NOTICES_KEY } from "./transcript-notices";
 
 // ============================================================================
 // Types
@@ -699,6 +701,7 @@ export class AgentSessionWrapper {
         this.activeMessageEvent = null;
       }
       event = this.trackActiveToolEvent(event);
+      if (event.type === "message_end") event = this.withCacheMissMarker(event);
       this.trackStreamingMessageEvent(event);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
@@ -1066,6 +1069,19 @@ export class AgentSessionWrapper {
       }
     }
     return event;
+  }
+
+  /**
+   * An assistant `message_end` carrying omp's cache-miss marker beside the
+   * message, never on it: omp persists that object. The browser hangs it on
+   * the message it appends, as a history read would.
+   */
+  private withCacheMissMarker(event: AgentEvent): AgentEvent {
+    const message = event.message as { role: string; timestamp?: number } | undefined;
+    if (message?.role !== "assistant") return event;
+    const sessionManager = this.inner.sessionManager;
+    const miss = findLiveCacheMiss(sessionManager.getEntries() as unknown as SessionEntry[], sessionManager.getLeafId(), message);
+    return miss ? { ...event, [TRANSCRIPT_NOTICES_KEY]: [miss] } : event;
   }
 
   /**

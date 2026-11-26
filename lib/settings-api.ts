@@ -53,6 +53,8 @@ export interface WebThemeConfig {
 /** Render-affecting settings the transcript view reads from omp's config. */
 export interface DisplaySettings {
   hideThinkingBlock: boolean;
+  /** omp's `display.cacheMissMarker`: a line under each assistant turn that lost a warm prompt cache. */
+  cacheMissMarker: boolean;
 }
 
 export interface SettingsResponse {

@@ -225,7 +225,7 @@ function ThemePreview({ palette }: { palette: WebThemePalette }) {
 }
 
 /** Settings the web client applies itself, without reloading the agent. */
-const DISPLAY_SETTING_PATHS = new Set(["hideThinkingBlock"]);
+const DISPLAY_SETTING_PATHS = new Set(["hideThinkingBlock", "display.cacheMissMarker"]);
 
 async function fetchSettings(query: string): Promise<SettingsResponse> {
   const response = await fetch(`/api/settings${query}`, { cache: "no-store" });

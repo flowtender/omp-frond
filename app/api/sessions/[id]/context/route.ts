@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { resolveSessionPath, buildSessionContext, getHistoricalContextUsage, CONTEXT_DEFAULT_TAIL } from "@/lib/session-reader";
 import { getRpcSession, getFinalRpcSessionId } from "@/lib/rpc-manager";
+import { attachCacheMisses, findCacheMisses } from "@/lib/cache-miss-markers";
 
 export async function GET(
   req: Request,
@@ -33,12 +34,16 @@ export async function GET(
 
     const sm = liveRpc?.inner.sessionManager ?? await SessionManager.open(filePath!);
     const entries = sm.getEntries() as never;
-    const context = buildSessionContext(entries, before ?? leafId, {
-      deferThinking,
-      deferToolResultImages,
-      tail,
-      excludeLeaf: Boolean(before),
-    });
+    const pageLeafId = before ?? leafId;
+    const context = attachCacheMisses(
+      buildSessionContext(entries, pageLeafId, {
+        deferThinking,
+        deferToolResultImages,
+        tail,
+        excludeLeaf: Boolean(before),
+      }),
+      findCacheMisses(entries, pageLeafId ?? sm.getLeafId()),
+    );
     const contextUsage = await getHistoricalContextUsage(entries, leafId);
 
     return NextResponse.json({

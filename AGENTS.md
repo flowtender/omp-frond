@@ -167,6 +167,8 @@ lib/
   seen-models.ts       models already shown, for the "new" tags (omp-web-seen-models.json)
   prompt-cache.ts      prompt-cache status: a live session's warmer, or inferred from a transcript
   prompt-cache-shared.ts  client-safe prompt-cache report, view-at-time and indicator settings
+  cache-miss-markers.ts  omp's cache-miss marker per assistant entry (history routes + live message_end)
+  transcript-notices.ts  client-safe shape of that marker on a chat message, its formatting and fold summary
   push-client.ts       browser push subscription helpers
   web-push.ts          VAPID keys + web-push notification sending
   rpc-manager.ts       AgentSessionWrapper + registry + startRpcSession

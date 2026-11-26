@@ -60,6 +60,7 @@ function renderTranscript(messages, overrides = {}) {
     onOpenFile: undefined, onOpenSubagent: undefined, handleCompact: undefined, setSentinel: undefined, setVisibleCount: undefined,
     hideCost: false, t: (key) => key,
     tokenDisplay: "text",
+    cacheMissMarker: false,
     ...overrides,
   });
   const Transcript = script.runInContext(context);
@@ -183,6 +184,25 @@ test("collapsed process header reports failed calls and hides the count when ope
   const t = (key, params) => key === "chat.processFailures" ? `${params.count} failures` : key;
   assert.ok(renderTranscript(messages, { toolResultsMap, t }).includes("1 failures"));
   assert.ok(!renderTranscript(messages, { toolResultsMap, t, useExpansionPreference: () => "expanded" }).includes("1 failures"));
+});
+
+test("cache-miss markers show under their step while omp's display.cacheMissMarker is on", () => {
+  const marker = (reprocessedTokens) => ({ transcriptNotices: [{ kind: "cache_miss", reprocessedTokens }] });
+  const messages = [user, { ...work("step"), ...marker(1500) }, reply("answer", marker(25_400))];
+  const t = (key, params) => key.startsWith("transcriptNotice.fold") ? `${params.count} misses ${params.tokens}` : key;
+
+  const folded = renderTranscript(messages, { t, cacheMissMarker: true });
+  assert.match(folded, /1 misses 1\.5K/, "the folded header counts the step's miss, not the answer's");
+  assert.equal((folded.match(/Cache miss · 25K tokens/g) ?? []).length, 1);
+  assert.doesNotMatch(folded, /Cache miss · 1\.5K tokens/);
+
+  const open = renderTranscript(messages, { t, cacheMissMarker: true, useExpansionPreference: () => "expanded" });
+  assert.doesNotMatch(open, /1 misses/);
+  assert.match(open, /Cache miss · 1\.5K tokens/);
+  assert.equal((open.match(/Cache miss · 25K tokens/g) ?? []).length, 1);
+
+  const off = renderTranscript(messages, { t, cacheMissMarker: false, useExpansionPreference: () => "expanded" });
+  assert.doesNotMatch(off, /Cache miss|misses/);
 });
 
 test("flow shows one set of counts when a reply's thinking and answer are split", () => {

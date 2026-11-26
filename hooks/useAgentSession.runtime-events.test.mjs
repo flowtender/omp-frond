@@ -6,6 +6,7 @@ import { isBlockingExtensionUiRequest } from "../lib/browser-notifications.ts";
 import { normalizeToolCalls } from "../lib/normalize.ts";
 import { toClientAgentEvent } from "../lib/agent-event-wire.ts";
 import { userMessageKey } from "../lib/prompt-recovery.ts";
+import { TRANSCRIPT_NOTICES_KEY, withTranscriptNotices } from "../lib/transcript-notices.ts";
 
 const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("useAgentSession.ts", source, ts.ScriptTarget.Latest, true);
@@ -76,6 +77,8 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
     EventSource: FakeEventSource,
     isBlockingExtensionUiRequest,
     normalizeToolCalls,
+    TRANSCRIPT_NOTICES_KEY,
+    withTranscriptNotices,
     userMessageKey,
     mountedRef: { current: true },
     sessionIdRef: { current: sessionId },
@@ -824,4 +827,15 @@ test("the next model turn waits through delivered input and clears when its repl
   stream.frame({ type: "message_start", message: reply });
   assert.equal(h.state.AgentPhase, null);
   assert.deepEqual(h.state.stream.streamingMessage, reply);
+});
+
+test("a reply's live cache-miss marker comes beside it and stays on the appended message", async () => {
+  const h = harness();
+  const stream = await openRuntime(h);
+  stream.frame({ type: "agent_start" });
+  const reply = { role: "assistant", provider: "test", model: "test", content: [{ type: "text", text: "done" }] };
+  const miss = { kind: "cache_miss", reprocessedTokens: 41_300 };
+  stream.frame({ type: "message_end", message: reply, transcriptNotices: [miss] });
+  stream.frame({ type: "message_end", message: { ...reply, content: [{ type: "text", text: "warm" }] } });
+  assert.deepEqual(h.state.Messages.map((message) => message.transcriptNotices), [[miss], undefined]);
 });

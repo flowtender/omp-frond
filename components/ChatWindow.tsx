@@ -228,7 +228,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durati
   const parts = [`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
   if (durationMs !== undefined) parts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
-  // Folded, the cache misses inside are added up here (#1265); open, each shows under its step.
+  // Folded, the cache misses inside are added up here; open, each shows under its step.
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
   const failureText = failureCount > 0 && !(expanded || reveal) ? t("chat.processFailures", { count: failureCount }) : undefined;
 
@@ -262,7 +262,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durati
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {parts.join(" · ")}
           {failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${failureText}`}</span>}
-          {cacheMissText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${cacheMissText}`}</span>}
+          {cacheMissText && ` · ${cacheMissText}`}
         </span>
       </button>
       {(expanded || reveal) && (
@@ -348,9 +348,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const hasStreamingContent = useStreamingSelector(streamingStore, selectHasStreamingContent);
   const getStreamingMessage = useCallback(() => streamingStore.getState().streamingMessage, [streamingStore]);
   const sessionBusy = agentRunning || bashRunning;
-  // omp's render-affecting settings (hideThinkingBlock). Synced here once for
-  // the whole transcript; MessageView reads the shared store directly.
-  const { hideThinkingBlock } = useSyncedDisplaySettings(newSessionCwd ?? session?.cwd ?? null);
+  // omp's render-affecting settings (hideThinkingBlock, display.cacheMissMarker).
+  // Synced here once for the whole transcript; MessageView reads the shared store directly.
+  const { hideThinkingBlock, cacheMissMarker } = useSyncedDisplaySettings(newSessionCwd ?? session?.cwd ?? null);
   const displayOptions = useMemo<DisplayOptions>(() => ({ hideThinking: hideThinkingBlock }), [hideThinkingBlock]);
   // While this session's run is under way its chime may come with the phone
   // locked, where a suspended context cannot start again (#1157).
@@ -1222,8 +1222,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean; flowUsage?: AssistantMessage["usage"] | null; suppressUserHandoff?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 if (isHiddenCustomMessage(msg)) return null;
-                // pi's showCacheMissNotices (#1265): read from the stored message, not a turn view's copy.
-                const notices = options.withNotices === false ? [] : getTranscriptNotices(messages[idx]);
+                // omp's cache-miss marker, while `display.cacheMissMarker` is on; read from the stored message, not a turn view's copy.
+                const notices = options.withNotices === false || !cacheMissMarker ? [] : getTranscriptNotices(messages[idx]);
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const keyPrefix = options.keyPrefix ?? "message";
                 // Not the entry id alone: a message sent or streamed in this run
@@ -1296,7 +1296,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               const rendered: { key: string; pinned?: boolean; render: () => ReactNode }[] = [];
               const appendMessage = (idx: number) => {
                 const message = messages[idx];
-                if (isHiddenCustomMessage(message) || (message.role === "toolResult" && getTranscriptNotices(message).length === 0)) return;
+                if (isHiddenCustomMessage(message) || message.role === "toolResult") return;
                 rendered.push({ key: `message-${messageKeys[idx]}`, pinned: pinMessage(idx), render: () => renderMessage(idx) });
               };
               for (let idx = 0; idx < messages.length;) {
@@ -1371,7 +1371,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const withNotices = processIdx !== finalAssistantIdx || !finalAnswerMessage;
                   const blocks = getDisplayableAssistantBlocks(message, displayOptions);
                   if (blocks.length === 0 && !(tokenDisplay === "flow" && message.usage)) {
-                    const notices = withNotices ? getTranscriptNotices(processMessage) : [];
+                    const notices = withNotices && cacheMissMarker ? getTranscriptNotices(processMessage) : [];
                     if (notices.length > 0) processViews.push(() => <TranscriptNoticeLines key={`process-notices-${messageKeys[processIdx]}`} notices={notices} />);
                     continue;
                   }
@@ -1424,7 +1424,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     // Only notice lines, from steps that show nothing else: no fold for them.
                     if (processMessageCount === 0) return views;
                     const answered = collapsesProcessDetails(finalAnswerMessage);
-                    const processCacheMisses = summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1));
+                    const processCacheMisses = cacheMissMarker ? summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1)) : undefined;
                     return (
                       <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} renderAnswer={splitFlowUsage ? renderAnswer : undefined} t={t}>
                         {views}

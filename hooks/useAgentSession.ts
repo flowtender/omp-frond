@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
+import { TRANSCRIPT_NOTICES_KEY, withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import { stripAnsi } from "@/lib/ansi";
 import { agentStatusUrl, canApplySessionIdentity, isPromptRejectedError, sendAgentCommand, sendConfirmingCacheLoss, type RuntimeSessionBinding } from "@/lib/agent-client";
 import { rememberSessionContinuation, clearSessionContinuation } from "@/lib/workspace-memory";
@@ -1924,7 +1925,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               : [...prev, completed];
           });
         } else if (completed) {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          // An assistant reply's cache-miss marker comes beside it (lib/cache-miss-markers.ts).
+          const appended = withTranscriptNotices(normalizeToolCalls(completed), event[TRANSCRIPT_NOTICES_KEY] as TranscriptNotice[] | undefined);
+          setMessages((prev) => [...prev, appended]);
           if (completed.role === "toolResult") {
             setActiveToolResults((prev) => {
               if (!prev.has(completed.toolCallId)) return prev;

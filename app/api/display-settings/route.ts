@@ -27,6 +27,7 @@ export async function GET(req: Request) {
     const settings = await getSettingsForCwd(cwd);
     const payload: DisplaySettings = {
       hideThinkingBlock: getSetting(settings, "hideThinkingBlock") === true,
+      cacheMissMarker: getSetting(settings, "display.cacheMissMarker") === true,
     };
     return NextResponse.json(payload);
   } catch (error) {
