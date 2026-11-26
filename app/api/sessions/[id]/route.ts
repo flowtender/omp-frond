@@ -7,6 +7,7 @@ import {
   resolveSessionIdByPath,
   invalidateSessionPathCache,
   invalidateSessionListCache,
+  invalidateSessionManagerCache,
   buildSessionContext,
   getHistoricalContextUsage,
   readSessionHeader,
@@ -16,7 +17,7 @@ import { sessionPathKey } from "@/lib/session-path";
 import { childrenToReparent, reparentSessionFile } from "@/lib/session-reparent";
 import { setSessionArchived } from "@/lib/session-archive";
 import { forgetSessionDrafts } from "@/lib/session-draft-store";
-import { getRpcSession } from "@/lib/rpc-manager";
+import { getRpcSession, renameRpcSession } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
@@ -133,18 +134,24 @@ export async function PATCH(
     if (!hasName && !hasArchived) {
       return NextResponse.json({ error: "name or archived is required" }, { status: 400 });
     }
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
+    const owner = getRpcSession(id);
+    const filePath = owner?.isAlive() ? owner.sessionFile ?? null : await resolveSessionPath(id);
+    if (!filePath && !owner?.isAlive()) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
+    const canonicalId = owner?.sessionId ?? (filePath && readSessionHeader(filePath)?.id) ?? id;
     if (hasName) {
-      const sm = await SessionManager.open(filePath);
-      await sm.setSessionName(name.trim(), "user");
+      const title = name.trim();
+      if (!title) return NextResponse.json({ error: "Session name cannot be empty" }, { status: 400 });
+      if (!await renameRpcSession(canonicalId, filePath, title)) {
+        return NextResponse.json({ error: "Session could not be renamed. Try again." }, { status: 409 });
+      }
+      if (filePath) invalidateSessionManagerCache(filePath);
     }
     if (hasArchived) {
       // Key the registry by the header id (what /api/sessions lists), not by
       // whatever alias the client addressed the session with.
-      setSessionArchived(readSessionHeader(filePath)?.id ?? id, archived);
+      setSessionArchived(canonicalId, archived);
     }
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });

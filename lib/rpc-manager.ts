@@ -2701,6 +2701,7 @@ declare global {
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __ompFinalSessionIds: Map<string, string> | undefined;
   var __ompStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
+  var __ompOfflineRenames: Map<string, Promise<string | null>> | undefined;
   var __ompStartingSessionCwds: Map<string, number> | undefined;
   var __ompRunningListeners: Set<(ids: string[]) => void> | undefined;
 }
@@ -2811,6 +2812,30 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return [...registry.values()].find(
     (candidate) => candidate.isAlive() && (candidate.sessionId === sessionId || candidate.runtimeId === sessionId),
   );
+}
+
+/** Rename on the owner's leaf without waiting for extension dialogs to finish. */
+export async function renameRpcSession(id: string, file: string | null, name: string): Promise<boolean> {
+  const renames = globalThis.__ompOfflineRenames ??= new Map();
+  for (;;) {
+    const owner = getRpcSession(id);
+    if (owner?.isAlive()) return owner.inner.sessionManager.setSessionName(name, "user");
+    const pending = getLocks().get(id) ?? closingRpcSessionWait(id) ?? (file && renames.get(file));
+    if (pending) {
+      await pending.catch(() => undefined);
+      continue;
+    }
+    if (owner || !file) return false;
+    // Omp awaits both open and write. Keep local starts out until the
+    // offline writer releases the SDK's cross-process ownership lease.
+    const writing = SessionManager.renameSessionTitle(file, name);
+    renames.set(file, writing);
+    try {
+      return (await writing) !== null;
+    } finally {
+      renames.delete(file);
+    }
+  }
 }
 
 export interface SetRpcSessionToolsResult {
@@ -3089,6 +3114,12 @@ export async function startRpcSession(
 
   const existing = getRpcSession(sessionId);
   if (existing?.isAlive()) return { session: existing, realSessionId: existing.sessionId };
+
+  const renaming = sessionFile && globalThis.__ompOfflineRenames?.get(sessionFile);
+  if (renaming) {
+    await renaming.catch(() => undefined);
+    return startRpcSession(sessionId, sessionFile, cwd, options);
+  }
 
   const inflight = locks.get(sessionId);
   if (inflight) return inflight;
