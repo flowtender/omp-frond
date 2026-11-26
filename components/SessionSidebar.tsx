@@ -769,7 +769,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     forgetRetiredSidebarKeys();
   }, []);
 
-  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false): Promise<boolean> => {
+  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false): Promise<void> => {
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
@@ -785,7 +785,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
         awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
-      if (loadId !== sessionLoadIdRef.current) return false;
+      if (loadId !== sessionLoadIdRef.current) return;
       sessionListVersionRef.current = data.sessionListVersion;
       listedRuntimeIdsRef.current = data.sessionIdsByRuntimeId ?? listedRuntimeIdsRef.current;
       setAllSessions(data.sessions);
@@ -813,10 +813,8 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
         return next.size === prev.size ? prev : next;
       });
       setError(null);
-      return needsDetails;
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
-      return false;
     } finally {
       if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
@@ -829,13 +827,11 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     let active = true;
 
     if (isFirst) {
-      // Header/stat metadata is enough to select the URL session and paint the
-      // sidebar. Hydrate exact counts, names, and first messages once the
-      // selected chat has had a chance to start loading, if any rows need it.
+      // Paint the cached list first, then check disk for changes made by the CLI.
       initialSummaryStartedAtRef.current = Date.now();
-      void loadSessions(true, false, true).then((needsDetails) => {
+      void loadSessions(true, false, true).then(() => {
         initialSummaryStartedAtRef.current = null;
-        if (!active || !needsDetails) return;
+        if (!active) return;
         detailsHydrationTimerRef.current = setTimeout(() => {
           detailsHydrationTimerRef.current = null;
           if (active) void loadSessions(false, true);

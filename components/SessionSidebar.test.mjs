@@ -507,9 +507,6 @@ test("offers the downstream context-menu hook only on a normal session row", () 
 test("the session-list fetch bypasses the browser cache; only the hydration refresh forces", () => {
   assert.match(source, /if \(force\) return "\/api\/sessions\?force=1";/);
   assert.match(source, /cache: "no-store"/);
-  // The two-phase first paint: a summary pass, then one forced details
-  // hydration. Every later bump trusts the server's own invalidation.
-  assert.match(source, /void loadSessions\(true, false, true\)[\s\S]*?if \(!active \|\| !needsDetails\) return;[\s\S]*?loadSessions\(false, true\);/);
   assert.match(source, /void loadSessions\(\);/);
 });
 
@@ -554,25 +551,27 @@ test("a newly running session does not supersede the initial summary", () => {
   assert.equal(refreshes, 0);
 });
 
-test("initial hydration only runs for pending summary rows", async () => {
+test("first load forces a disk refresh even without pending details; later loads use the cache", async () => {
   const start = source.indexOf("    const isFirst = !initialLoadDone.current;");
   const end = source.indexOf("\n  }, [loadSessions, refreshKey]);", start);
   assert.ok(start >= 0 && end > start);
   const body = ts.transpile(source.slice(start, end), { target: ts.ScriptTarget.ES2022 });
-  for (const needsDetails of [false, true]) {
+  for (const alreadyLoaded of [false, true]) {
     const calls = [];
     let scheduled;
     const context = {
-      initialLoadDone: { current: false }, initialSummaryStartedAtRef: { current: null },
+      initialLoadDone: { current: alreadyLoaded }, initialSummaryStartedAtRef: { current: null },
       detailsHydrationTimerRef: { current: null }, SESSION_DETAILS_HYDRATION_DELAY_MS: 750,
-      loadSessions: async (...args) => { calls.push(args); return needsDetails; },
+      loadSessions: async (...args) => { calls.push(args); },
       setTimeout: (fn) => { scheduled = fn; return 1; }, clearTimeout: noop,
     };
     vm.runInNewContext(`(function () { ${body} })()`, context);
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(calls, [[true, false, true]]);
-    assert.equal(Boolean(scheduled), needsDetails);
-    if (scheduled) {
+    if (alreadyLoaded) {
+      assert.deepEqual(calls, [[]]);
+      assert.equal(scheduled, undefined);
+    } else {
+      assert.deepEqual(calls, [[true, false, true]]);
       scheduled();
       assert.deepEqual(calls, [[true, false, true], [false, true]]);
     }
