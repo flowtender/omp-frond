@@ -68,7 +68,7 @@ const CORE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string; r
 const ICON_PATHS: Record<string, React.ReactNode> = {
   ui: <><path d="M20 7h-9M14 17H5"/><circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/></>,
   model: <><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 1v3m6-3v3M9 20v3m6-3v3M1 9h3m16 0h3M1 15h3m16 0h3"/></>,
-  roles: <><path d="M2.5 18.5h19M6.5 18.5V6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v12.5M6.5 14h11"/></>,
+  roles: <><path d="M4 16a8 8 0 0 1 16 0M2.5 16h19v2.5h-19zM12 8v8M9 9.5V16m6-6.5V16"/></>,
   theme: <><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z"/></>,
   skill: <><path d="m12 3 8 4-8 4-8-4 8-4Z"/><path d="m4 12 8 4 8-4M4 17l8 4 8-4"/></>,
   plugin: <PlugGlyph />,
