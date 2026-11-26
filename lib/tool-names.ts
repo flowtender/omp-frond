@@ -6,6 +6,14 @@
  * accepts the common decorated forms.
  */
 
+export function isBashToolName(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return name === "bash" ||
+    name.startsWith("bash ") ||
+    name.endsWith(".bash") ||
+    name.endsWith("_bash");
+}
+
 export function isWriteToolName(toolName: string): boolean {
   const name = toolName.toLowerCase();
   return name === "write" ||

@@ -1,3 +1,4 @@
+import { isBashToolName } from "./tool-names";
 import { mcpToolLabel } from "./mcp-tool-display";
 import type { TranslationParams } from "./i18n/types";
 
@@ -25,6 +26,13 @@ export function shellToolDispatches(details: unknown): readonly ToolDispatch[] {
   return typeof details === "object" && details !== null && "toolCommands" in details && Array.isArray(details.toolCommands)
     ? details.toolCommands.filter(isToolDispatch)
     : NO_DISPATCHES;
+}
+
+/** The tools a call actually ran: a bash call that dispatched tool commands (`lsp …`) ran those, not bash. */
+export function ranToolNames(toolName: string, details: unknown): readonly string[] {
+  if (!isBashToolName(toolName)) return [toolName];
+  const dispatches = shellToolDispatches(details);
+  return dispatches.length > 0 ? dispatches.map(({ tool }) => tool) : [toolName];
 }
 
 function brief(value: unknown): string {

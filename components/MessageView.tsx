@@ -32,7 +32,7 @@ import { formatTurnDuration } from "@/lib/turn-duration";
 import { diffGapLabel, parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap } from "@/lib/patch";
 import { canHighlightDiff, highlightDiffFile, type DiffToken } from "@/lib/diff-syntax";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
-import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
+import { isApplyPatchToolName, isBashToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { isToolCallExpanded, setToolCallExpanded, toolCallExpandedByDefault, toolCallFailureCount } from "@/lib/tool-call-expansion";
 import { useExpansionPreference } from "@/lib/expansion-preference";
@@ -44,7 +44,7 @@ import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPrevie
 import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
 import { mcpToolLabel, type McpToolLabel } from "@/lib/mcp-tool-display";
-import { inlineToolResult, inlineToolTarget, shellToolDispatches, type ToolDispatch } from "@/lib/inline-tool-display";
+import { inlineToolResult, inlineToolTarget, ranToolNames, shellToolDispatches, type ToolDispatch } from "@/lib/inline-tool-display";
 import { asyncResultCards, taskToolCards, type TaskResultCard } from "@/lib/task-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import type {
@@ -1058,12 +1058,13 @@ function AssistantMessageView({
       {toolBlocks && toolBlocks.length > 0 && (
         <>
           <TokenFlowHandoff kind="tools" label={`${toolBlocks.length} ${t(toolBlocks.length === 1 ? "chat.toolCall" : "chat.toolCalls")}`} time={handoffTime}>
-            {toolBlocks.map(({ block, originalIndex }) => (
-              <span key={originalIndex} className="token-flow-handoff-icon" title={block.toolName}>
-                <span className="sr-only">{block.toolName}</span>
-                <ToolBlockIcon toolName={block.toolName} mcpLabel={mcpToolLabel(block.toolName)} isError={false} />
-              </span>
-            ))}
+            {toolBlocks.flatMap(({ block, originalIndex }) =>
+              ranToolNames(block.toolName, toolResults?.get(block.toolCallId)?.details).map((ranName, slot) => (
+                <span key={`${originalIndex}:${slot}`} className="token-flow-handoff-icon" title={ranName}>
+                  <span className="sr-only">{ranName}</span>
+                  <ToolBlockIcon toolName={ranName} mcpLabel={mcpToolLabel(ranName)} isError={false} />
+                </span>
+              )))}
           </TokenFlowHandoff>
           <div className="flex flex-col gap-2">{toolBlocks.map(renderBlock)}</div>
         </>
@@ -1369,7 +1370,7 @@ function ToolCallBlock({ block, result, duration, liveTiming, onOpenSubagent }: 
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
   // omp keeps a live console card for bash and a checklist card for todo.
   const normalizedToolName = block.toolName.toLowerCase();
-  const isBashTool = normalizedToolName === "bash" || normalizedToolName.startsWith("bash ") || normalizedToolName.endsWith(".bash") || normalizedToolName.endsWith("_bash");
+  const isBashTool = isBashToolName(normalizedToolName);
   const isTodoTool = normalizedToolName === "todo" || normalizedToolName.endsWith(".todo") || normalizedToolName.endsWith("_todo");
   const todoPhases = isTodoTool ? getTodoPreviewPhases(block, result) : null;
 
@@ -1790,25 +1791,22 @@ function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
     case "read":
       return (
         <>
-          <path d="M2.75 1.75h5.5l3 3v7.5h-8.5V1.75Z" />
-          <path d="M8.25 1.75v3h3" />
-          <path d="M4.2 9.1c1.1-1.4 3.6-1.4 4.7 0-1.1 1.4-3.6 1.4-4.7 0Z" />
-          <circle cx="6.55" cy="9.1" r="0.7" fill="currentColor" stroke="none" />
+          <path d="M1 7c1.6-3 3.8-4.5 6-4.5s4.4 1.5 6 4.5c-1.6 3-3.8 4.5-6 4.5S2.6 10 1 7Z" />
+          <circle cx="7" cy="7" r="1.9" fill="currentColor" stroke="none" />
         </>
       );
     case "write":
       return (
         <>
-          <path d="M2.75 1.75h5.5l3 3v7.5h-8.5V1.75Z" />
-          <path d="M8.25 1.75v3h3" />
-          <path d="M6.55 6.25v4.15m-1.7-1.55 1.7 1.7 1.7-1.7" />
+          <path d="m1.5 12 .5-2.2 7.2-7.2 1.7 1.7-7.2 7.2-2.2.5Z" />
+          <path d="M8.5 7.5h2.6l1.4 1.4v3.6h-4Z" />
         </>
       );
     case "glob":
       return (
         <>
-          <path d="M1.75 4.5A1.25 1.25 0 0 1 3 3.25h2.25l1.35 1.35h4.4A1.25 1.25 0 0 1 12.25 5.85v5.1A1.25 1.25 0 0 1 11 12.2H3a1.25 1.25 0 0 1-1.25-1.25V4.5Z" />
-          <path d="M9 7.1v3.8M7.1 9h3.8M7.65 7.65l2.7 2.7m0-2.7-2.7 2.7" />
+          <path d="M9 2v7M6 3.75l6 3.5M6 7.25l6-3.5" />
+          <path d="M1.5 12.5V8.7h2.3l.9.9h2.8v2.9Z" />
         </>
       );
     case "grep":
@@ -1822,10 +1820,8 @@ function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
     case "edit":
       return (
         <>
-          <path d="M2.75 1.75h5.5l3 3v7.5h-8.5V1.75Z" />
-          <path d="M8.25 1.75v3h3" />
-          <path d="m4.45 10.55 4.75-4.75 1.45 1.45-4.75 4.75-1.95.5.5-1.95Z" />
-          <path d="m8.45 6.55 1.45 1.45" />
+          <path d="m1.5 12 .5-2.2 7.2-7.2 1.7 1.7-7.2 7.2-2.2.5Z" />
+          <path d="M8 12.5h4.5" />
         </>
       );
     case "bash":
@@ -1876,7 +1872,7 @@ function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
     case "lsp":
       return (
         <>
-          <path d="m3.8 3.7-2.9 3.3 2.9 3.3m6.4-6.6 2.9 3.3-2.9 3.3M7 4.2v1.3m0 3v1.3M4.5 7h1m3 0h1" />
+          <path d="m3.8 3.7-2.9 3.3 2.9 3.3m6.4-6.6 2.9 3.3-2.9 3.3" />
           <circle cx="7" cy="7" r="1.5" />
         </>
       );
@@ -1898,16 +1894,15 @@ function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
     case "gitnexus-impact":
       return (
         <>
-          <path d="M1.35 2.5h3.1l1.8 1.8v7.2h-4.9V2.5Zm3.1 0v1.8h1.8M2.85 6.35h1.85M2.85 8.45h1.85" />
-          <circle cx="8.25" cy="7" r=".55" fill="currentColor" stroke="none" />
-          <path d="M9.25 5.15a2.15 2.15 0 0 1 0 3.7m1.2-5.1a3.9 3.9 0 0 1 0 6.5" />
+          <circle cx="4" cy="7" r="1.6" />
+          <path d="M7 4.5a3.5 3.5 0 0 1 0 5m2.5-6.5a7 7 0 0 1 0 8" />
         </>
       );
     case "generic":
       return (
         <>
-          <rect x="1.75" y="2" width="10.5" height="10" rx="1.3" />
-          <path d="M4.35 5h5.3M4.35 7.35h3.8M4.35 9.7h4.6" />
+          <path d="M7 1.75 12 4.4v5.2L7 12.25 2 9.6V4.4Z" />
+          <circle cx="7" cy="7" r="1.2" />
         </>
       );
   }
