@@ -47,7 +47,7 @@ function shellEnvironment(): Record<string, string> {
   for (const [key, value] of Object.entries(process.env)) {
     // The browser login password guards this server, not the shells it starts.
     const comparableKey = process.platform === "win32" ? key.toUpperCase() : key;
-    if (value !== undefined && comparableKey !== "PI_WEB_PASSWORD") env[key] = value;
+    if (value !== undefined && comparableKey !== "PI_WEB_PASSWORD" && comparableKey !== "OMP_WEB_PASSWORD") env[key] = value;
   }
   env.TERM = "xterm-256color";
   env.COLORTERM = "truecolor";

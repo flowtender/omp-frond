@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { nodeCliInvocation } from "./node-cli";
+import { sanitizeProjectCommandEnvironment } from "./child-environment";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,7 +29,7 @@ function isSensitiveEnvName(name: string): boolean {
  */
 export function getSafeNpxEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const safe = {} as NodeJS.ProcessEnv;
-  for (const [name, value] of Object.entries(process.env)) {
+  for (const [name, value] of Object.entries(sanitizeProjectCommandEnvironment(process.env))) {
     if (value !== undefined && !isSensitiveEnvName(name)) safe[name] = value;
   }
   for (const [name, value] of Object.entries(overrides)) {

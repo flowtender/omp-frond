@@ -12,6 +12,7 @@ import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
 import type { BashOperations } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-coding-agent-shim";
 import { executeBash as executeBashCommand } from "@oh-my-pi/pi-coding-agent/exec/bash-executor";
 import { join } from "node:path";
+import { sanitizeProjectCommandEnvironment } from "./child-environment";
 
 // Pi's own abort path settles well within this once the process tree is gone.
 const ABORT_SETTLE_GRACE_MS = 1000;
@@ -28,27 +29,6 @@ type ProjectCommandBashOperationsOptions = {
 
 /** What a project command's exec resolves to once the shell process ends. */
 type ProjectBashExecResult = { exitCode: number | null };
-
-function isHostRuntimeVariable(name: string, platform: NodeJS.Platform): boolean {
-  const comparableName = platform === "win32" ? name.toUpperCase() : name;
-  return comparableName === "PORT"
-    || comparableName === "NODE_ENV"
-    || comparableName.startsWith("NEXT_")
-    // The browser login password guards this server; commands run on behalf of
-    // a project (and the model reading their output) have no use for it.
-    || comparableName === "PI_WEB_PASSWORD";
-}
-
-export function sanitizeProjectCommandEnvironment(
-  baseEnvironment: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform = process.platform,
-): NodeJS.ProcessEnv {
-  const environment = { ...baseEnvironment };
-  for (const name of Object.keys(environment)) {
-    if (isHostRuntimeVariable(name, platform)) delete environment[name];
-  }
-  return environment;
-}
 
 function withAgentBinDirectory(
   environment: NodeJS.ProcessEnv,

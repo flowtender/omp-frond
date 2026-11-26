@@ -5,6 +5,7 @@ import { promisify } from "util";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 import { gt, maxSatisfying, rcompare, valid, validRange } from "semver";
 import type { PluginScope, PluginUpdateResult } from "@/lib/api-types";
+import { sanitizeProjectCommandEnvironment } from "./child-environment";
 import { listConfiguredPackages, type ConfiguredPluginPackage } from "./plugin-package-settings";
 import { nodeCliInvocation } from "./node-cli";
 import { parseNpmSource } from "./npm-source";
@@ -78,7 +79,7 @@ async function runCommand(
   const invocation = command === "npm" ? nodeCliInvocation("npm", args) : { command, args };
   const { stdout } = await execFileAsync(invocation.command, invocation.args, {
     cwd: options.cwd,
-    env: options.env ? { ...process.env, ...options.env } : process.env,
+    env: sanitizeProjectCommandEnvironment({ ...process.env, ...options.env }),
     encoding: "utf8",
     timeout: 10_000,
   });
@@ -139,7 +140,7 @@ async function checkGitPackage(
   }
   const options = {
     cwd: pkg.installedPath,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: { GIT_TERMINAL_PROMPT: "0" },
   };
   const local = (await runner("git", ["rev-parse", "HEAD"], options)).trim();
   const upstream = await runner("git", ["rev-parse", "--abbrev-ref", "@{upstream}"], options)
