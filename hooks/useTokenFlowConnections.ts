@@ -54,9 +54,8 @@ export function useTokenFlowConnections(
       const origin = composerWire.getBoundingClientRect();
       const x = row.left + row.width * 0.25 - origin.left;
       const y = start - origin.top;
-      const toX = target.left + target.width * 0.25 - origin.left;
       const toY = target.top - origin.top;
-      composerPath.setAttribute("d", `M${x} ${y} ${verticalConnector(x, y, toX, toY)} ${arrow(toX, toY)}`);
+      composerPath.setAttribute("d", `M${x} ${y} V${toY} ${arrow(x, toY)}`);
     }
 
     function layout() {
