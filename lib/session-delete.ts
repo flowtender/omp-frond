@@ -13,7 +13,7 @@
  * each would read every file of the folder once per session.
  */
 
-import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { readdirSync, readFileSync, unlinkSync } from "fs";
 import { dirname, join } from "path";
 import { abortSubagent, getRpcSession, getRpcSessionInfos, getRunningRpcSessionIds } from "./rpc-manager";
 import {
@@ -28,7 +28,8 @@ import {
 import { forgetSessionDrafts } from "./session-draft-store";
 import { sessionPathKey } from "./session-path";
 import { forgetSessionUiState } from "./session-ui-state";
-import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
+import { childrenToReparent, reparentSessionFile } from "./session-reparent";
+import { readSubagentRun } from "./subagents";
 import type { SessionEntry } from "./types";
 
 /** Most ids one POST /api/sessions/delete takes; the sidebar sends a bigger project in parts. */
@@ -169,60 +170,14 @@ export async function deleteSessions(
   if (deletedPaths.size > 0) {
     const scanDirs = new Set([...deletedPaths.values()].map((path) => dirname(path)));
     for (const dir of scanDirs) {
-      try {
-        const files = readdirSync(dir).filter(
-          (file) => file.endsWith(".jsonl") && !deletedPathKeys.has(sessionPathKey(join(dir, file))),
-        );
-        for (const file of files) {
-          const childPath = join(dir, file);
-          try {
-            // The bounded header says whether it needs a rewrite at all.
-            const childParent = readSessionHeader(childPath)?.parentSession;
-            if (!childParent || !deletedPathKeys.has(sessionPathKey(childParent))) continue;
-            const parentSessionPath = survivingParent(childParent);
-            let parentSessionId: string | undefined;
-            if (parentSessionPath) {
-              try {
-                // The parent may have been deleted or moved already; treat it as absent.
-                parentSessionId = readSessionHeader(parentSessionPath)?.id;
-              } catch {
-                parentSessionId = undefined;
-              }
-            }
-            const lines = readFileSync(childPath, "utf8").split("\n");
-            const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-            if (header.type !== "session") continue;
-            // Rewrite header with new parentSession
-            header.parentSession = parentSessionPath;
-            lines[0] = JSON.stringify(header);
-            if (parentSessionPath && parentSessionId) {
-              for (let index = 1; index < lines.length; index += 1) {
-                let entry: { type?: string; customType?: string; data?: unknown };
-                try {
-                  entry = JSON.parse(lines[index]);
-                } catch {
-                  continue;
-                }
-                if (
-                  entry.type !== "custom"
-                  || entry.customType !== SUBAGENT_META_TYPE
-                  || typeof entry.data !== "object"
-                  || entry.data === null
-                  || Array.isArray(entry.data)
-                ) continue;
-                entry.data = {
-                  ...entry.data,
-                  parentSessionId,
-                  parentSessionPath,
-                };
-                lines[index] = JSON.stringify(entry);
-                break;
-              }
-            }
-            writeFileSync(childPath, lines.join("\n"));
-          } catch { /* skip malformed */ }
+      for (const child of childrenToReparent(dir, (key) => deletedPathKeys.has(key))) {
+        const parent = survivingParent(child.parent);
+        let parentId: string | undefined;
+        if (parent) {
+          try { parentId = readSessionHeader(parent)?.id; } catch { /* parent may have moved */ }
         }
-      } catch { /* skip if dir unreadable */ }
+        reparentSessionFile(child.path, parent, parentId);
+      }
     }
   }
 

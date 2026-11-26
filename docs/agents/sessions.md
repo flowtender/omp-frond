@@ -39,7 +39,7 @@ pi's `navigateTree()` refuses while streaming or compacting: the file has one le
 - **In-session branch** ("Edit from here" / BranchNavigator): `navigate_tree` within one file; entries share a `parentId`. Switching calls `/api/sessions/[id]/context?leafId=`.
 
 ## Session files can be fully rewritten
-`parentSession` in the header is **display metadata only**, so rewriting the whole file with `writeFileSync` is safe (pi does it in migrations); cascade-reparenting children on delete relies on this.
+`parentSession` is display metadata. Single and bulk deletion reparent surviving children before unlinking the parent. Each child transcript is replaced by renaming a complete sibling temp file onto the resolved target, preserving symlinks and permissions. A replacement error stops deletion; children already reparented are not rolled back.
 
 ## ToolCall field normalization
 Pi stores `{type:"toolCall", id, name, arguments}`; `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` (`lib/normalize.ts`) converts in both `session-reader.ts` (file load) and `handleAgentEvent` (`hooks/useAgentSession.ts`, streaming).

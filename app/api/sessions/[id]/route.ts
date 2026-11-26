@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, statSync, unlinkSync } from "fs";
+import { dirname } from "path";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import {
   resolveSessionPath,
@@ -13,6 +13,7 @@ import {
   CONTEXT_DEFAULT_TAIL,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
+import { childrenToReparent, reparentSessionFile } from "@/lib/session-reparent";
 import { setSessionArchived } from "@/lib/session-archive";
 import { forgetSessionDrafts } from "@/lib/session-draft-store";
 import { getRpcSession } from "@/lib/rpc-manager";
@@ -171,33 +172,11 @@ export async function DELETE(
     // Read only the bounded header before deleting.
     const parentSessionPath = readSessionHeader(filePath)?.parentSession;
 
-    // Re-attach all direct children to this session's parent (cascade re-parent)
-    // Scan sibling files in the same directory
+    // Re-attach direct children before removing their parent.
     const targetPathKey = sessionPathKey(filePath);
-    const dir = dirname(filePath);
-    try {
-      const files = readdirSync(dir).filter(
-        (file) => file.endsWith(".jsonl") && sessionPathKey(join(dir, file)) !== targetPathKey,
-      );
-      for (const file of files) {
-        const childPath = join(dir, file);
-        try {
-          const content = readFileSync(childPath, "utf8");
-          const lines = content.split("\n");
-          const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-          if (
-            header.type === "session" &&
-            header.parentSession &&
-            sessionPathKey(header.parentSession) === targetPathKey
-          ) {
-            // Rewrite header with new parentSession
-            header.parentSession = parentSessionPath;
-            lines[0] = JSON.stringify(header);
-            writeFileSync(childPath, lines.join("\n"));
-          }
-        } catch { /* skip malformed */ }
-      }
-    } catch { /* skip if dir unreadable */ }
+    for (const child of childrenToReparent(dirname(filePath), (key) => key === targetPathKey)) {
+      reparentSessionFile(child.path, parentSessionPath);
+    }
 
     await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);

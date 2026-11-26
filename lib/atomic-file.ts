@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { renameSync, unlinkSync, writeFileSync } from "fs";
+import { chmodSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 
 /**
@@ -10,8 +10,13 @@ export function writePrivateFileAtomicSync(path: string, contents: string): void
   writeFileAtomicSync(path, contents, 0o600);
 }
 
-/** Replace a file atomically with `mode`. The caller must create the parent directory first. */
-export function writeFileAtomicSync(path: string, contents: string, mode: number): void {
+/** With no mode, replace an existing file through symlinks and keep its permissions. */
+export function writeFileAtomicSync(path: string, contents: string | Uint8Array, mode?: number): void {
+  const preserveMode = mode === undefined;
+  if (preserveMode) {
+    path = realpathSync(path);
+    mode = statSync(path).mode & 0o7777;
+  }
   const dir = dirname(path);
   const tempPath = join(dir, `.${basename(path)}-${randomUUID()}.tmp`);
   let operationFailed = false;
@@ -23,6 +28,8 @@ export function writeFileAtomicSync(path: string, contents: string, mode: number
       mode,
       flush: true,
     });
+    // Creation applies the umask; restore the original bits before publication.
+    if (preserveMode && mode !== undefined) chmodSync(tempPath, mode);
     renameSync(tempPath, path);
   } catch (error) {
     operationFailed = true;

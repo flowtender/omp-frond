@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import fs, { existsSync, readFileSync } from "node:fs";
+import { chmod, link, lstat, mkdir, mkdtemp, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -186,6 +186,82 @@ test("what stays is re-pointed at its nearest ancestor left, or loses a parent n
   assert.deepEqual([subMeta.data.parentSessionId, subMeta.data.parentSessionPath], ["keep-middle", middle]);
   assert.equal(subRest.length, 2, "the rest of the file is kept");
 });
+
+for (const operation of ["single", "bulk"]) {
+  async function removeParent(id) {
+    if (operation === "bulk") return post({ ids: [id] });
+    const { DELETE } = await jiti.import("./[id]/route.ts");
+    return DELETE(new Request(`http://localhost/api/sessions/${id}`, {
+      method: "DELETE", headers: { host: "localhost" },
+    }), { params: Promise.resolve({ id }) });
+  }
+
+  test(`${operation} delete atomically reparents a transcript without changing its remaining bytes`, async (t) => {
+    const { dir, sessionsDir, ids } = await scratchAgentDir(t);
+    const cwd = "/work/alpha";
+    const id = `parent-${operation}`;
+    const parent = await writeSession(sessionsDir, id, { id, cwd });
+    const childId = `child-${operation}`;
+    const child = await writeSession(sessionsDir, childId, { id: childId, cwd, parentSession: parent });
+    ids.push(id, childId);
+    const header = JSON.parse(readFileSync(child, "utf8").split("\n")[0]);
+    const tail = Buffer.from('\r\n{ "type": "note", "text": "café" }\r\n\n{"partial":');
+    const before = Buffer.concat([Buffer.from(JSON.stringify(header)), tail, Buffer.from([0xff])]);
+    await writeFile(child, before);
+    let target = child;
+    if (process.platform !== "win32") {
+      target = join(dir, "linked-transcript");
+      await rename(child, target);
+      await symlink(target, child);
+      await chmod(target, 0o660);
+    }
+    const oldInode = join(dir, "original-transcript");
+    await link(target, oldInode);
+
+    const response = await removeParent(id);
+    assert.equal(response.status, 200);
+    assert.equal(existsSync(parent), false);
+    assert.deepEqual(readFileSync(oldInode), before, "the original inode was not overwritten");
+    delete header.parentSession;
+    assert.deepEqual(readFileSync(child), Buffer.concat([Buffer.from(JSON.stringify(header)), tail, Buffer.from([0xff])]));
+    if (target !== child) {
+      assert.equal((await lstat(child)).isSymbolicLink(), true);
+      assert.equal((await stat(target)).mode & 0o777, 0o660);
+    }
+  });
+
+  test(`${operation} delete keeps parent and child intact if the replacement fails`, {
+    skip: process.platform === "win32" || process.getuid?.() === 0,
+  }, async (t) => {
+    const { dir, sessionsDir, ids } = await scratchAgentDir(t);
+    const cwd = "/work/alpha";
+    const id = `failed-${operation}`;
+    const parent = await writeSession(sessionsDir, id, { id, cwd });
+    const childId = `survivor-${operation}`;
+    const child = await writeSession(sessionsDir, childId, { id: childId, cwd, parentSession: parent });
+    ids.push(id, childId);
+    const before = readFileSync(child);
+    // The transcript itself is writable and the parent can be unlinked, but
+    // the child's directory refuses a replacement. No filesystem mock.
+    const locked = join(dir, "read-only-directory");
+    const target = join(locked, "transcript");
+    await mkdir(locked);
+    await rename(child, target);
+    await symlink(target, child);
+    await chmod(locked, 0o555);
+    try {
+      const response = await removeParent(id);
+      assert.equal(response.status, 500);
+      assert.match((await response.json()).error, /EACCES/);
+    } finally {
+      await chmod(locked, 0o755);
+    }
+    assert.deepEqual(readFileSync(child), before);
+    assert.equal(existsSync(parent), true);
+    assert.deepEqual(fs.readdirSync(locked), ["transcript"]);
+    assert.deepEqual(fs.readdirSync(sessionsDir).sort(), [`${id}.jsonl`, `${childId}.jsonl`].sort());
+  });
+}
 
 test("a delete request must be a trusted JSON list of session ids, at most one part", async (t) => {
   await scratchAgentDir(t);

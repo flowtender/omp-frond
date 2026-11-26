@@ -268,7 +268,7 @@ non-chat runners stay listed (omp's `scopedRolePool`).
 - **In-session branch** (Continue button / BranchNavigator): calls `navigate_tree` within the same file. Multiple entries share the same `parentId`. Switching between them calls `/api/sessions/[id]/context?leafId=`.
 
 ### Session files can be fully rewritten
-`parentSession` in the header is **display metadata only** — has zero effect on chat content. Safe to `writeFileSync` the entire file (omp does this itself during migrations). Used when cascade-reparenting children on delete.
+`parentSession` in the header is display metadata only. When reparenting a surviving child on delete, replace its transcript atomically; an in-place rewrite can truncate its chat history.
 
 ### `SessionManager.open()` is async
 Every omp `SessionManager.open()` / `forkFrom()` / `continueRecent()` returns a
