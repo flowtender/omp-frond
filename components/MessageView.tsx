@@ -1695,7 +1695,7 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
   );
 }
 type ToolIconKind = "read" | "write" | "glob" | "grep" | "edit" | "bash" | "todo" | "eval" | "task" | "browser" | "image"
-  | "lsp" | "retain" | "recall" | "reflect" | "memory_edit" | "mcp" | "gitnexus-impact" | "generic";
+  | "lsp" | "retain" | "recall" | "reflect" | "memory_edit" | "mcp" | "gitnexus-impact" | "changes" | "runtests" | "typecheck" | "gitshow" | "upstream" | "generic";
 
 const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   read: "var(--accent)",
@@ -1716,6 +1716,11 @@ const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   memory_edit: "var(--warning)",
   mcp: "var(--accent-hover)",
   "gitnexus-impact": "var(--accent)",
+  changes: "var(--warning)",
+  runtests: "var(--success)",
+  typecheck: "var(--accent)",
+  gitshow: "var(--accent-hover)",
+  upstream: "var(--accent-hover)",
   generic: "var(--text-dim)",
 };
 
@@ -1741,6 +1746,15 @@ function getToolIconKind(toolName: string, mcpLabel?: McpToolLabel | null): Tool
     case "recall":
     case "reflect":
     case "memory_edit":
+      return normalized;
+    // this project's own tools in .omp/tools; "impact" is the same blast-radius idea as GitNexus's
+    case "impact":
+      return "gitnexus-impact";
+    case "changes":
+    case "runtests":
+    case "typecheck":
+    case "gitshow":
+    case "upstream":
       return normalized;
   }
   if (normalized.includes("str_replace") || normalized.includes("replace_editor") || toolNameHasPart(normalized, "edit")) return "edit";
@@ -1896,6 +1910,41 @@ function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
         <>
           <circle cx="4" cy="7" r="1.6" />
           <path d="M7 4.5a3.5 3.5 0 0 1 0 5m2.5-6.5a7 7 0 0 1 0 8" />
+        </>
+      );
+    case "changes":
+      return (
+        <>
+          <rect x="1.75" y="1.75" width="10.5" height="10.5" rx="2.4" />
+          <path d="M7 4.2v3.2M5.4 5.8h3.2M5.4 9.6h3.2" />
+        </>
+      );
+    case "runtests":
+      return (
+        <>
+          <path d="M5.5 1.75h3M6 1.75v3.4L2.6 11a1 1 0 0 0 .9 1.5h7a1 1 0 0 0 .9-1.5L8 5.15v-3.4" />
+          <circle cx="6.2" cy="9.4" r=".7" fill="currentColor" stroke="none" />
+          <circle cx="8.3" cy="10.4" r=".5" fill="currentColor" stroke="none" />
+        </>
+      );
+    case "typecheck":
+      return (
+        <>
+          <path d="M1.5 3h6M4.5 3v7.5" />
+          <path d="m8 9.6 1.6 1.6 3-3.4" />
+        </>
+      );
+    case "gitshow":
+      return (
+        <>
+          <circle cx="7" cy="7" r="2.3" />
+          <path d="M1.5 7h3.2M9.3 7h3.2" />
+        </>
+      );
+    case "upstream":
+      return (
+        <>
+          <path d="M3 1.75h8M7 12.25v-8M3.6 7.4 7 4l3.4 3.4" />
         </>
       );
     case "generic":

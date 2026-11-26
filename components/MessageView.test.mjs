@@ -796,6 +796,12 @@ test("shows an operation icon beside every standard tool label", () => {
     ["memory_edit", "memory_edit", "var(--warning)"],
     ["mcp__docs__search", "mcp", "var(--accent-hover)"],
     ["mcp__gitnexus_impact", "gitnexus-impact", "var(--accent)"],
+    ["impact", "gitnexus-impact", "var(--accent)"],
+    ["changes", "changes", "var(--warning)"],
+    ["runtests", "runtests", "var(--success)"],
+    ["typecheck", "typecheck", "var(--accent)"],
+    ["gitshow", "gitshow", "var(--accent-hover)"],
+    ["upstream", "upstream", "var(--accent-hover)"],
     ["unknown_tool", "generic", "var(--text-dim)"],
   ];
 
