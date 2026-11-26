@@ -309,6 +309,7 @@ const UNREAD_SESSIONS_STORAGE_KEY = "omp-web:unread-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
+const INITIAL_SUMMARY_WAIT_MS = 15_000;
 /** "Archive sessions older than 7 days" in a project's menu. */
 const ARCHIVE_OLDER_THAN_MS = 7 * 24 * 60 * 60 * 1000;
 /** The archive bar's "Delete archived over 30 days ago", by archive time. */
@@ -522,6 +523,8 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
+  // An unknown version during the first summary is not an invalidation.
+  const initialSummaryStartedAtRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
   // The first paint lists summary rows (their time is the file's mtime); the
   // project order is first saved from the full details.
@@ -765,7 +768,7 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     forgetRetiredSidebarKeys();
   }, []);
 
-  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {
+  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false): Promise<boolean> => {
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
@@ -781,11 +784,12 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
         awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
-      if (loadId !== sessionLoadIdRef.current) return;
+      if (loadId !== sessionLoadIdRef.current) return false;
       sessionListVersionRef.current = data.sessionListVersion;
       listedRuntimeIdsRef.current = data.sessionIdsByRuntimeId ?? listedRuntimeIdsRef.current;
       setAllSessions(data.sessions);
-      if (!summary) setSessionDetailsLoaded(true);
+      const needsDetails = data.sessions.some((session) => session.detailsPending === true);
+      if (!summary || !needsDetails) setSessionDetailsLoaded(true);
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
@@ -808,8 +812,10 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
         return next.size === prev.size ? prev : next;
       });
       setError(null);
+      return needsDetails;
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
+      return false;
     } finally {
       if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
@@ -824,9 +830,11 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     if (isFirst) {
       // Header/stat metadata is enough to select the URL session and paint the
       // sidebar. Hydrate exact counts, names, and first messages once the
-      // selected chat has had a chance to start loading.
-      void loadSessions(true, false, true).then(() => {
-        if (!active) return;
+      // selected chat has had a chance to start loading, if any rows need it.
+      initialSummaryStartedAtRef.current = Date.now();
+      void loadSessions(true, false, true).then((needsDetails) => {
+        initialSummaryStartedAtRef.current = null;
+        if (!active || !needsDetails) return;
         detailsHydrationTimerRef.current = setTimeout(() => {
           detailsHydrationTimerRef.current = null;
           if (active) void loadSessions(false, true);
@@ -968,7 +976,9 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
         setLivePromptCaches((previous) => keepSamePromptCacheReports(previous, data.livePromptCaches ?? {}));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
-        if (data.sessionListVersion !== sessionListVersionRef.current) {
+        const summaryStartedAt = initialSummaryStartedAtRef.current;
+        const summaryInFlight = summaryStartedAt !== null && Date.now() - summaryStartedAt < INITIAL_SUMMARY_WAIT_MS;
+        if (!summaryInFlight && data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
         }
@@ -1070,7 +1080,9 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     // Not forced: a run's agent_end has already invalidated the server's list,
     // and a forced rescan here, in every tab not showing that session, bumped
     // the version again and made all the others reload once more.
-    if (completedInBackground.length > 0 || hasUnlistedRunningSession) {
+    const summaryStartedAt = initialSummaryStartedAtRef.current;
+    const summaryInFlight = summaryStartedAt !== null && Date.now() - summaryStartedAt < INITIAL_SUMMARY_WAIT_MS;
+    if (!summaryInFlight && (completedInBackground.length > 0 || hasUnlistedRunningSession)) {
       void loadSessions();
     }
     if (completedWithNotifications.length > 0) {

@@ -509,8 +509,74 @@ test("the session-list fetch bypasses the browser cache; only the hydration refr
   assert.match(source, /cache: "no-store"/);
   // The two-phase first paint: a summary pass, then one forced details
   // hydration. Every later bump trusts the server's own invalidation.
-  assert.match(source, /void loadSessions\(true, false, true\)[\s\S]*?loadSessions\(false, true\);/);
+  assert.match(source, /void loadSessions\(true, false, true\)[\s\S]*?if \(!active \|\| !needsDetails\) return;[\s\S]*?loadSessions\(false, true\);/);
   assert.match(source, /void loadSessions\(\);/);
+});
+
+test("a fast running poll leaves the first summary alone, but a stalled summary recovers", async () => {
+  const pollStart = source.indexOf("    let stopped = false;", source.indexOf('fetch("/api/agent/running"') - 1000);
+  const pollEnd = source.indexOf("\n  }, [loadSessions, noteUiRevision]);", pollStart);
+  assert.ok(pollStart >= 0 && pollEnd > pollStart);
+  const body = ts.transpile(source.slice(pollStart, pollEnd), { target: ts.ScriptTarget.ES2022 });
+  let now = 1000;
+  let scheduled;
+  let loads = 0;
+  const context = {
+    Date: { now: () => now }, AbortController,
+    document: { visibilityState: "visible", addEventListener: noop, removeEventListener: noop },
+    setTimeout: (fn) => { scheduled = fn; return 1; }, clearTimeout: noop,
+    fetch: async () => ({ ok: true, json: async () => ({ sessionListVersion: 1, runningSessionIds: ["running"] }) }),
+    initialSummaryStartedAtRef: { current: now }, INITIAL_SUMMARY_WAIT_MS: 15_000,
+    sessionListVersionRef: { current: null }, runningPollAuthoritativeRef: { current: false },
+    listedRuntimeIdsRef: { current: {} }, currentSuppressedCompletionSessionIdsRef: { current: new Set() },
+    setRunningSessionIds: noop, setAwaitingInputSessionIds: noop, setLivePromptCaches: noop,
+    noteUiRevision: noop, loadSessions: async () => { loads++; },
+    RUNNING_SESSIONS_POLL_MS: 2500,
+  };
+  vm.runInNewContext(`(function () { ${body} })()`, context);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(loads, 0);
+  assert.equal(context.runningPollAuthoritativeRef.current, true);
+  now += 15_000;
+  scheduled();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(loads, 1);
+});
+
+test("a newly running session does not supersede the initial summary", () => {
+  let refreshes = 0;
+  runActivityEffect(
+    { current: new Set() }, { current: {} }, { current: {} },
+    { current: new Set() }, { current: new Set() }, new Set(["new"]),
+    null, null, [], noop, () => { refreshes++; }, noop,
+    { current: Date.now() }, 15_000,
+  );
+  assert.equal(refreshes, 0);
+});
+
+test("initial hydration only runs for pending summary rows", async () => {
+  const start = source.indexOf("    const isFirst = !initialLoadDone.current;");
+  const end = source.indexOf("\n  }, [loadSessions, refreshKey]);", start);
+  assert.ok(start >= 0 && end > start);
+  const body = ts.transpile(source.slice(start, end), { target: ts.ScriptTarget.ES2022 });
+  for (const needsDetails of [false, true]) {
+    const calls = [];
+    let scheduled;
+    const context = {
+      initialLoadDone: { current: false }, initialSummaryStartedAtRef: { current: null },
+      detailsHydrationTimerRef: { current: null }, SESSION_DETAILS_HYDRATION_DELAY_MS: 750,
+      loadSessions: async (...args) => { calls.push(args); return needsDetails; },
+      setTimeout: (fn) => { scheduled = fn; return 1; }, clearTimeout: noop,
+    };
+    vm.runInNewContext(`(function () { ${body} })()`, context);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls, [[true, false, true]]);
+    assert.equal(Boolean(scheduled), needsDetails);
+    if (scheduled) {
+      scheduled();
+      assert.deepEqual(calls, [[true, false, true], [false, true]]);
+    }
+  }
 });
 
 test("does not expose disk-backed actions for transient sessions", () => {
@@ -528,6 +594,7 @@ const runActivityEffect = new Function(
   "currentSuppressedCompletionSessionIdsRef", "previousSuppressedCompletionSessionIdsRef",
   "runningSessionIds", "selectedSessionId", "selectedRuntimeId", "allSessions",
   "setUnreadSessionIds", "loadSessions", "onBackgroundTaskDone",
+  "initialSummaryStartedAtRef", "INITIAL_SUMMARY_WAIT_MS",
   source.slice(activityEffectStart, activityEffectEnd),
 );
 
@@ -603,6 +670,7 @@ for (const scenario of activityCases) {
       (update) => { unread = update(unread); },
       (...args) => { refreshes.push(args); },
       () => { completionCount += 1; },
+      { current: null }, 15_000,
     );
     assert.deepEqual([...unread], scenario.expectedUnread);
     const completed = scenario.expectedUnread.length > 0;

@@ -50,6 +50,7 @@ interface Fingerprint {
 }
 
 const SUMMARY_HEADER_MAX_BYTES = 64 * 1024;
+const SUMMARY_HEADER_READ_BYTES = 4 * 1024;
 
 /** The SDK decides a session's status from a message only while its line is
  * inside the last 32 KiB of the file; older tails list `unknown`. */
@@ -121,31 +122,43 @@ function parseLine(line: string): RawEntry | null {
 	}
 }
 
-/** Read the header line that identifies a session file, plus the fixed-width
- * title slot a fork file puts before it. */
+/** Parse complete lines only until EOF or the bounded window is reached. */
+function parseSummaryHeader(chunk: Buffer, complete: boolean): { header: RawEntry; title?: string } | null | undefined {
+	let slotTitle: string | undefined;
+	let slotSeen = false;
+	for (let start = 0; start < chunk.length;) {
+		const end = chunk.indexOf(NEWLINE, start);
+		if (end === -1 && !complete) return undefined;
+		const line = chunk.subarray(start, end === -1 ? chunk.length : end).toString("utf8").replace(/\r$/, "");
+		const entry = parseLine(line);
+		if (entry) {
+			if (!slotSeen && entry.type === "title") {
+				slotSeen = true;
+				slotTitle = typeof entry.title === "string" ? entry.title : "";
+			} else {
+				if (entry.type !== "session") return null;
+				return { header: entry, title: slotSeen ? slotTitle?.trim() || undefined : undefined };
+			}
+		}
+		if (end === -1) break;
+		start = end + 1;
+	}
+	return complete ? null : undefined;
+}
+
+/** Read the title slot and header in a small window, extending only if needed. */
 async function readSessionHeaderSummary(filePath: string): Promise<{ header: RawEntry; title?: string } | null> {
 	let handle: FileHandle | undefined;
 	try {
 		handle = await open(filePath, "r");
-		const buffer = Buffer.allocUnsafe(SUMMARY_HEADER_MAX_BYTES);
-		const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+		const head = Buffer.allocUnsafe(SUMMARY_HEADER_READ_BYTES);
+		const { bytesRead } = await handle.read(head, 0, head.length, 0);
 		if (bytesRead <= 0) return null;
-		const source = buffer.subarray(0, bytesRead).toString("utf8");
-		let slotTitle: string | undefined;
-		let slotSeen = false;
-		for (const line of source.split("\n")) {
-			const entry = parseLine(line.replace(/\r$/, ""));
-			if (!entry) continue;
-			if (!slotSeen && entry.type === "title") {
-				slotSeen = true;
-				slotTitle = typeof entry.title === "string" ? entry.title : "";
-				continue;
-			}
-			if (entry.type !== "session") return null;
-			// The SDK lists no title at all for a file without a slot line.
-			return { header: entry, title: slotSeen ? slotTitle?.trim() || undefined : undefined };
-		}
-		return null;
+		const first = parseSummaryHeader(head.subarray(0, bytesRead), bytesRead < head.length);
+		if (first !== undefined) return first;
+		const rest = Buffer.allocUnsafe(SUMMARY_HEADER_MAX_BYTES - bytesRead);
+		const more = await handle.read(rest, 0, rest.length, bytesRead);
+		return parseSummaryHeader(Buffer.concat([head, rest.subarray(0, more.bytesRead)]), true) ?? null;
 	} catch {
 		return null;
 	} finally {
