@@ -108,6 +108,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1", overrides = {} } =
     rpcPromptPendingRef: { current: false },
     notifiedPromptRunIdRef: { current: -1 },
     optimisticUserMessageRef: { current: null },
+    stopFirstPromptRef: { current: null },
     landedPromptRunIdRef: { current: null },
     pendingRecoveryRef: { current: null },
     recoveryReadRef: { current: null },

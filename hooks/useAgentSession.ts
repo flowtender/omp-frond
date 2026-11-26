@@ -669,6 +669,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const contextUsageAppliedIdRef = useRef(0);
   const sessionHookMountedRef = useRef(true);
   const optimisticUserMessageRef = useRef<UserMessage | null>(null);
+  const stopFirstPromptRef = useRef<(() => boolean) | null>(null);
   const landedPromptRunIdRef = useRef<number | null>(null);
   const pendingRecoveryRef = useRef<{
     runId: number;
@@ -1605,6 +1606,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       rpcPromptPendingRef.current = false;
       sdkAgentActiveRef.current = false;
       optimisticUserMessageRef.current = null;
+      stopFirstPromptRef.current = null;
       const wasRunning = settleUiStage();
       if (promptWasPending) {
         notifyPromptStage(runId);
@@ -1825,6 +1827,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionHookMountedRef.current = true;
     return () => {
       sessionHookMountedRef.current = false;
+      if (newSessionPromotedRef.current && mountedRef.current) return;
       const pending = pendingRecoveryRef.current;
       pendingRecoveryRef.current = null;
       if (pending?.draftKey) {
@@ -1929,6 +1932,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const promptWasPending = rpcPromptPendingRef.current;
           rpcPromptPendingRef.current = false;
           optimisticUserMessageRef.current = null;
+          stopFirstPromptRef.current = null;
           const firstNotification = notifyPromptStage(runId, event.aborted === true);
           if (!promptWasPending && !firstNotification) break;
 
@@ -2304,12 +2308,37 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     let sentSessionId: string | null = null;
     let promptRequestStarted = false;
+    let cancelled = false;
+    if (isNew) {
+      stopFirstPromptRef.current = () => {
+        if (promptRunIdRef.current !== promptRunId || !agentRunningRef.current) return false;
+        if (promptRequestStarted) {
+          if (sentSessionId && !isSlashCommandPrompt && landedPromptRunIdRef.current !== promptRunId) {
+            pendingRecoveryRef.current = {
+              runId: promptRunId, sid: sentSessionId, text: message, images, bubble: userMsg,
+              draftKey: newSessionPromotedRef.current ? sentSessionId : composerDraftKey, lastEntryId, previousCount,
+            };
+          }
+          return false;
+        }
+        cancelled = true;
+        stopFirstPromptRef.current = null;
+        rpcPromptPendingRef.current = false;
+        optimisticUserMessageRef.current = null;
+        setMessages((prev) => prev.filter((item) => item !== userMsg));
+        restoreSubmission(message, images, composerDraftKey);
+        closeEvents();
+        settleUiStage();
+        return true;
+      };
+    }
 
     try {
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
         const sid = existingSid ?? await ensureNewSession();
+        if (cancelled) return;
 
         if (!sid) throw new Error("Unable to create a session for the prompt");
         sentSessionId = sid;
@@ -2322,17 +2351,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Switching sessions unmounts this composer and closes its stream. The
         // prompt still goes out, so the new session runs and gets its sidebar
         // row instead of losing the submitted text (#1146).
+        if (cancelled) return;
         if (sessionHookMountedRef.current) {
           await ensureEventsConnected(sid).catch((error) => {
             if (sessionHookMountedRef.current) throw error;
           });
         }
+        if (cancelled) return;
         promptRequestStarted = true;
         await sendAgentCommand(sid, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         }, runtimeIdRef);
+        if (pendingRecoveryRef.current?.runId === promptRunId) pendingRecoveryRef.current.draftKey = sid;
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
@@ -2350,6 +2382,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
     } catch (e) {
+      if (cancelled) return;
       console.error("Failed to send message:", e);
       const definitivelyRejected = !promptRequestStarted || isPromptRejectedError(e);
       // A transport/proxy failure after dispatch is ambiguous: the server may
@@ -2382,7 +2415,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // any attached images) into the input instead of losing it. Mirrors the
       // shell-command recovery in executeBash; restoreSubmission avoids
       // clobbering anything typed since.
-      restoreSubmission(message, images, sentSessionId ?? composerDraftKey);
+      if (isNew) {
+        pendingRecoveryRef.current = null;
+        stopFirstPromptRef.current = null;
+      }
+      restoreSubmission(message, images, isNew && !newSessionPromotedRef.current ? composerDraftKey : sentSessionId ?? composerDraftKey);
       optimisticUserMessageRef.current = null;
       // Rejection only describes this submission. Another tab or an event we
       // missed may still have a real run active for the same session, so keep
@@ -2397,7 +2434,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, loadSettledPrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, dispatch, restoreSubmission, editEntryId, setEdit, chatScrollMode]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, loadSettledPrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, dispatch, restoreSubmission, settleUiStage, editEntryId, setEdit, chatScrollMode]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -2437,6 +2474,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
+    if (stopFirstPromptRef.current?.()) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
     if (bashRunningRef.current) {
@@ -3156,7 +3194,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const displayedSessionIdRef = useRef(session?.id);
   useEffect(() => {
     if (session?.id && session.id !== displayedSessionIdRef.current) {
+      const promoting = !displayedSessionIdRef.current && newSessionPromotedRef.current;
       displayedSessionIdRef.current = session.id;
+      // Promotion keeps this hook and its stream. History may not contain
+      // the first user entry yet; completion will reload it.
+      if (promoting && rpcPromptPendingRef.current) return;
       void loadSession(session.id);
     }
   }, [session?.id, loadSession]);

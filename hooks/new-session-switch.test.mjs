@@ -59,6 +59,11 @@ async function sendAndSwitch(stage) {
   try {
     const sending = hook.result.handleSend("first message");
     await settle();
+    if (stage === "cancel") {
+      hook.flush();
+      assert.equal(hook.result.messages[0].content, "first message");
+      await hook.result.handleAbort();
+    }
     if (stage === "creating") hook.unmount();
     creation.resolve(json({ sessionId: "s1", toolNames: null }));
     await settle();
@@ -73,7 +78,7 @@ async function sendAndSwitch(stage) {
     console.error = originalError;
     for (const source of sources) source.close();
   }
-  if (stage === "mounted") hook.unmount();
+  if (stage === "mounted" || stage === "cancel") hook.unmount();
   return { commands, created, opened: sources.length };
 }
 
@@ -88,4 +93,12 @@ for (const stage of ["mounted", "creating", "connecting", "prompting"]) {
 test("a composer unmounted before its session exists opens no event stream for it", async () => {
   assert.equal((await sendAndSwitch("creating")).opened, 0);
   assert.equal((await sendAndSwitch("mounted")).opened, 1);
+});
+
+test("stop during creation restores the first message without sending it", async () => {
+  const { getDraft } = await jiti.import("../lib/draft-store.ts");
+  const result = await sendAndSwitch("cancel");
+  assert.deepEqual(result.commands, []);
+  assert.deepEqual(result.created, []);
+  assert.equal(getDraft("new:draft")?.value, "first message");
 });
