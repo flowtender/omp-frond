@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
+import { projectGitEnvironment } from "./child-environment";
 import type {
   SkillInstallInfo,
   SkillUpdateResult,
@@ -124,9 +125,8 @@ async function resolveGitTreeHash(install: SkillInstallInfo): Promise<string> {
   const gitDir = await mkdtemp(join(tmpdir(), "omp-web-skill-check-"));
 
   try {
-    await execFileAsync("git", ["init", "--bare", gitDir], {
-      timeout: GIT_CHECK_TIMEOUT_MS,
-    });
+    const options = { timeout: GIT_CHECK_TIMEOUT_MS, env: projectGitEnvironment() };
+    await execFileAsync("git", ["init", "--bare", gitDir], options);
     await execFileAsync("git", [
       `--git-dir=${gitDir}`,
       "fetch",
@@ -135,12 +135,12 @@ async function resolveGitTreeHash(install: SkillInstallInfo): Promise<string> {
       "--no-tags",
       repository,
       ref,
-    ], { timeout: GIT_CHECK_TIMEOUT_MS });
+    ], options);
     const revision = folder ? `FETCH_HEAD:${folder}` : "FETCH_HEAD^{tree}";
     const { stdout } = await execFileAsync(
       "git",
       [`--git-dir=${gitDir}`, "rev-parse", revision],
-      { timeout: GIT_CHECK_TIMEOUT_MS },
+      options,
     );
     const hash = stdout.trim();
     if (!/^[0-9a-f]{40}$/i.test(hash)) throw new Error("Invalid Git tree hash");

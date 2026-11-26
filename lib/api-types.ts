@@ -308,7 +308,7 @@ export interface McpServerInfo {
   commandFields: McpConfigFieldRef[];
   /** Values that read the host's environment variables on every connection; a `!command` is in `commandFields` instead. */
   variableReferences: McpVariableReference[];
-  /** The value that references `PI_WEB_PASSWORD`; Pi Web refuses to connect such an entry. */
+  /** The field that references a web password variable; omp-web refuses to connect this entry. */
   webPasswordField?: McpConfigFieldRef;
   /** Some of `command`, `args` or `url` was masked. */
   masked: boolean;
@@ -619,7 +619,7 @@ export type McpRefusalReason =
   | "server-missing"
   /** The entry is not a JSON object, so it cannot be switched on or off, only removed (`path`, `name`). */
   | "entry-not-object"
-  /** The entry references `PI_WEB_PASSWORD`, so Pi Web does not turn it on, add, test or sign in to it (`name`). */
+  /** The entry references a web password variable, so omp-web refuses to enable, add, test or sign in to it (`name`). */
   | "web-password"
   /** The SDK's validator refuses the entry (`name`; `error` is the validator's message, which names fields, never values). */
   | "server-invalid"

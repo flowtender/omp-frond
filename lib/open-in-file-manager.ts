@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { isIP } from "net";
+import { sanitizeProjectCommandEnvironment } from "./child-environment";
 
 const FILE_MANAGER_BY_PLATFORM = new Map<string, string>([
   ["win32", "explorer.exe"],
@@ -65,7 +66,9 @@ export function launchFileManager(
   const spec = fileManagerCommand(platform, target);
   if (!spec) return Promise.reject(new Error(`Unsupported platform: ${platform}`));
   return new Promise((resolve, reject) => {
-    const child = spawn(spec.command, spec.args, { detached: true, stdio: "ignore" });
+    const child = spawn(spec.command, spec.args, {
+      detached: true, stdio: "ignore", env: sanitizeProjectCommandEnvironment(process.env),
+    });
     // explorer.exe can exit with code 1 even on success, so only a failed spawn counts.
     child.once("error", reject);
     child.once("spawn", () => {

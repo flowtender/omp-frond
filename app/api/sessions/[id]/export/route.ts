@@ -6,6 +6,7 @@ import { basename, dirname, join } from "path";
 import { promisify } from "util";
 import { fileURLToPath, pathToFileURL } from "url";
 import { NextResponse } from "next/server";
+import { sanitizeProjectCommandEnvironment } from "@/lib/child-environment";
 import { isApiRequestAllowed } from "@/lib/request-security";
 import { getRpcSession, getFinalRpcSessionId } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
@@ -86,7 +87,7 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
       cwd: process.cwd(),
       timeout: 30_000,
       env: {
-        ...process.env,
+        ...sanitizeProjectCommandEnvironment(process.env),
         PI_OFFLINE: "1",
         PI_SKIP_VERSION_CHECK: "1",
       },
