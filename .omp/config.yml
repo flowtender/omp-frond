@@ -1,0 +1,8 @@
+bashInterceptor:
+  patterns:
+    # Plain `bun test` runs every file in one process, where files leak state
+    # into each other (see AGENTS.md); the `test` script runs them in parallel,
+    # one fresh global per file.
+    - pattern: "^\\s*bun\\s+test(?:\\s|$)"
+      tool: bash
+      message: "Use `bun run test` instead of `bun test`: it runs `bun test --parallel`, so test files cannot leak state into each other. Extra arguments pass through, e.g. `bun run test ./lib/foo.test.mjs`."

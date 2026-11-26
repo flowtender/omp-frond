@@ -122,7 +122,7 @@ bun run dev
 ```bash
 bun run typecheck
 bun run lint
-bun test
+bun run test
 ```
 
 日常开发时不要运行 `bun run build` 或 `next build`，它们会写入 `.next/`，可能干扰开发服务器；构建只在发布流程中执行。

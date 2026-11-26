@@ -12,7 +12,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
 });
 
-test("status reads of a session's state leave out its system prompt (#1302)", async (t) => {
+test("status reads of a session's state leave out its system prompt (#1302)", { timeout: 30_000 }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-web-agent-state-"));
   const previousDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = dir;

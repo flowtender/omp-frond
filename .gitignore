@@ -52,3 +52,4 @@ src-tauri/resources/
 src-tauri/server/
 e2e_*.mjs
 components/*.generated.tsx
+app/api/open-in-explorer/*.generated.ts

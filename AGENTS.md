@@ -9,7 +9,7 @@ bun run dev   # port 30141
 
 Typecheck: `bun run typecheck`
 Lint: `bun run lint`
-Tests: `bun test`
+Tests: `bun run test`
 **Never run `bun run build` during dev** — pollutes `.next/` and breaks `bun run dev`.
 Exception: `bun run desktop:build` (via `scripts/stage-desktop.mjs`) is safe — it builds
 into `src-tauri/server/.next` through `OMP_WEB_DIST_DIR` and never touches the dev `.next/`.
@@ -55,6 +55,14 @@ Two consequences worth remembering:
   own transitive entry points.
 - `bun test`, not `node --test`. The test files are `node:test`-based and Bun
   runs them; Node cannot import the SDK the tests exercise.
+- `bun run test` runs `bun test --parallel`, which gives every file a fresh
+  global. Under plain `bun test` all files share one process, and the SDK's
+  agent dir (frozen at first load), the omp runtime and the allowed-roots
+  caches leak from file to file. bunfig has no switch for that, hence the
+  script. `bunfig.toml` preloads `scripts/test-preload.mjs`, which points
+  `PI_CODING_AGENT_DIR` at a throwaway directory so no test touches the real
+  `~/.omp/agent`. The project's `.omp/config.yml` adds a bash-interceptor rule
+  that refuses `bun test` and points agents at `bun run test`.
 
 ---
 

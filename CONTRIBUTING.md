@@ -17,7 +17,7 @@ This repository, `flowtender/omp-frond`, is a fork of omp-web, the browser front
 - **For a feature, open an issue first** that describes the use case and confirms the change fits the repository you are targeting.
 - **Keep it to one change per pull request.** Split unrelated fixes into separate pull requests.
 - **For a bug fix, explain how to reproduce it** on the base branch and why the change fixes the cause rather than a symptom.
-- **Run the checks:** `bun run typecheck`, `bun run lint`, and `bun test`. Do not run `bun run build` or `next build` during development (see [AGENTS.md](./AGENTS.md)).
+- **Run the checks:** `bun run typecheck`, `bun run lint`, and `bun run test`. Do not run `bun run build` or `next build` during development (see [AGENTS.md](./AGENTS.md)). Do not run `bun test` without --parallel at all.
 - **Translate new UI text.** Add new strings to every locale the app uses ([Internationalization](./docs/i18n.md)).
 - **Read the relevant topic notes.** [AGENTS.md](./AGENTS.md) maps each area of the code to notes in `docs/agents/`. Read the notes for every file you change.
 - **Avoid new runtime dependencies.** If one is needed, say why.

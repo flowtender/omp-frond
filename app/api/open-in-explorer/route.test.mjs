@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,7 +13,27 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { POST } = await jiti.import("./route.ts");
+
+// A route that accepts a path raises a real file-manager window, so the route
+// is loaded from a copy whose launcher import is rewritten to a recorder. Under
+// `bun test` jiti cannot alias "@/lib/open-in-file-manager" (tsconfig paths
+// resolve it first; see components/SessionSidebar.tabs.test.mjs).
+const routeSource = await readFile(new URL("./route.ts", import.meta.url), "utf8");
+const recordingRouteSource = routeSource.replace(
+  'from "@/lib/open-in-file-manager";',
+  'from "./__fixtures__/open-in-file-manager-recorder.mjs";',
+);
+assert.notEqual(recordingRouteSource, routeSource, "the route's launcher import is rewritten");
+const recordingRoutePath = new URL("./route.recording.generated.ts", import.meta.url);
+await writeFile(recordingRoutePath, recordingRouteSource);
+let POST;
+try {
+  ({ POST } = await jiti.import("./route.recording.generated.ts"));
+} finally {
+  await rm(recordingRoutePath, { force: true });
+}
+
+const launchedTargets = () => globalThis.__ompWebFileManagerLaunches ?? [];
 
 test.after(() => rm(agentDir, { recursive: true, force: true }));
 
@@ -35,6 +55,7 @@ test("rejects a path outside the allowed roots before looking at it", async (t) 
     assert.equal(response.status, 403);
     assert.deepEqual(await response.json(), { error: "access-denied" });
   }
+  assert.deepEqual(launchedTargets(), []);
 });
 
 test("refuses requests that are not addressed to this machine", async () => {

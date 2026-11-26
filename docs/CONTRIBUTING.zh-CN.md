@@ -17,7 +17,7 @@
 - **新功能请先开 issue**，说明使用场景，并确认该改动适合目标仓库。
 - **一个 PR 只做一件事**，不相关的修复请分开提交。
 - **修 bug 时写清楚**如何在基础分支上复现，以及为什么这个改动修的是根因而不是症状。
-- **运行检查**：`bun run typecheck`、`bun run lint`、`bun test`。开发期间不要运行 `bun run build` 或 `next build`（见 [AGENTS.md](../AGENTS.md)）。
+- **运行检查**：`bun run typecheck`、`bun run lint`、`bun run test`。开发期间不要运行 `bun run build` 或 `next build`（见 [AGENTS.md](../AGENTS.md)）。
 - **新增界面文字要做翻译**，应用支持的每种语言都要加上（见 [国际化](./i18n.md)）。
 - **阅读相关的专题笔记**：[AGENTS.md](../AGENTS.md) 列出了代码各部分对应的 `docs/agents/` 笔记，改动哪些文件，就读哪些笔记。
 - **尽量不引入新的运行时依赖**；确实需要时请说明理由。

@@ -122,7 +122,7 @@ bun run dev
 ```bash
 bun run typecheck
 bun run lint
-bun test
+bun run test
 ```
 
 Не запускайте `bun run build` или `next build` во время обычной разработки: они записывают данные в `.next/` и могут помешать серверу разработки. Сборку выполняйте только при подготовке релиза.

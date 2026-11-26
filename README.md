@@ -287,7 +287,7 @@ The development server runs at [http://127.0.0.1:30141](http://127.0.0.1:30141).
 ```bash
 bun run typecheck
 bun run lint
-bun test
+bun run test
 ```
 
 For a local production preview, set `OMP_WEB_DIST_DIR=.next-production` in
