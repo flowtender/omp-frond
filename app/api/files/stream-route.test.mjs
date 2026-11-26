@@ -1,22 +1,74 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { once } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { NextRequest } from "next/server.js";
+import { GET } from "./[...path]/route.ts";
+import { allowFileRoot } from "../../../lib/allowed-roots.ts";
 
-const source = await readFile(new URL("./[...path]/route.ts", import.meta.url), "utf8");
-const start = source.indexOf("function streamFile");
-const end = source.indexOf("function escapeHtml", start);
-assert.notEqual(start, -1, "streamFile not found");
-assert.notEqual(end, -1, "streamFile end not found");
-const streamBlock = source.slice(start, end);
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-file-stream-")));
+test.after(() => fs.rmSync(root, { recursive: true, force: true }));
+allowFileRoot(root);
 
-test("streamed responses are not content-type sniffable", () => {
-  assert.match(streamBlock, /"X-Content-Type-Options": "nosniff"/);
+const bytes = Buffer.alloc(2 * 1024 * 1024);
+for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
+fs.writeFileSync(path.join(root, "sample.bin"), bytes);
+
+function request(name, type, headers = {}) {
+  const segments = path.join(root, name).split(path.sep).filter(Boolean);
+  return GET(new NextRequest(`http://localhost/api/files/x?type=${type}`, { headers }), {
+    params: Promise.resolve({ path: segments }),
+  });
+}
+
+test("downloads send the full file without content-type sniffing", async () => {
+  const response = await request("sample.bin", "download");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
 });
 
-test("inline SVG is served with a script-blocking content security policy", () => {
-  // SVG is the only inline preview type a browser executes as a document, so
-  // it must never be able to run script in the Pi Web origin.
-  assert.match(streamBlock, /contentType === "image\/svg\+xml"/);
-  assert.match(streamBlock, /Content-Security-Policy/);
-  assert.match(streamBlock, /default-src 'none'/);
+test("inline SVG is served with a script-blocking content security policy", async () => {
+  fs.writeFileSync(path.join(root, "sample.svg"), "<svg/>");
+  const response = await request("sample.svg", "read");
+  assert.equal(response.headers.get("content-type"), "image/svg+xml");
+  assert.match(response.headers.get("content-security-policy"), /default-src 'none'/);
+  assert.equal(await response.text(), "<svg/>");
+});
+
+test("a byte range resumes across chunks and stops at its inclusive end", async () => {
+  const start = 123;
+  const end = bytes.length - 456;
+  const response = await request("sample.bin", "download", { range: `bytes=${start}-${end}` });
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get("content-range"), `bytes ${start}-${end}/${bytes.length}`);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes.subarray(start, end + 1));
+});
+
+test("a stalled download bounds disk read-ahead and cancellation closes the file", async () => {
+  const createReadStream = fs.createReadStream;
+  let stream;
+  let stopped;
+  let closed;
+  fs.createReadStream = (...args) => {
+    stream = createReadStream(...args);
+    stopped = Promise.race([once(stream, "pause"), once(stream, "end")]);
+    closed = once(stream, "close");
+    return stream;
+  };
+  try {
+    const response = await request("sample.bin", "download");
+    assert.equal(response.status, 200);
+    await stopped;
+    assert.ok(stream.bytesRead > 0 && stream.bytesRead <= 2 * stream.readableHighWaterMark,
+      `read ${stream.bytesRead} bytes without client demand`);
+    await response.body.cancel();
+    await closed;
+    assert.ok(stream.closed);
+  } finally {
+    fs.createReadStream = createReadStream;
+    stream?.destroy();
+  }
 });

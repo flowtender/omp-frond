@@ -239,7 +239,8 @@ function createFileBodyStream(filePath: string, range?: { start: number; end: nu
       fileStream.on("data", (chunk: Buffer) => {
         if (closed) return;
         try {
-          controller.enqueue(new Uint8Array(chunk));
+          controller.enqueue(chunk);
+          if ((controller.desiredSize ?? 0) <= 0) fileStream.pause();
         } catch {
           closed = true;
           fileStream.destroy();
@@ -263,6 +264,9 @@ function createFileBodyStream(filePath: string, range?: { start: number; end: nu
           // The response was already abandoned by the client.
         }
       });
+    },
+    pull() {
+      if (!closed) fileStream.resume();
     },
     cancel() {
       closed = true;
