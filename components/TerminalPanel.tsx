@@ -8,7 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { setTerminalTheme, useTerminalTheme } from "@/hooks/useTerminalTheme";
 import { subscribeFontPreferences } from "@/hooks/useFontPreferences";
 import { readFontWeight } from "@/lib/font-preferences";
-import { createTerminalWriter, terminalRequest } from "@/lib/terminal-client";
+import { createTerminalReplayGuard, createTerminalWriter, terminalRequest } from "@/lib/terminal-client";
 import {
   applyTerminalModifiers,
   NO_TERMINAL_MODIFIERS,
@@ -37,6 +37,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   const terminalRef = useRef<Terminal | null>(null);
   const startRef = useRef<Promise<void>>(Promise.resolve());
   const writerRef = useRef<ReturnType<typeof createTerminalWriter> | null>(null);
+  const receivedOutputRef = useRef<string | null>(null);
   const callbacksRef = useRef({ onClosed, onCloseError });
   callbacksRef.current = { onClosed, onCloseError };
   const [status, setStatus] = useState<"connecting" | "ready" | "exited" | "error">("connecting");
@@ -83,6 +84,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     let connected = false;
     let exited = false;
     let inputFailed = false;
+    const replay = createTerminalReplayGuard();
     setStatus("connecting");
     setError(null);
     setExitCode(null);
@@ -126,7 +128,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     });
     writerRef.current = writer;
     const onData = terminal.onData((data) => {
-      if (connected && !exited && !inputFailed) writer.write(applyTerminalModifiers(data, consumeModifiers()));
+      if (connected && !exited && !inputFailed && !replay.suppressingInput()) writer.write(applyTerminalModifiers(data, consumeModifiers()));
     });
     const fitAndResize = () => {
       if (!container.offsetWidth || !container.offsetHeight) return;
@@ -156,8 +158,13 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
         const event = JSON.parse(message.data) as TerminalEvent;
         if (event.type === "output") {
           if (event.reset) terminal.reset();
-          else if (offset !== undefined && event.offset <= offset) return;
-          terminal.write(event.data);
+          else if (offset !== undefined && event.offset <= offset) {
+            // The server still sends an empty snapshot when no output was missed.
+            replay.write("", () => {});
+            return;
+          }
+          receivedOutputRef.current = id;
+          replay.write(event.data, (data, done) => terminal.write(data, done));
           offset = event.offset;
         } else {
           exited = true;
@@ -169,6 +176,8 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
         }
       };
       events.onopen = () => {
+        // The first snapshot of a newly created shell may contain unanswered startup queries.
+        replay.open(Boolean(restored || reconnectKey > 0 || offset !== undefined || receivedOutputRef.current === id));
         connected = true;
         if (inputFailed) return;
         terminal.options.disableStdin = false;

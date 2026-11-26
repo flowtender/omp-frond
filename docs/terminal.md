@@ -34,6 +34,13 @@ an older cursor triggers a terminal reset and bounded history replay. This is
 bounded output history, not a serialized full-screen terminal snapshot. Slow
 SSE consumers are disconnected once their response queue fills.
 
+On restored tabs and reconnects, xterm's asynchronous rendering of the first
+output snapshot suppresses input, including replies to device and cursor queries
+already present in history. Keystrokes during that brief rendering are dropped
+too. The first connection to a newly created shell is different: its startup
+queries have not been answered yet, so replies are forwarded normally. Live
+output after a snapshot is also answered normally.
+
 Input and resizes are serialized. Pending adjacent input is batched so remote
 connections do not require one round trip per keystroke; large pastes are split
 without splitting Unicode characters. Failed input is not retried because its

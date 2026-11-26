@@ -8,6 +8,30 @@ export async function terminalRequest(path: string, options?: RequestInit): Prom
   return data;
 }
 
+// xterm parses writes asynchronously and emits protocol replies through onData.
+export function createTerminalReplayGuard() {
+  let awaitingHistory = false;
+  let drawingHistory = 0;
+  return {
+    open(replay: boolean) {
+      awaitingHistory = replay;
+    },
+    write(data: string, write: (data: string, done?: () => void) => void) {
+      const history = awaitingHistory;
+      awaitingHistory = false;
+      if (history && data) {
+        drawingHistory += 1;
+        write(data, () => { drawingHistory -= 1; });
+      } else {
+        write(data);
+      }
+    },
+    suppressingInput() {
+      return drawingHistory > 0;
+    },
+  };
+}
+
 export function createTerminalWriter(id: string, onError: (error: Error) => void) {
   let pending = Promise.resolve();
   let stopped = false;
