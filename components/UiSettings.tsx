@@ -22,6 +22,7 @@ import type { RuntimeSessionBinding } from "@/lib/agent-client";
 import { useSessionReload } from "@/hooks/useSessionReload";
 import type { ToolSettingsResponse } from "@/lib/api-types";
 import { setExpansionPreference, useExpansionPreference, type ExpansionKind, type ExpansionMode } from "@/lib/expansion-preference";
+import { setToolDisplayPreference, useToolDisplayPreference, type ToolDisplayPreference } from "@/hooks/useToolDisplayPreference";
 import { setupPushSubscription } from "@/lib/push-client";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
@@ -59,6 +60,16 @@ function ExpansionSetting({ kind, label, modes }: typeof EXPANSION_OPTIONS[numbe
       </select>
     </label>
   );
+}
+
+function ToolDisplaySetting({ kind }: { kind: ToolDisplayPreference }) {
+  const { t } = useI18n();
+  const enabled = useToolDisplayPreference(kind);
+  const label = t(`settings.toolDisplay.${kind}`);
+  return <div className="settings-chat-option settings-chat-switch-option">
+    <span>{label}</span>
+    <ConfigSwitch checked={enabled} label={label} onChange={(next) => setToolDisplayPreference(kind, next)} />
+  </div>;
 }
 
 interface UiSettingsProps {
@@ -380,6 +391,15 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
         <p id="settings-show-cost-with-usage-description" className="settings-general-description">{t("settings.showCostWithUsageDescription")}</p>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.toolDisplay")}</h3>
+        <div className="settings-chat-options">
+          <ToolDisplaySetting kind="compactJson" />
+          <ToolDisplaySetting kind="readPreviews" />
+        </div>
+        <p className="settings-general-description">{t("settings.toolDisplayDescription")}</p>
       </section>
 
       <section className="settings-general-section">

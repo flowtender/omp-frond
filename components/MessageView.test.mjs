@@ -15,6 +15,8 @@ const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display")
 const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 const { parseUnifiedPatch } = await jiti.import("@/lib/patch");
 const { buildToolResultsMap } = await jiti.import("./subagent-viewer-state.ts");
+const { readToolPreview } = await jiti.import("@/lib/read-tool-display");
+const { formatEvalJavaScript } = await jiti.import("@/lib/eval-code-format");
 const {
   CompactionSummaryDetails,
   MessageView,
@@ -189,7 +191,7 @@ test("renders write tool content as readable file text", () => {
   }
 });
 
-test("a write with another argument or an empty file shows every argument as a row", () => {
+test("a write with another argument or an empty file keeps the remaining arguments visible", () => {
   const cases = [
     { id: "call-write-mode", input: { path: "notes.md", content: "text", mode: "append" }, expect: "append" },
     { id: "call-write-empty", input: { path: "empty.txt", content: "" }, expect: "(empty)" },
@@ -257,9 +259,9 @@ test("an edit call shows no table: its arguments are a list of patches", () => {
   }
 });
 
-test("a read, a subagent and a flat MCP call show one row per argument", (t) => {
+test("expanded Read, subagent and flat MCP cards retain arguments not shown in their headers", (t) => {
   const cases = [
-    { id: "call-read-rows", toolName: "read", input: { path: "lib/tool-fields.ts", offset: 120, limit: 80 }, expect: [">path</td>", "lib/tool-fields.ts", ">120</td>"] },
+    { id: "call-read-rows", toolName: "read", input: { path: "lib/tool-fields.ts", offset: 120, limit: 80 }, expect: ["lib/tool-fields.ts", ">offset</td>", ">120</td>", ">limit</td>", ">80</td>"] },
     { id: "call-agent-rows", toolName: "Agent", input: { subagent_type: "Explore", prompt: "Find the parser" }, expect: [">subagent_type</td>", "Find the parser"] },
     { id: "call-mcp-flat-rows", toolName: "mcp__issues__search", input: { query: "open bugs", limit: 10 }, expect: [">query</td>", "open bugs", ">10</td>"] },
   ];
@@ -270,6 +272,7 @@ test("a read, a subagent and a flat MCP call show one row per argument", (t) => 
     const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
     assert.ok(html.includes("<table"), id);
     for (const needle of expect) assert.ok(html.includes(needle), `${id}: ${needle}`);
+    if (toolName === "read") assert.doesNotMatch(html, />path<\/td>/);
   }
 });
 
@@ -420,6 +423,8 @@ test("an async notice keeps the highlighted shell command and output open beside
   assert.match(textOf(command), /printf '%s\\n' "\$VALUE" && bun run compile/);
   assert.match(html, /class="shell-output-footer">3\.6s<\/div>/);
   assert.match(html, /class="shell-output-line is-error"><span>  failure: &lt;missing&gt;<\/span>/);
+  assert.equal(html.match(/failure: &lt;missing&gt;/g)?.length, 1);
+  assert.doesNotMatch(html, /<summary>Raw output<\/summary>/);
   assert.match(html, /review.*Review changes.*Completed.*0\.8s/);
   assert.doesNotMatch(html, /<strong>No issues<\/strong>/);
   setToolCallExpanded("async:456:result:review-job:1", true);
@@ -696,8 +701,70 @@ test("uses i/title in the standard header for grep, read, write, glob, and eval 
     const toolPosition = html.indexOf(`>${toolName}</span>`);
     assert.ok(previewPosition > toolPosition, `expected ${property} from ${toolName} in the standard header`);
     assert.doesNotMatch(html, /class="tool-intent-preview"/);
-    assert.ok(!html.includes(fallback), `expected ${toolName} fallback to stay out of the header`);
+    if (toolName === "glob") assert.ok(html.includes(`${renderedPreview} · ${fallback}`));
+    else assert.ok(!html.includes(fallback), `expected ${toolName} fallback to stay out of the header`);
   }
+});
+
+test("glob moves its search scope and flags into the header for direct and mounted calls", (t) => {
+  const args = { path: "src", pattern: "**/*.ts", hidden: false, gitignore: false, limit: 12 };
+  for (const mounted of [false, true]) {
+    const id = mounted ? "mounted-glob-badges" : "direct-glob-badges";
+    const expandedId = mounted ? `${id}:cmd:0` : id;
+    setToolCallExpanded(expandedId, true);
+    t.after(() => setToolCallExpanded(expandedId, false));
+    const html = renderMessage({ role: "assistant", content: [{
+      type: "toolCall", toolCallId: id, toolName: mounted ? "bash" : "glob",
+      input: mounted ? { command: "glob" } : args,
+    }] }, { toolResults: new Map([[id, {
+      role: "toolResult", content: [{ type: "text", text: "src/main.ts" }],
+      details: mounted ? { toolCommands: [{ tool: "glob", mode: "execute", exitCode: 0, args }] } : undefined,
+    }]]) });
+    const header = /<button[^>]*aria-expanded="true"[^>]*>(.*?)<\/button>/s.exec(html)?.[1] ?? "";
+    assert.match(header, />src · \*\*\/\*\.ts<\/span>/);
+    assert.match(header, /data-state="off"[^>]*aria-label="Exclude hidden files\."><svg/);
+    assert.match(header, /data-state="off"[^>]*aria-label="Do not use gitignore rules\."><svg/);
+    assert.match(header, /title="Return up to 12 matches\.">≤ 12<\/span>/);
+    assert.match(html, /src\/main\.ts/);
+    assert.doesNotMatch(html, /<table\b/);
+  }
+});
+
+test("task badges distinguish a single isolation request from a mixed batch", (t) => {
+  const id = "task-isolation-flags";
+  setToolCallExpanded(id, true);
+  t.after(() => setToolCallExpanded(id, false));
+  const render = (input) => renderMessage({ role: "assistant", content: [
+    { type: "toolCall", toolCallId: id, toolName: "task", input },
+  ] });
+  const isolated = render({ task: "Check the parser", isolated: true });
+  assert.match(isolated, /data-state="on"[^>]*aria-label="Request an isolated worktree for this task\."><svg/);
+  assert.doesNotMatch(isolated, />isolated<\/td>/);
+  assert.match(render({ task: "Check the parser" }), /data-state="off"[^>]*aria-label="Run this task in the shared checkout\."/);
+  const batch = render({ context: "Parser", tasks: [
+    { task: "Check imports", isolated: true },
+    { task: "Check comments", isolated: true },
+    { task: "Check exports" },
+    { task: "Check syntax", isolated: null },
+  ] });
+  assert.match(batch, /data-state="on"[^>]*aria-label="Batch tasks requesting an isolated worktree: 2\."><svg/);
+  assert.match(batch, /data-state="off"[^>]*aria-label="Batch tasks using the shared checkout: 1\."><svg/);
+  assert.match(batch, /class="tool-card-badge" title="Batch tasks with an invalid null isolation flag: 1\."/);
+});
+
+test("browser open badges show explicit overrides without assuming the retained tab mode", (t) => {
+  const id = "browser-open-flags";
+  setToolCallExpanded(id, true);
+  t.after(() => setToolCallExpanded(id, false));
+  const render = (input) => renderMessage({ role: "assistant", content: [
+    { type: "toolCall", toolCallId: id, toolName: "browser", input },
+  ] });
+  const explicit = render({ action: "open", name: "docs", headed: false, persist: true });
+  assert.match(explicit, /data-state="off"[^>]*aria-label="Request a headless browser\."><svg/);
+  assert.match(explicit, /data-state="on"[^>]*aria-label="Keep this browser tab open\."><svg/);
+  assert.doesNotMatch(explicit, />(?:headed|persist)<\/td>/);
+  assert.doesNotMatch(render({ action: "open", name: "docs" }), /class="tool-card-badge"/);
+  assert.match(render({ action: "open", headed: null }), /class="tool-card-badge" title="headed: This flag takes true or false, not null\."/);
 });
 
 test("shows an operation icon beside every standard tool label", () => {
@@ -1372,13 +1439,13 @@ test("one column names a deleted file's section by its old path", () => {
 test("highlights complete tool code and JSON, leaving streaming, unknown, and oversized text plain", async (t) => {
   const { loadPrismLanguages } = await jiti.import("@/lib/prism-languages");
   await loadPrismLanguages();
-  const renderTool = (id, toolName, input, output, rawInput) => {
+  const renderTool = (id, toolName, input, output, rawInput, details) => {
     const block = { type: "toolCall", toolCallId: id, toolName, input, ...(rawInput === undefined ? {} : { rawInput }) };
     setToolCallExpanded(id, true);
     t.after(() => setToolCallExpanded(id, false));
     return renderMessage({ role: "assistant", content: [block] }, {
       toolResults: new Map(output === undefined ? [] : [[id, {
-        role: "toolResult", toolCallId: id, content: [{ type: "text", text: output }],
+        role: "toolResult", toolCallId: id, content: [{ type: "text", text: output }], details,
       }]]),
     });
   };
@@ -1393,6 +1460,45 @@ test("highlights complete tool code and JSON, leaving streaming, unknown, and ov
   assert.match(renderTool("codemode-highlight", "codemode", { code: "const x = 1;" }), /token keyword/);
   assert.match(renderTool("write-highlight", "write", { path: "x.ts", content: "const x = 1;" }), /token keyword/);
   assert.match(renderTool("read-highlight", "read", { path: "x.py" }, "def greet():\n  return 1"), /token keyword/);
+  assert.match(renderTool("tsx-read", "read", { path: "App.tsx:22-50" }, "const view: JSX.Element = <main />;"), /language-tsx.*token tag/);
+  const mjs = renderTool("mjs-read", "read", { path: "script.mjs" }, "export const x = 1;");
+  assert.match(mjs, /language-javascript.*token keyword/);
+  assert.equal(textOf(mjs).match(/script\.mjs/g)?.length, 1);
+  const numberedRead = renderTool("numbered-read", "read", { path: "script.ts" },
+    "[script.ts#ABCD]\n1:const x = 1;\n\n[…20ln elided; re-read needed ranges]", undefined,
+    { rowPrefixes: true, displayContent: { text: "const x = 1;", startLine: 1 } });
+  assert.match(numberedRead, /language-typescript.*token keyword/);
+  assert.match(textOf(numberedRead), /const x = 1;/);
+  assert.match(numberedRead, /Show raw/);
+  assert.doesNotMatch(textOf(numberedRead), /#ABCD|1:const|re-read needed ranges/);
+  const literal = "[notes.txt#ABCD]\n1:literal\n[content]";
+  assert.ok(textOf(renderTool("raw-file-read", "read", { path: "notes.txt:raw" }, literal, undefined,
+    { raw: true, rowPrefixes: false })).includes(literal));
+  const write = renderTool("tsx-write", "write", { path: "App.tsx", content: "const view: JSX.Element = <main />;", extra: { mode: "replace" } },
+    "[App.tsx#9E25]\nSuccessfully wrote 40 bytes to App.tsx\nNote: format-on-save changed the file.");
+  assert.match(write, /language-tsx.*token tag/);
+  assert.match(textOf(write), /"mode": "replace"/);
+  assert.doesNotMatch(write, /9E25/);
+  assert.match(write, /color:#16a34a">Successfully wrote 40 bytes to App\.tsx<\/span>/);
+  assert.match(write, /format-on-save changed the file/);
+  const grep = renderTool("grep-highlight", "grep", { pattern: "^foo[0-9]+$", path: "src; test;!vendor", case: false, skip: null });
+  assert.match(grep, /<button[^>]*>.*language-regex.*<\/button>/s);
+  assert.equal(textOf(grep).split("^foo[0-9]+$").length, 2);
+  assert.match(grep, /data-state="off"[^>]*aria-label="Ignore case\."><svg/);
+  assert.match(grep, /data-state="on"[^>]*aria-label="Respect gitignore rules \(default\)\."><svg/);
+  assert.match(grep, /class="tool-card-badge" title="Start on the first page; skip no matching files\."/);
+  assert.match(grep, /class="tool-path-list">src\ntest\n!vendor<\/span>/);
+  assert.doesNotMatch(grep, />(?:pattern|case|gitignore|skip)<\/td>/);
+  const offset = renderTool("grep-offset", "grep", { pattern: "foo", gitignore: false, skip: 20 });
+  assert.match(offset, /data-state="on"[^>]*aria-label="Skip the first 20 matching files\."><svg.*<\/svg>20<\/span>/);
+  assert.match(offset, /data-state="off"[^>]*aria-label="Do not use gitignore rules\."><svg/);
+  const nullFlags = renderTool("grep-null-flags", "grep", { pattern: "foo", case: null, gitignore: null, skip: 0 });
+  assert.match(nullFlags, /class="tool-card-badge" title="case: This flag takes true or false, not null\."/);
+  assert.match(nullFlags, /class="tool-card-badge" title="gitignore: This flag takes true or false, not null\."/);
+  assert.match(nullFlags, /data-state="off"[^>]*aria-label="Start on the first page; skip no matching files\."/);
+  const recall = renderTool("recall-header", "recall", { query: "find the original rationale" }, "A memory");
+  assert.equal(textOf(recall).match(/find the original rationale/g)?.length, 1);
+  assert.match(recall, /A memory/);
   const json = '  {"ok":true,"items":[1,2]}  \n';
   const output = renderTool("json-highlight", "other", { nested: { x: 1 } }, json);
   assert.match(output, /language-json/);
@@ -1405,19 +1511,66 @@ test("highlights complete tool code and JSON, leaving streaming, unknown, and ov
   assert.match(renderTool("bash-highlight", "bash", { command: "echo $HOME" }), /omp-syntax/);
 });
 
+test("formats JavaScript eval cells without rewriting invalid source or percent commands", async () => {
+  assert.equal(await formatEvalJavaScript("if(ok){return {value:42}}"), "if (ok) {\n  return { value: 42 };\n}");
+  assert.equal(await formatEvalJavaScript("const invalid={"), "const invalid={");
+  assert.equal(await formatEvalJavaScript('%load "demo.js"'), '%load "demo.js"');
+});
+
+test("Read previews keep source metadata separate from the rendered document", () => {
+  const url = "https://example.org/docs";
+  const preview = readToolPreview(`URL: ${url}\nContent-Type: text/html\nMethod: native\nNotes: Extracted article\n\n---\n\n# Docs`, url, { kind: "url" }, true);
+  assert.deepEqual(preview, { url, contentType: "text/html", method: "native", notes: "Extracted article", markdown: true, text: "# Docs" });
+  const skill = readToolPreview("[Skill file: skills/example/SKILL.md]\n[skills/example/SKILL.md#ABCD]\n1:# Example\n2:\n3:- Step", "skill://example", { rowPrefixes: true }, true);
+  assert.deepEqual(skill, { markdown: true, hash: "ABCD", sourcePath: "skills/example/SKILL.md", text: "# Example\n\n- Step" });
+});
+
+test("compact JSON arguments keep short nested values together without modifying streamed input", () => {
+  const block = { input: { rows: [{ name: "alpha", counts: [1, 2] }] } };
+  const compact = getToolCallInputText(block, true);
+  assert.match(compact, /"counts": \[1, 2\]/);
+  assert.deepEqual(JSON.parse(compact), block.input);
+  assert.equal(getToolCallInputText({ ...block, rawInput: '{"rows":[' }, true), '{"rows":[');
+});
+
 test("highlights mounted eval and read without losing ANSI console output", async (t) => {
   const { loadPrismLanguages } = await jiti.import("@/lib/prism-languages");
   await loadPrismLanguages();
-  const renderMounted = (id, tool, args, output) => {
+  const renderMounted = (id, tool, args, output, inner, command = tool) => {
     setToolCallExpanded(`${id}:cmd:0`, true);
     t.after(() => setToolCallExpanded(`${id}:cmd:0`, false));
-    return renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: id, toolName: "bash", input: { command: tool } }] }, {
-      toolResults: new Map([[id, { role: "toolResult", content: [{ type: "text", text: output }],
-        details: { wallTimeMs: 1, toolCommands: [{ tool, mode: "execute", exitCode: 0, args }] } }]]),
+    return renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: id, toolName: "bash", input: { command } }] }, {
+      toolResults: new Map([[id, { role: "toolResult", durationMs: 2200, content: [{ type: "text", text: output }],
+        details: { wallTimeMs: 1, toolCommands: [{ tool, mode: "execute", exitCode: 0, args, inner }] } }]]),
     });
   };
-  assert.match(renderMounted("mounted-eval-code", "eval", { language: "py", code: "return 42" }, ""), /token keyword/);
+  const evalCard = renderMounted("mounted-eval-code", "eval", { language: "py", code: "return 42", title: "Compute total", reset: true, timeout: 15 }, "");
+  assert.match(evalCard, /token keyword/);
+  assert.match(evalCard, /aria-label="Python"><span[^>]*class="catppuccin-file-icon".*>Compute total<\/span>/);
+  assert.match(evalCard, /data-state="on"[^>]*aria-label="Start a fresh kernel for this language before running the cell\."><svg/);
+  assert.match(evalCard, />2\.2\/15s<\/span>/);
+  const unlimited = renderMounted("mounted-eval-unlimited", "eval", { language: "js", code: "1", timeout: 0 }, "1");
+  assert.match(unlimited, />2\.2\/∞<\/span>/);
+  assert.match(unlimited, /data-state="off"[^>]*aria-label="Reuse this language’s existing kernel\."><svg/);
+  const noReset = renderMounted("mounted-eval-no-reset", "eval", { language: "js", code: "1", reset: false }, "1");
+  assert.match(noReset, /data-state="off"[^>]*aria-label="Reuse this language’s existing kernel\."><svg/);
+  const nullReset = renderMounted("mounted-eval-null-reset", "eval", { language: "js", code: "1", reset: null }, "1");
+  assert.match(nullReset, /class="tool-card-badge" title="reset: This flag takes true or false, not null\."/);
+  assert.doesNotMatch(evalCard, />(?:title|language|reset|timeout)<\/td>/);
+  const lsp = renderMounted("mounted-lsp", "lsp", { action: "references", file: "src/main.ts", line: 9, symbol: "root", timeout: 20 }, "Found 4 references");
+  assert.match(lsp, />references · src\/main\.ts:9 · root<\/span>/);
+  assert.doesNotMatch(lsp, />(?:action|file|line|symbol)<\/td>|shell-output-(?:label|panel)/);
+  assert.match(lsp, />timeout<\/td>.*>20<\/td>/);
+  assert.match(lsp, /Found 4 references/);
   assert.match(renderMounted("mounted-read-code", "read", { path: "x.js" }, "const x = 1;"), /token keyword/);
+  const inner = { rowPrefixes: true, displayContent: { text: "const x = 1;", startLine: 1 } };
+  const mountedRead = renderMounted("mounted-read-tags", "read", { path: "x.js" },
+    "[x.js#ABCD]\n1:const x = 1;\n\n[10 more lines in file. Use x.js:2- to continue]", inner, "read x.js");
+  assert.match(mountedRead, /token keyword/);
+  assert.doesNotMatch(textOf(mountedRead), /#ABCD|1:const|more lines in file/);
+  const pipedRead = renderMounted("mounted-read-pipe", "read", { path: "x.js" }, "17", inner, "read x.js | wc -l");
+  assert.match(pipedRead, />17<\/span>/);
+  assert.doesNotMatch(textOf(pipedRead), /const x = 1/);
   const ansi = renderMounted("mounted-read-ansi", "read", { path: "x.js" }, "\x1b[31mred\x1b[0m");
   assert.match(ansi, /color:/);
   assert.match(textOf(ansi), /red/);

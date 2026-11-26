@@ -1,17 +1,27 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
+import Github from "@lobehub/icons/es/Github";
+import Firecrawl from "@lobehub/icons/es/Firecrawl";
+import Jina from "@lobehub/icons/es/Jina";
+import compactStringify from "json-stringify-pretty-compact";
 import ReactMarkdown from "react-markdown";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { PlugGlyph } from "./PlugGlyph";
+import { getFileIcon } from "./FileIcons";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import { fileLanguage } from "@/lib/file-language";
+import { markdownRemarkPlugins } from "@/lib/markdown";
+import { readToolPreview, type ReadToolPreview } from "@/lib/read-tool-display";
+import { formatEvalJavaScript } from "@/lib/eval-code-format";
+import { useToolDisplayPreference } from "@/hooks/useToolDisplayPreference";
+import type { TranslationParams } from "@/lib/i18n/types";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, isHiddenAssistantBlock, splitThinkingPieces } from "@/lib/message-display";
 import { useDisplaySettings } from "@/hooks/useDisplaySettings";
@@ -25,7 +35,7 @@ import { isToolCallExpanded, setToolCallExpanded, toolCallExpandedByDefault, too
 import { useExpansionPreference } from "@/lib/expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
-import { skillExpansionToCommand } from "@/lib/slash-display";
+import { skillExpansionBody, skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
@@ -111,10 +121,11 @@ const MAX_MARKDOWN_CHARS = 100_000;
 
 // Tool text can be updated frequently and can contain huge outputs. Only load
 // Prism for complete, bounded text with a known language.
-const ToolSyntax = memo(function ToolSyntax({ text, language, streaming = false }: {
+const ToolSyntax = memo(function ToolSyntax({ text, language, streaming = false, inline = false }: {
   text: string;
   language?: string | null;
   streaming?: boolean;
+  inline?: boolean;
 }) {
   const enabled = !streaming && !!language && language !== "text" && text.length <= MAX_MARKDOWN_CHARS;
   const ready = usePrismLanguages(enabled);
@@ -125,7 +136,7 @@ const ToolSyntax = memo(function ToolSyntax({ text, language, streaming = false 
     useInlineStyles={false}
     PreTag="span"
     CodeTag="span"
-    codeTagProps={{ className: `language-${language}`, style: { whiteSpace: "pre-wrap" } }}
+    codeTagProps={{ className: `language-${language}`, style: { whiteSpace: inline ? "inherit" : "pre-wrap" } }}
   >{text}</SyntaxHighlighter>;
 });
 
@@ -144,24 +155,22 @@ function toolNameIs(tool: string, name: string): boolean {
   return normalized === name || normalized.endsWith(`.${name}`) || normalized.endsWith(`_${name}`);
 }
 
-function toolFileLanguage(args: Record<string, unknown>): string | null {
-  const path = typeof args.path === "string" ? args.path : args.file_path;
+function toolFileLanguage(args: Record<string, unknown>, details?: unknown): string | null {
+  const path = (isRecord(details) && typeof details.resolvedPath === "string" ? details.resolvedPath : undefined)
+    ?? (typeof args.path === "string" ? args.path : args.file_path);
   if (typeof path !== "string") return null;
-  const language = fileLanguage(path);
+  const language = fileLanguage(path.replace(/(?::(?:raw|[-\d,]+))+$/i, ""));
   return language === "text" || language === "pdf" || language === "word" ? null : language;
 }
 
 function toolFieldLanguage(tool: string, args: Record<string, unknown>, key: string): string | null {
-  if (key === "code" && toolNameIs(tool, "eval")) {
-    if (args.language === "js") return "javascript";
-    if (args.language === "py") return "python";
-  }
+  if (key === "pattern" && toolNameIs(tool, "grep")) return "regex";
   if (key === "content" && isWriteToolName(tool)) return toolFileLanguage(args);
   return null;
 }
 
-function toolOutputLanguage(tool: string, args: Record<string, unknown>, text: string): string | null {
-  return (toolNameIs(tool, "read") ? toolFileLanguage(args) : null) ?? jsonLanguage(text);
+function toolOutputLanguage(tool: string, args: Record<string, unknown>, text: string, details?: unknown): string | null {
+  return (toolNameIs(tool, "read") ? toolFileLanguage(args, details) : null) ?? jsonLanguage(text);
 }
 
 function formatMessageBytes(n: number): string {
@@ -415,6 +424,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   isEditing?: boolean;
 }) {
   const { t } = useI18n();
+  const readPreviews = useToolDisplayPreference("readPreviews");
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -436,6 +446,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
 
+  const skillBody = readPreviews ? skillExpansionBody(content) : null;
   const commandText = skillExpansionToCommand(content);
   const commandSeparator = commandText?.search(/\s/) ?? -1;
   const commandName = commandText
@@ -566,7 +577,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                 )}
               </div>
               {expanded && (
-                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+                skillBody === null
+                  ? <SafeMarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>
+                  : <ToolDocument text={skillBody} />
               )}
             </div>
           ) : (
@@ -1250,8 +1263,8 @@ export function formatToolDuration(ms: number): string {
 
 function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSubagent?: (sessionId: string, label: string) => void }) {
   const { t } = useI18n();
-  const writtenFileText = getWrittenFileText(block);
-  const inputStr = writtenFileText ?? getToolCallInputText(block);
+  const compactJson = useToolDisplayPreference("compactJson");
+  const readPreviews = useToolDisplayPreference("readPreviews");
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
@@ -1266,13 +1279,6 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   // A running script's progress snapshot has calls but no content yet.
   const codemodeRunning = codemode !== null && result !== undefined && result.content.length === 0;
 
-  // Flat arguments as rows instead of a JSON blob, unless the card has a view of
-  // its own (a write's file text, codemode, an applied patch). See `lib/tool-fields.ts`.
-  const toolFields =
-    !isStreamingInput && writtenFileText === null && codemode === null && patchFiles === null
-      ? toolFieldsOfInput(block.input)
-      : null;
-
   // `server/tool` instead of the registered `mcp__server__tool`, as pi's TUI shows it.
   const mcpLabel = mcpToolLabel(block.toolName, result?.details);
 
@@ -1285,6 +1291,17 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = (result?.isError ?? false)
     || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
+  const inputView: ToolInputView = isStreamingInput ? { args: block.input } : describeToolInput(block.toolName, block.input, t);
+  const args = inputView.args;
+  const readPreview = !isError && !isStreamingInput && resultText !== null && resultText.length <= MAX_MARKDOWN_CHARS
+    && toolNameIs(block.toolName, "read") ? readToolPreview(resultText, args.path ?? args.file_path, result?.details, readPreviews) : null;
+  const readTarget = toolNameIs(block.toolName, "read") && !isStreamingInput
+    ? readPreview?.url ?? readHeaderTarget(args)
+    : undefined;
+  const visibleArgs = readTarget ? omitShownReadPath(args, readTarget) : args;
+  const toolFields = !isStreamingInput && codemode === null && patchFiles === null
+    ? toolFieldsOfInput(visibleArgs)
+    : null;
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
   // omp keeps a live console card for bash and a checklist card for todo.
@@ -1292,8 +1309,6 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   const isBashTool = normalizedToolName === "bash" || normalizedToolName.startsWith("bash ") || normalizedToolName.endsWith(".bash") || normalizedToolName.endsWith("_bash");
   const isTodoTool = normalizedToolName === "todo" || normalizedToolName.endsWith(".todo") || normalizedToolName.endsWith("_todo");
   const todoPhases = isTodoTool ? getTodoPreviewPhases(block, result) : null;
-  const inlineTarget = /^(?:lsp|memory_edit|retain|recall|reflect|mcp__.*)$/.test(block.toolName)
-    ? inlineToolTarget(block.toolName, block.input) : "";
 
   if (isBashTool) {
     const dispatches = shellToolDispatches(result?.details);
@@ -1302,6 +1317,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         callId={block.toolCallId}
         dispatches={dispatches}
         result={result}
+        command={typeof block.input.command === "string" ? block.input.command : ""}
         output={resultText ?? ""}
         isError={isError}
         hasFinalTiming={isRecord(result?.details) && typeof result.details.wallTimeMs === "number"}
@@ -1328,6 +1344,8 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
     </ToolCard>;
   }
   const inlineResult = inlineToolResult(block.toolName, result?.details, t);
+  const inlineTarget = /^(?:memory_edit|retain|reflect|mcp__.*)$/.test(block.toolName)
+    ? inlineToolTarget(block.toolName, block.input) : "";
 
   return (
     <ToolCard
@@ -1338,8 +1356,13 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
       hasFailure={toolCallFailureCount(block, result) > 0}
       target={isStreamingInput
         ? t("chat.generatingToolInput")
-        : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : inlineTarget || getStructuredToolPreview(block, todoPhases)))}
+        : (readTarget ?? patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : inputView.target ?? (inlineTarget || getStructuredToolPreview(block, todoPhases))))}
+      targetLanguage={inputView.targetLanguage}
       facts={inlineResult}
+      metadata={readPreviews && readPreview && <ReadHeaderMetadata preview={readPreview} target={readTarget} />}
+      labelBadge={inputView.labelBadge}
+      timeout={inputView.timeout}
+      badge={inputView.badge}
       duration={duration}
       count={codemodeCallCount}
       action={subagent && onOpenSubagent && (
@@ -1356,7 +1379,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
     >
       {(expanded) => <>
       {/* ── Expanded: input args (only when no richer view exists); a codemode script in place of its JSON ── */}
-      {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
+      {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (isStreamingInput || codemode || Object.keys(visibleArgs).length > 0) && (
         toolFields ? (
           <div
             style={{
@@ -1382,12 +1405,15 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
               wordBreak: "break-all",
             }}
           >
-            <ToolSyntax text={codemode ? codemode.code.replace(/\r/g, "").trimEnd() : inputStr}
-              language={codemode ? "javascript" : writtenFileText !== null ? toolFileLanguage(block.input) : "json"}
+            <ToolSyntax text={codemode ? codemode.code.replace(/\r/g, "").trimEnd()
+              : getToolCallInputText(block, compactJson, visibleArgs)}
+              language={codemode ? "javascript" : "json"}
               streaming={isStreamingInput} />
           </pre>
         )
       )}
+      {expanded && inputView.fileContent !== undefined && <WrittenToolCode text={inputView.fileContent} args={block.input} />}
+      {expanded && inputView.evalCode && <EvalToolCode {...inputView.evalCode} />}
 
       {/* ── Expanded: the calls a codemode script made ── */}
       {expanded && codemode && (
@@ -1422,7 +1448,9 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         ) : (!resultIsEmpty || resultImages.length === 0) && (
           <TaskResultOutput callId={block.toolCallId} tool={block.toolName} result={result} output={resultText ?? ""}>
             <PairedResult text={resultText ?? ""} isEmpty={resultIsEmpty} isError={isError}
-              language={!isError && !isStreamingInput ? toolOutputLanguage(block.toolName, block.input, resultText ?? "") : null} />
+              writeAcknowledgment={isWriteToolName(block.toolName)}
+              preview={readPreview} ansi={toolNameIs(block.toolName, "lsp")}
+              language={!isError && !isStreamingInput ? toolOutputLanguage(block.toolName, block.input, readPreview?.text ?? resultText ?? "", result.details) : null} />
           </TaskResultOutput>
         )
       )}
@@ -1508,7 +1536,7 @@ function useToolExpanded(callId: string, hasFailure: boolean): [boolean, (expand
   }];
 }
 
-function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, facts, duration, count = 0, action, children }: {
+function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, targetLanguage, facts, metadata, labelBadge, badge, timeout, duration, count = 0, action, children }: {
   callId: string;
   toolName: string;
   label?: string;
@@ -1516,7 +1544,12 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
   isError: boolean;
   hasFailure?: boolean;
   target?: string;
+  targetLanguage?: string;
   facts?: string;
+  metadata?: ReactNode;
+  labelBadge?: ReactNode;
+  badge?: ReactNode;
+  timeout?: number;
   duration?: number;
   count?: number;
   action?: ReactNode;
@@ -1546,21 +1579,27 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
           <ToolBlockIcon toolName={toolName} mcpLabel={mcpLabel} isError={isError} />
           <span
             title={mcpLabel ? toolName : undefined}
-            style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, overflowWrap: "anywhere" }}
+            style={{ color: isError ? "#f87171" : TOOL_SUCCESS_LABEL_COLOR, fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, overflowWrap: "anywhere" }}
           >
             {mcpLabel ? <><span style={{ fontWeight: 500, opacity: 0.75 }}>{mcpLabel.server}/</span>{mcpLabel.tool}</> : label ?? toolName}
           </span>
-          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {target}
+          {labelBadge}
+          <span title={target} style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+            {targetLanguage && target ? <ToolSyntax text={target} language={targetLanguage} inline /> : target}
           </span>
           {facts && <span className="inline-tool-facts" title={facts}>{facts}</span>}
+          {metadata}
+          {badge}
           {count > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
               {count === 1 ? t("codemode.callCountOne") : t("codemode.callCount", { count })}
             </span>
           )}
-          {duration !== undefined && (
-            <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formatToolDuration(duration)}</span>
+          {(duration !== undefined || timeout !== undefined) && (
+            <span className="tool-card-time" title={timeout === undefined ? undefined : t(timeout === 0 ? "chat.eval.noTimeout" : "chat.eval.requestedTimeout")}>
+              {timeout === undefined ? duration !== undefined && formatToolDuration(duration)
+                : `${duration === undefined ? "—" : (duration / 1000).toFixed(1)}/${timeout === 0 ? "∞" : `${timeout}s`}`}
+            </span>
           )}
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
             <polyline points="2 3.5 5 6.5 8 3.5" />
@@ -2003,22 +2042,38 @@ function ShellOutput({ output, pending = false, isError, showLabel = true, langu
   );
 }
 
-function MountedToolCards({ callId, dispatches, result, output, isError, hasFinalTiming, duration }: {
+function MountedToolCards({ callId, dispatches, result, command, output, isError, hasFinalTiming, duration }: {
   callId: string;
   dispatches: readonly ToolDispatch[];
   result?: ToolResultMessage;
+  command: string;
   output: string;
   isError: boolean;
   hasFinalTiming: boolean;
   duration?: number;
 }) {
   const { t } = useI18n();
+  const readPreviews = useToolDisplayPreference("readPreviews");
   const single = dispatches.length === 1;
   return (
     <div className="shell-tool-commands">
       {dispatches.map(({ tool, mode, args, inner, exitCode }, index) => {
         const dispatchId = `${callId}:cmd:${index}`;
         const failed = (hasFinalTiming || isError) && exitCode !== 0;
+        const inputView = mode === "execute" && args ? describeToolInput(tool, args, t) : null;
+        const read = mode === "execute" && toolNameIs(tool, "read");
+        // A single mounted read can still have its stdout piped into another process.
+        // Only use its display body when the shell line is plainly a standalone read.
+        const shellLine = command.trim();
+        const simpleRead = read && single && /^read(?:[ \t]|$)/.test(shellLine) && !/[|&;<>()$`\r\n]/.test(shellLine);
+        const preview = simpleRead && !isError && !failed && output.length <= MAX_MARKDOWN_CHARS && !output.includes("\x1b")
+          ? readToolPreview(output, args?.path ?? args?.file_path, inner, readPreviews) : null;
+        const target = mode === "help" ? t("chat.toolHelp")
+          : read && args ? preview?.url ?? readHeaderTarget(args)
+          : inputView?.target ?? inlineToolTarget(tool, args);
+        const visibleArgs = inputView && read ? omitShownReadPath(inputView.args, target) : inputView?.args;
+        const isWrite = isWriteToolName(tool);
+        const isLsp = toolNameIs(tool, "lsp");
         const facts = [
           mode === "execute" ? inlineToolResult(tool, inner, t) : "",
           failed ? t("terminal.exitCode", { code: exitCode }) : "",
@@ -2029,18 +2084,28 @@ function MountedToolCards({ callId, dispatches, result, output, isError, hasFina
             callId={dispatchId}
             toolName={tool}
             mcpLabel={mcpToolLabel(tool, inner)}
-            target={mode === "help" ? t("chat.toolHelp") : inlineToolTarget(tool, args)}
+            target={target}
+            targetLanguage={inputView?.targetLanguage}
+            metadata={readPreviews && preview && <ReadHeaderMetadata preview={preview} target={target} />}
+            labelBadge={inputView?.labelBadge}
+            badge={inputView?.badge}
+            timeout={inputView?.timeout}
             facts={facts}
             isError={failed || (single && isError)}
             hasFailure={failed || (single && isError) || taskToolCards(tool, inner, "", result, index).some((card) => card.status === "failed")}
             duration={single ? duration : undefined}
           >
             {(expanded) => expanded && <>
-              {mode === "execute" && args && Object.keys(args).length > 0 && <ShellToolArguments tool={tool} args={args} />}
+              {args && visibleArgs && Object.keys(visibleArgs).length > 0 && <ShellToolArguments tool={tool} args={visibleArgs} sourceArgs={args} />}
+              {args && inputView?.fileContent !== undefined && <WrittenToolCode text={inputView.fileContent} args={args} />}
+              {inputView?.evalCode && <EvalToolCode {...inputView.evalCode} />}
               {mode === "execute" ? (
                 <TaskResultOutput callId={dispatchId} tool={tool} details={inner} result={result} slot={index} output={single ? output : ""}>
-                  {single && <ShellOutput output={output} isError={isError}
-                    language={toolOutputLanguage(tool, args ?? {}, output)} />}
+                  {single && ((preview || isWrite || isLsp) ? (
+                    <PairedResult text={output} isEmpty={!output.trim()} isError={isError || failed}
+                      language={toolOutputLanguage(tool, args ?? {}, preview?.text ?? output, inner)}
+                      preview={preview} writeAcknowledgment={isWrite} ansi={isLsp} />
+                  ) : <ShellOutput output={output} isError={isError || failed} language={toolOutputLanguage(tool, args ?? {}, output, inner)} />)}
                 </TaskResultOutput>
               ) : single && <ShellOutput output={output} isError={isError} />}
             </>}
@@ -2056,10 +2121,13 @@ function MountedToolCards({ callId, dispatches, result, output, isError, hasFina
   );
 }
 
-function ShellToolArguments({ tool, args }: { tool: string; args: Record<string, unknown> }) {
+function ShellToolArguments({ tool, args, sourceArgs }: { tool: string; args: Record<string, unknown>; sourceArgs: Record<string, unknown> }) {
+  const compactJson = useToolDisplayPreference("compactJson");
   const fields = toolFieldsOfInput(args);
   return <div className="shell-tool-arguments">
-    {fields ? <ToolFieldRows fields={fields} tool={tool} args={args} /> : <pre><ToolSyntax text={JSON.stringify(args, null, 2)} language="json" /></pre>}
+    {fields ? <ToolFieldRows fields={fields} tool={tool} args={sourceArgs} /> : (
+      <pre><ToolSyntax text={compactJson ? compactStringify(args) : JSON.stringify(args, null, 2)} language="json" /></pre>
+    )}
   </div>;
 }
 
@@ -2474,14 +2542,41 @@ function ResultImages({ images, isError }: { images: ImageContent[]; isError: bo
   );
 }
 
-function PairedResult({ text, isEmpty, isError, language }: {
+function ToolDocument({ text, compact = false, controls }: { text: string; compact?: boolean; controls?: ReactNode }) {
+  return text.length > MAX_MARKDOWN_CHARS ? <OversizedText>{text}</OversizedText> : (
+    <div className={compact ? "markdown-body tool-read-document" : "markdown-body"} style={{ padding: "8px 10px", maxHeight: 400, overflow: "auto" }}>
+      {controls}
+      <ReactMarkdown skipHtml disallowedElements={["img"]} remarkPlugins={markdownRemarkPlugins}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+const TOOL_SUCCESS_LABEL_COLOR = "#16a34a";
+
+function RawToolToggle({ raw, toggle }: { raw: boolean; toggle: () => void }) {
+  const { t } = useI18n();
+  return <button type="button" className="tool-raw-toggle" onClick={toggle}>
+    {t(raw ? "chat.toolShowPreview" : "chat.toolShowRaw")}
+  </button>;
+}
+
+function PairedResult({ text, isEmpty, isError, language, preview, writeAcknowledgment, ansi }: {
   text: string;
   isEmpty: boolean;
   isError: boolean;
   language?: string | null;
+  preview?: ReadToolPreview | null;
+  writeAcknowledgment?: boolean;
+  ansi?: boolean;
 }) {
   const { t } = useI18n();
+  const [raw, setRaw] = useState(false);
+  const visibleText = !raw && preview ? preview.text : text;
+  const written = writeAcknowledgment && !isError
+    ? /^(?:\[[^\r\n]+#[\dA-F]{4}\]\r?\n)?(Successfully wrote \d+ bytes to [^\r\n]+)([\s\S]*)$/i.exec(visibleText)
+    : null;
   if (text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{text}</OversizedText>;
+  const controls = preview && <RawToolToggle raw={raw} toggle={() => setRaw(!raw)} />;
   return (
     <div
       style={{
@@ -2489,6 +2584,7 @@ function PairedResult({ text, isEmpty, isError, language }: {
         background: isError ? "rgba(248,113,113,0.04)" : "var(--bg-subtle)",
       }}
     >
+      {!raw && preview?.markdown ? <ToolDocument text={visibleText} compact controls={controls} /> : (
       <pre
         style={{
           margin: 0,
@@ -2505,8 +2601,14 @@ function PairedResult({ text, isEmpty, isError, language }: {
           opacity: isEmpty ? 0.6 : 1,
         }}
       >
-        {isEmpty ? t("i18n.noOutput") : <ToolSyntax text={text} language={language} />}
+        {controls}
+        {isEmpty ? t("i18n.noOutput") : written ? <>
+          <span style={{ color: TOOL_SUCCESS_LABEL_COLOR }}>{written[1]}</span>{written[2]}
+        </> : ansi && visibleText.includes("\x1b") ? parseAnsiLine(visibleText).map(({ text, style }, index) => (
+          <span key={index} style={style}>{text}</span>
+        )) : <ToolSyntax text={visibleText} language={isError ? null : language} />}
       </pre>
+      )}
     </div>
   );
 }
@@ -2745,10 +2847,6 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
               {jobCards.length > 0 ? (
                 <div className="async-result-cards">
                   <JobResultCards callId={`async:${message.timestamp ?? ""}`} cards={jobCards} cwd={cwd} onOpenFile={onOpenFile} />
-                  <details className="task-tool-raw-output">
-                    <summary>{t("chat.rawToolOutput")}</summary>
-                    <PairedResult text={text} isEmpty={false} isError={false} />
-                  </details>
                 </div>
               ) : text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
             </div>
@@ -2854,21 +2952,205 @@ function safeJson(value: unknown): string {
   }
 }
 
-export function getToolCallInputText(block: ToolCallContent): string {
-  return block.rawInput ?? JSON.stringify(block.input, null, 2);
+export function getToolCallInputText(block: ToolCallContent, compact = false, args = block.input): string {
+  return block.rawInput ?? (compact ? compactStringify(args) : JSON.stringify(args, null, 2));
 }
 
-const WRITE_VIEW_KEYS = new Set(["path", "file_path", "content"]);
+interface ToolInputView {
+  args: Record<string, unknown>;
+  target?: string;
+  targetLanguage?: string;
+  fileContent?: string;
+  evalCode?: { text: string; language: "js" | "py" };
+  labelBadge?: ReactNode;
+  badge?: ReactNode;
+  timeout?: number;
+}
 
-// A write's file text in place of its JSON: the header already shows the path.
-// Streamed input is still incomplete JSON, and any other argument (a mode, a
-// title) would vanish from this view, so those calls, and an empty file, keep
-// the generic view.
-function getWrittenFileText(block: ToolCallContent): string | null {
-  if (block.rawInput !== undefined || !isWriteToolName(block.toolName)) return null;
-  const { content } = block.input;
-  if (typeof content !== "string" || content === "") return null;
-  return Object.keys(block.input).every((key) => WRITE_VIEW_KEYS.has(key)) ? content : null;
+function ToolHeaderBadge({ children, title, icon = false, state }: { children: ReactNode; title: string; icon?: boolean; state?: "on" | "off" }) {
+  return <span className="tool-card-badge" data-state={state} title={title} role={icon ? "img" : undefined} aria-label={icon ? title : undefined}>{children}</span>;
+}
+
+function ReadHeaderMetadata({ preview, target }: { preview: ReadToolPreview; target?: string }) {
+  const { contentType, method, notes, hash, sourcePath } = preview;
+  const MethodIcon = method?.startsWith("github-") ? Github : method === "firecrawl" ? Firecrawl : method === "jina" ? Jina : null;
+  const metadata = [contentType, notes, sourcePath !== target && sourcePath, hash && `#${hash}`].filter(Boolean).join(" · ");
+  return <>
+    {metadata && <span className="inline-tool-facts" title={metadata}>{metadata}</span>}
+    {method && <ToolHeaderBadge title={method} icon={!!MethodIcon}>{MethodIcon ? <MethodIcon size={13} /> : method}</ToolHeaderBadge>}
+  </>;
+}
+
+function readHeaderTarget(args: Record<string, unknown>): string {
+  if (typeof args.i === "string" && args.i.trim()) return args.i.trim();
+  if (typeof args.path === "string") return args.path;
+  return typeof args.file_path === "string" ? args.file_path : "";
+}
+
+function omitShownReadPath(args: Record<string, unknown>, target: string): Record<string, unknown> {
+  const key = typeof args.path === "string" ? "path" : "file_path";
+  if (args[key] !== target) return args;
+  return Object.fromEntries(Object.entries(args).filter(([field]) => field !== key));
+}
+
+type ToolFlag = "case" | "gitignore" | "hidden" | "reset" | "isolated" | "headed" | "persist";
+type ToolFlagState = "on" | "off" | "invalid";
+
+function toolFlagState(value: unknown, defaultValue?: boolean): ToolFlagState | undefined {
+  if (value === null) return "invalid";
+  const resolved = value === undefined ? defaultValue : value;
+  if (typeof resolved === "boolean") return resolved ? "on" : "off";
+}
+
+function ToolFlagIcon({ kind, state }: { kind: ToolFlag | "skip"; state?: ToolFlagState }) {
+  return <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {kind === "case" ? <path d="M1 11l3-7 3 7M2 9h4m8 2V7m0 2a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z" />
+      : kind === "gitignore" ? <><path d="M4 3v10m0-4h4a4 4 0 0 0 4-4" /><circle cx="4" cy="3" r="1.5" fill="var(--bg-subtle)" /><circle cx="4" cy="13" r="1.5" fill="var(--bg-subtle)" /><circle cx="12" cy="4" r="1.5" fill="var(--bg-subtle)" /></>
+      : kind === "hidden" ? <><path d="M1 8s2.5-4 7-4 7 4 7 4-2.5 4-7 4-7-4-7-4Z" /><circle cx="8" cy="8" r="1.5" /></>
+      : kind === "reset" ? <path d="M2 2v4h4M2.3 6a6 6 0 1 1 .3 5" />
+      : kind === "isolated" ? <><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><rect x="5.5" y="5.5" width="5" height="5" rx="1" /></>
+      : kind === "headed" ? <><rect x="2" y="2.5" width="12" height="8.5" rx="1" /><path d="M8 11v3m-3 0h6" /></>
+      : kind === "persist" ? <path d="M5.5 2h5M6 2v5L4 9v1h8V9l-2-2V2m-2 8v4" />
+      : <path d="m2 4 4 4-4 4m6-8 4 4-4 4m6-8v8" />}
+    {state === "off" && <><path d="m1 15 14-14" stroke="var(--bg-subtle)" strokeWidth="3" /><path d="m1 15 14-14" /></>}
+    {state === "invalid" && <path d="M14 1v4m0 2v.1" />}
+  </svg>;
+}
+
+function describeToolInput(tool: string, args: Record<string, unknown>, t: (key: string, params?: TranslationParams) => string): ToolInputView {
+  const view: ToolInputView = { args };
+  const kind = isWriteToolName(tool) ? "write" : (["grep", "glob", "eval", "task", "browser", "recall", "lsp"] as const).find((name) => toolNameIs(tool, name));
+  if (!kind) return view;
+
+  const displayed = new Set<string>();
+  function headerText(key: string): string | undefined {
+    const value = args[key];
+    if (typeof value !== "string" || !value.trim()) return;
+    displayed.add(key);
+    return value;
+  }
+  function flagBadge(key: ToolFlag, defaultValue?: boolean) {
+    const state = toolFlagState(args[key], defaultValue);
+    if (state === undefined) return null;
+    displayed.add(key);
+    const title = state === "invalid" ? `${key}: ${t("chat.toolFlag.booleanOnly")}` : t(`chat.toolFlag.${key}.${state}`);
+    return <ToolHeaderBadge title={title} icon state={state === "invalid" ? undefined : state}><ToolFlagIcon kind={key} state={state} /></ToolHeaderBadge>;
+  }
+
+  if (kind === "grep") {
+    view.target = headerText("pattern");
+    view.targetLanguage = "regex";
+    const caseBadge = flagBadge("case", true);
+    const gitignoreBadge = flagBadge("gitignore", true);
+    const skip = args.skip;
+    const validSkip = skip == null || (typeof skip === "number" && Number.isFinite(skip) && skip >= 0);
+    if (validSkip) displayed.add("skip");
+    const count = validSkip ? Math.floor(skip ?? 0) : 0;
+    view.badge = <span className="tool-card-badges">
+      {caseBadge}
+      {gitignoreBadge}
+      {validSkip && <ToolHeaderBadge
+        title={count > 0 ? t("chat.grep.skipFiles", { count }) : t("chat.grep.firstPage")}
+        icon state={skip === null ? undefined : count > 0 ? "on" : "off"}
+      ><ToolFlagIcon kind="skip" />{count}</ToolHeaderBadge>}
+    </span>;
+  } else if (kind === "glob") {
+    view.target = [headerText("i"), headerText("path"), headerText("pattern")].filter(Boolean).join(" · ");
+    const hiddenBadge = flagBadge("hidden", true);
+    const gitignoreBadge = flagBadge("gitignore", true);
+    const limit = args.limit === undefined ? 200 : args.limit;
+    const validLimit = typeof limit === "number" && Number.isInteger(limit) && limit >= 1 && limit <= 200;
+    if (validLimit) displayed.add("limit");
+    view.badge = <span className="tool-card-badges">
+      {hiddenBadge}
+      {gitignoreBadge}
+      {validLimit && <ToolHeaderBadge title={t("chat.glob.limit", { count: limit })}>≤ {limit}</ToolHeaderBadge>}
+    </span>;
+  } else if (kind === "eval") {
+    view.target = headerText("title") ?? "";
+    const { code, language, timeout } = args;
+    if (language === "js" || language === "py") {
+      displayed.add("language");
+      view.labelBadge = <ToolHeaderBadge title={language === "js" ? "JavaScript" : "Python"} icon>{getFileIcon(`.${language}`, 14)}</ToolHeaderBadge>;
+      if (typeof code === "string" && code !== "") {
+        displayed.add("code");
+        view.evalCode = { text: code, language };
+      }
+    }
+    view.badge = flagBadge("reset", false);
+    if (typeof timeout === "number" && Number.isFinite(timeout)) {
+      displayed.add("timeout");
+      view.timeout = timeout;
+    }
+  } else if (kind === "task") {
+    if (Array.isArray(args.tasks) && args.tasks.length > 0) {
+      const counts: Record<ToolFlagState, number> = { on: 0, off: 0, invalid: 0 };
+      for (const item of args.tasks) {
+        if (!isRecord(item)) continue;
+        const state = toolFlagState(item.isolated === undefined ? args.isolated : item.isolated, false);
+        if (state) counts[state]++;
+      }
+      view.badge = <span className="tool-card-badges">
+        {(["on", "off", "invalid"] as const).map((state) => counts[state] > 0 && (
+          <ToolHeaderBadge key={state} title={t(`chat.toolFlag.isolatedBatch.${state}`, { count: counts[state] })}
+            icon state={state === "invalid" ? undefined : state}>
+            <ToolFlagIcon kind="isolated" state={state} />{counts[state]}
+          </ToolHeaderBadge>
+        ))}
+      </span>;
+    } else {
+      view.badge = flagBadge("isolated", false);
+    }
+  } else if (kind === "browser") {
+    if (args.action === "open") {
+      const headed = flagBadge("headed");
+      const persist = flagBadge("persist");
+      if (headed || persist) view.badge = <span className="tool-card-badges">{headed}{persist}</span>;
+    }
+  } else if (kind === "recall") {
+    view.target = headerText("query");
+  } else if (kind === "write") {
+    if (typeof args.content === "string" && args.content !== "") {
+      displayed.add("content");
+      view.fileContent = args.content;
+    }
+    const pathKey = typeof args.path === "string" ? "path" : "file_path";
+    if (typeof args.i !== "string" || !args.i.trim()) view.target = headerText(pathKey);
+  } else {
+    const action = headerText("action");
+    const file = headerText("file");
+    const line = file && typeof args.line === "number" ? args.line : undefined;
+    if (line !== undefined) displayed.add("line");
+    const location = line === undefined ? file : `${file}:${line}`;
+    view.target = [action, location, headerText("symbol"), headerText("query")].filter(Boolean).join(" · ");
+  }
+  if (displayed.size > 0) view.args = Object.fromEntries(Object.entries(args).filter(([key]) => !displayed.has(key)));
+  return view;
+}
+
+function WrittenToolCode({ text, args }: { text: string; args: Record<string, unknown> }) {
+  if (text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{text}</OversizedText>;
+  return <pre className="tool-source-code"><ToolSyntax text={text} language={toolFileLanguage(args)} /></pre>;
+}
+
+function EvalToolCode({ text, language }: NonNullable<ToolInputView["evalCode"]>) {
+  const [raw, setRaw] = useState(false);
+  const [formatted, setFormatted] = useState<{ source: string; text: string }>();
+  useEffect(() => {
+    if (language !== "js" || text.length > MAX_MARKDOWN_CHARS) return;
+    let active = true;
+    void formatEvalJavaScript(text).then((result) => {
+      if (active) setFormatted({ source: text, text: result });
+    });
+    return () => { active = false; };
+  }, [text, language]);
+
+  if (text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{text}</OversizedText>;
+  const preview = language === "js" && formatted?.source === text && formatted.text !== text ? formatted.text : null;
+  return <pre className="tool-source-code">
+    {preview !== null && <RawToolToggle raw={raw} toggle={() => setRaw(!raw)} />}
+    <ToolSyntax text={raw ? text : preview ?? text} language={language === "js" ? "javascript" : "python"} />
+  </pre>;
 }
 
 const TOOL_FIELD_LABEL: CSSProperties = {
@@ -2905,16 +3187,17 @@ function ToolFieldRows({ fields, tool, args }: { fields: ToolField[]; tool: stri
   return (
     <table style={{ borderCollapse: "collapse" }}>
       <tbody>
-        {fields.map((field) => (
-          <tr key={field.key}>
+        {fields.map((field) => {
+          const splitPath = field.key === "path" && toolNameIs(tool, "grep") && field.value.includes(";");
+          const value = splitPath ? field.value.replace(/[ \t]*;[ \t]*/g, "\n") : field.value;
+          const syntax = !splitPath && <ToolSyntax text={value} language={toolFieldLanguage(tool, args, field.key)} />;
+          return <tr key={field.key}>
             <td style={TOOL_FIELD_LABEL}>{field.key}</td>
             <td style={TOOL_FIELD_VALUE}>
-              {field.multiline
-                ? <pre style={TOOL_FIELD_BLOCK}><ToolSyntax text={field.value} language={toolFieldLanguage(tool, args, field.key)} /></pre>
-                : <ToolSyntax text={field.value} language={toolFieldLanguage(tool, args, field.key)} />}
+              {splitPath ? <span className="tool-path-list">{value}</span> : field.multiline ? <pre style={TOOL_FIELD_BLOCK}>{syntax}</pre> : syntax}
             </td>
-          </tr>
-        ))}
+          </tr>;
+        })}
       </tbody>
     </table>
   );
@@ -2935,13 +3218,6 @@ function getToolPreview(block: ToolCallContent): string {
   if (isIntentToolName(normalizedToolName) && typeof input.i === "string") {
     const intent = input.i.trim();
     if (intent) return intent.slice(0, 120);
-  }
-  if (
-    (normalizedToolName === "eval" || normalizedToolName.endsWith(".eval") || normalizedToolName.endsWith("_eval")) &&
-    typeof input.title === "string"
-  ) {
-    const title = input.title.trim();
-    if (title) return title.slice(0, 120);
   }
 
   // Common tool input patterns

@@ -34,13 +34,7 @@ function brief(value: unknown): string {
 export function inlineToolTarget(tool: string, args?: Record<string, unknown>): string {
   if (!args) return "";
   switch (tool) {
-    case "lsp": {
-      const file = brief(args.file);
-      const location = file && typeof args.line === "number" ? `${file}:${args.line}` : file;
-      return [brief(args.action), location, brief(args.symbol) || brief(args.query)].filter(Boolean).join(" · ");
-    }
     case "memory_edit": return [brief(args.op), brief(args.id)].filter(Boolean).join(" · ");
-    case "recall":
     case "reflect": return brief(args.query);
     case "retain": return "";
     default:

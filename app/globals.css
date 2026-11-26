@@ -121,15 +121,15 @@ html.dark .catppuccin-file-icon {
   background-image: var(--catppuccin-icon-dark);
 }
 
-/* Use the SVG alpha channel as a mask so file icons follow the app's
-   restrained text palette instead of Catppuccin's language-specific colors. */
+/* Keep file icons muted outside tool header badges, where color identifies
+   the language. */
 @supports (mask-image: url("mask.svg")) or (-webkit-mask-image: url("mask.svg")) {
-  .catppuccin-file-icon {
+  .catppuccin-file-icon:not(.tool-card-badge > .catppuccin-file-icon) {
     background: var(--text-dim);
     mask: center / contain no-repeat var(--catppuccin-icon-light);
     -webkit-mask: center / contain no-repeat var(--catppuccin-icon-light);
   }
-  html.dark .catppuccin-file-icon {
+  html.dark .catppuccin-file-icon:not(.tool-card-badge > .catppuccin-file-icon) {
     background: var(--text-dim);
     mask-image: var(--catppuccin-icon-dark);
     -webkit-mask-image: var(--catppuccin-icon-dark);
@@ -844,6 +844,10 @@ pre, code {
   color: var(--text);
   word-break: break-word;
 }
+.markdown-body.tool-read-document {
+  font-size: calc(12px + var(--chat-font-size-offset, 0px));
+  line-height: 1.55;
+}
 .markdown-body p { margin: 0 0 8px; }
 .markdown-body p:last-child { margin-bottom: 0; }
 .update-changelog .markdown-body p { margin-bottom: 6px; }
@@ -1345,6 +1349,69 @@ pre, code {
   font-size: 11px;
 }
 .inline-tool-facts[title] {
+  overflow-wrap: anywhere;
+}
+.tool-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+  max-width: 55%;
+}
+.tool-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.tool-card-badge[data-state="on"] {
+  color: var(--success);
+}
+.tool-card-badge[data-state="off"] {
+  color: var(--danger);
+}
+.tool-raw-toggle {
+  float: inline-end;
+  margin-inline-start: 8px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font: 11px/1.3 var(--font-ui, system-ui);
+  cursor: pointer;
+}
+.tool-raw-toggle:hover {
+  color: var(--text);
+}
+.tool-path-list {
+  white-space: pre-wrap;
+}
+.tool-card-time {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.tool-source-code {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 400px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: calc(12px + var(--chat-font-size-offset, 0px));
+  line-height: 1.5;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .shell-output-panel {

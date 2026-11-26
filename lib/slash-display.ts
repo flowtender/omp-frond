@@ -20,3 +20,7 @@ export function skillExpansionToCommand(text: string): string | null {
   const [, name, , , args] = match;
   return args ? `/skill:${name} ${args}` : `/skill:${name}`;
 }
+
+export function skillExpansionBody(text: string): string | null {
+  return SKILL_EXPANSION_RE.exec(text)?.[3] ?? null;
+}
