@@ -807,3 +807,21 @@ test("connected reconciles a device that was away: answered asks leave, open run
   h.handleAgentEvent({ ...ask, id: "ask-2" });
   assert.equal(h.state.ExtensionDialog?.id, "ask-2");
 });
+
+test("the next model turn waits through delivered input and clears when its reply ends", async () => {
+  const h = harness();
+  const stream = await openRuntime(h);
+  stream.frame({ type: "agent_start" });
+  const reply = { role: "assistant", provider: "test", model: "test", content: [] };
+  stream.frame({ type: "message_start", message: reply });
+  stream.frame({ type: "message_end", message: reply });
+  assert.equal(h.state.AgentPhase, null);
+  stream.frame({ type: "turn_start" });
+  stream.frame({ type: "message_start", message: { role: "user" } });
+  stream.frame({ type: "message_end", message: { role: "user", content: "steer here" } });
+  assert.deepEqual(h.state.AgentPhase, { kind: "waiting_model" });
+  assert.equal(h.state.stream.streamingMessage, null);
+  stream.frame({ type: "message_start", message: reply });
+  assert.equal(h.state.AgentPhase, null);
+  assert.deepEqual(h.state.stream.streamingMessage, reply);
+});

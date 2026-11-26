@@ -16,8 +16,10 @@ import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
-import { MessageView } from "./MessageView";
+import { getModelDisplayName, MessageView } from "./MessageView";
 import { TranscriptBlock } from "./TranscriptBlock";
+import { TranscriptViewportRow } from "./TranscriptViewportRow";
+import { TokenFlow } from "./TokenFlow";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -530,6 +532,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   // finished turn regrouped into more rows), and must get an observer then.
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
+  const composerWireRef = useRef<SVGSVGElement | null>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
   const prevVisibleCountRef = useRef<number | null>(null);
   const loadingOlderRef = useRef(false);
@@ -575,10 +578,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         return;
       }
       const viewportTop = container.getBoundingClientRect().top;
-      const candidates = Array.from(content.children).flatMap((element) => {
-        if (!(element instanceof HTMLElement) || !element.dataset.entryId) return [];
+      const candidates = Array.from(content.querySelectorAll<HTMLElement>("[data-chat-scroll-anchor]"), (element) => {
         const rect = element.getBoundingClientRect();
-        return [{ entryId: element.dataset.entryId, top: rect.top, bottom: rect.bottom }];
+        return { entryId: element.dataset.entryId!, top: rect.top, bottom: rect.bottom };
       });
       const anchor = findChatScrollAnchor(candidates, viewportTop);
       if (!anchor) return;
@@ -612,11 +614,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       loadingOlderRef.current = true;
       let before = initialHistory.historyCursor;
       let hasMore = initialHistory.hasEarlierMessages;
-      // Hunting an anchor far from the tail used to page unbounded (and widen
-      // the render window to the whole branch), which OOM-kills mobile
-      // webviews on long sessions. Pages are bounded and the hunt stops at a
-      // DOM budget; beyond it the position is abandoned (bottom fallback) and
-      // the user reaches deep history via the sentinel's own bounded paging.
+      // Bound automatic restore's network work. Deeper history is still
+      // reachable by scrolling and paging it in on demand.
       let scannedEntries = initialHistory.entryIds.length;
       try {
         while (hasMore && before && !controller.signal.aborted && scannedEntries < RESTORE_ENTRY_BUDGET) {
@@ -658,9 +657,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     const position = pendingScrollRestore;
     const content = messageContentRef.current;
     if (!position || !content || searchTarget) return;
-    const element = Array.from(content.children).find((candidate) => (
-      candidate instanceof HTMLElement && candidate.dataset.entryId === position.anchorEntryId
-    ));
+    const element = content.querySelector<HTMLElement>(`[data-chat-scroll-anchor][data-entry-id="${CSS.escape(position.anchorEntryId)}"]`);
     if (element instanceof HTMLElement) {
       scrollToMessage(element, position.anchorOffset);
       setPendingScrollRestore(null);
@@ -732,9 +729,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         // can be "attached" by flag yet sitting at the top of its window,
         // where the reader absolutely does want the older page.
         if (isScrollAtTail(container.scrollTop, container.clientHeight, container.scrollHeight)) return;
-        // The window stops widening past the DOM budget: past it, paging more
-        // history is exactly the mobile OOM this whole path exists to avoid.
-        if (visibleCount >= RESTORE_ENTRY_BUDGET) return;
         if (!hasEarlierMessages) {
           // Everything is loaded, yet the sentinel shows: the messages render as
           // more rows than the window holds (an answer and its thinking are
@@ -939,7 +933,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
   const tokenDisplay = useTokenDisplay();
   const showTokenFlow = tokenDisplay === "flow" && !loading && !error && !isEmptyNew;
-  useTokenFlowConnections(showTokenFlow, messageContentRef);
+  const waitingForModel = showTokenFlow && agentRunning && agentPhase?.kind === "waiting_model"
+    && !isCompacting && !retryInfo && !extensionDialog;
+  useTokenFlowConnections(showTokenFlow, messageContentRef, composerWireRef);
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -1199,6 +1195,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {!isEmptyNew && <>
         <div
           ref={scrollContainerRef}
+          data-chat-transcript-scroll=""
           // The message list is the one place long output has to be dragged through,
           // so it shows its scrollbar instead of hiding it behind the minimap (#788).
           // A stable gutter keeps the centred column from shifting when a short
@@ -1214,17 +1211,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (messages[i].role === "user") { lastUserIdx = i; break; }
               }
 
-              const visibleRefIndexByMessage = new Map<number, number>();
-              let refIdx = 0;
-              messages.forEach((msg, idx) => {
-                if (isMessageGroupAnchor(msg) || msg.role === "assistant") {
-                  visibleRefIndexByMessage.set(idx, refIdx++);
-                }
-              });
-
-              const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
-                if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
+              const pinMessage = (idx: number) => {
+                const id = entryIds[idx];
+                return idx === lastUserIdx || Boolean(id && (
+                  id === pendingSearchScroll?.entryId || id === pendingScrollRestore?.anchorEntryId || id === editEntryId
+                ));
               };
+              const attachLatestPrompt = (el: HTMLDivElement | null) => { lastUserMsgRef.current = el; };
 
               const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean; flowUsage?: AssistantMessage["usage"] | null; suppressUserHandoff?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
@@ -1232,7 +1225,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // pi's showCacheMissNotices (#1265): read from the stored message, not a turn view's copy.
                 const notices = options.withNotices === false ? [] : getTranscriptNotices(messages[idx]);
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
-                const currentRefIdx = visibleRefIndexByMessage.get(idx);
                 const keyPrefix = options.keyPrefix ?? "message";
                 // Not the entry id alone: a message sent or streamed in this run
                 // gets its id only when the file is read again (#1184).
@@ -1290,16 +1282,23 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 );
                 const noticeLines = notices.length > 0 ? <TranscriptNoticeLines key={`${keyPrefix}-notices-${messageKey}`} notices={notices} /> : null;
                 // One shape with or without notices, so lines arriving on a reload do not remount the view.
-                if (!isVisible || currentRefIdx === undefined) return <Fragment key={`${keyPrefix}-${messageKey}`}>{view}{noticeLines}</Fragment>;
+                if (!isVisible) return <Fragment key={`${keyPrefix}-${messageKey}`}>{view}{noticeLines}</Fragment>;
                 return (
-                  <div key={`${keyPrefix}-${messageKey}`} data-entry-id={entryIds[idx]} ref={options.attachRef === false ? undefined : attachVisibleRef(idx, currentRefIdx)}>
+                  <div key={`${keyPrefix}-${messageKey}`} data-entry-id={entryIds[idx]}
+                    data-chat-scroll-anchor={options.attachRef !== false && entryIds[idx] ? "" : undefined}
+                    ref={options.attachRef !== false && idx === lastUserIdx ? attachLatestPrompt : undefined}>
                     {view}
                     {noticeLines}
                   </div>
                 );
               };
 
-              const rendered: ReactNode[] = [];
+              const rendered: { key: string; pinned?: boolean; render: () => ReactNode }[] = [];
+              const appendMessage = (idx: number) => {
+                const message = messages[idx];
+                if (isHiddenCustomMessage(message) || (message.role === "toolResult" && getTranscriptNotices(message).length === 0)) return;
+                rendered.push({ key: `message-${messageKeys[idx]}`, pinned: pinMessage(idx), render: () => renderMessage(idx) });
+              };
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
                 const hasAnchor = isMessageGroupAnchor(msg);
@@ -1321,7 +1320,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 if (finalAssistantIdx === -1) {
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
+                    appendMessage(renderIdx);
                   }
                   idx = endIdx;
                   continue;
@@ -1330,13 +1329,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && !hasReply;
                 if (isLiveTail) {
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
+                    appendMessage(renderIdx);
                   }
                   idx = endIdx;
                   continue;
                 }
 
-                if (hasAnchor) rendered.push(renderMessage(userIdx));
+                if (hasAnchor) appendMessage(userIdx);
 
                 // A leading segment without its anchor has no start time, and neither has the bubble a
                 // send shows at once: it carries the browser's clock, not pi's, until the reload after
@@ -1349,12 +1348,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   && getDisplayableAssistantBlocks(finalViews.process, displayOptions).length > 0
                   ? finalAnswerMessage.usage : undefined;
 
-                const processViews: ReactNode[] = [];
+                const processViews: (() => ReactNode)[] = [];
                 // processViews also holds the notice lines of steps that show nothing else.
                 let processMessageCount = 0;
                 let processToolCount = 0;
                 let processFailureCount = 0;
-                let processRefIdx: number | undefined;
                 let revealProcess = false;
 
                 for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
@@ -1364,7 +1362,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     if (isHiddenCustomMessage(processMessage)) continue;
                     revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
                     processMessageCount += 1;
-                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
+                    processViews.push(() => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
                     continue;
                   }
                   if (processMessage.role !== "assistant") continue;
@@ -1374,15 +1372,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const blocks = getDisplayableAssistantBlocks(message, displayOptions);
                   if (blocks.length === 0 && !(tokenDisplay === "flow" && message.usage)) {
                     const notices = withNotices ? getTranscriptNotices(processMessage) : [];
-                    if (notices.length > 0) processViews.push(<TranscriptNoticeLines key={`process-notices-${messageKeys[processIdx]}`} notices={notices} />);
+                    if (notices.length > 0) processViews.push(() => <TranscriptNoticeLines key={`process-notices-${messageKeys[processIdx]}`} notices={notices} />);
                     continue;
                   }
-                  processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
                   processToolCount += countToolCallBlocks(blocks);
                   processFailureCount += countToolCallFailures(blocks, toolResultsMap);
                   processMessageCount += 1;
                   revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || blocks.includes(searchBlock)));
-                  processViews.push(renderMessage(processIdx, {
+                  processViews.push(() => renderMessage(processIdx, {
                     attachRef: false,
                     keyPrefix: "process",
                     messageOverride: message,
@@ -1394,7 +1391,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
 
                 let renderAnswer: ((processVisible: boolean) => ReactNode) | undefined;
-                if (finalAnswerMessage) {
+                if (finalAnswerMessage) renderAnswer = (processVisible) => {
                   // Each tool call is stored as its own assistant entry, so the
                   // final answer alone carries no record of what the turn wrote.
                   // Gather the turn's assistant blocks and derive the file list
@@ -1407,7 +1404,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     }
                   }
                   const writtenFiles = keepWrittenFiles(finalViews, extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd));
-                  renderAnswer = (processVisible) => renderMessage(finalAssistantIdx, {
+                  return renderMessage(finalAssistantIdx, {
                     messageOverride: finalAnswerMessage,
                     showTimestamp: true,
                     writtenFiles,
@@ -1416,24 +1413,31 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     recoverTruncation: endIdx === messages.length && !isStreaming && !hasAssistantAnswer(finalAnswerMessage),
                     flowUsage: processVisible && splitFlowUsage ? null : undefined,
                   });
-                }
+                };
 
-                // Only notice lines, from steps that show nothing else: no fold for them.
-                if (processMessageCount === 0) rendered.push(...processViews);
-                else if (processViews.length > 0) {
-                  const answered = collapsesProcessDetails(finalAnswerMessage);
-                  const processCacheMisses = summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1));
-                  rendered.push(
-                    <div key={`process-group-${messageKeys[groupStartIdx]}`}>
+                const processKey = `process-group-${messageKeys[groupStartIdx]}`;
+                if (processViews.length > 0) rendered.push({
+                  key: processKey,
+                  pinned: revealProcess || Boolean(splitFlowUsage && pinMessage(finalAssistantIdx)),
+                  render: () => {
+                    const views = processViews.map((render) => render());
+                    // Only notice lines, from steps that show nothing else: no fold for them.
+                    if (processMessageCount === 0) return views;
+                    const answered = collapsesProcessDetails(finalAnswerMessage);
+                    const processCacheMisses = summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1));
+                    return (
                       <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} renderAnswer={splitFlowUsage ? renderAnswer : undefined} t={t}>
-                        {processViews}
+                        {views}
                       </ProcessDetailsGroup>
-                    </div>,
-                  );
+                    );
+                  },
+                });
+                if (renderAnswer && !splitFlowUsage) {
+                  const answer = renderAnswer;
+                  rendered.push({ key: `message-${messageKeys[finalAssistantIdx]}`, pinned: pinMessage(finalAssistantIdx), render: () => answer(false) });
                 }
-                if (renderAnswer && !splitFlowUsage) rendered.push(renderAnswer(false));
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-                  rendered.push(renderMessage(renderIdx));
+                  appendMessage(renderIdx);
                 }
                 idx = endIdx;
               }
@@ -1441,17 +1445,19 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               const hasMore = startIndex > 0 || hasEarlierMessages;
               return (
                 <>
-                  {hasMore && visibleCount < RESTORE_ENTRY_BUDGET && (
+                  {hasMore && (
                      <div ref={setSentinel} className="py-3 text-center text-xs text-text-muted">
                        {t("chat.loadEarlier", { count: earlierTurnCount })}
                     </div>
                   )}
-                  {rendered.slice(startIndex)}
+                  {rendered.slice(startIndex).map(({ key, pinned, render }, index) => (
+                    <TranscriptViewportRow key={key} pinned={pinned || index + startIndex >= rendered.length - 2} render={render} />
+                  ))}
                 </>
               );
             })()}
-            {isStreaming && (hasStreamingContent || showTokenFlow) && (
-              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} />
+            {((isStreaming && (hasStreamingContent || showTokenFlow)) || waitingForModel) && (
+              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} waitingForModel={waitingForModel} model={displayModelValue} />
             )}
 
             {agentRunning && !hasStreamingContent && (agentPhase || isCompacting) && (
@@ -1629,6 +1635,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           commandsDisabled={sessionBusy}
         />
       </div>
+      {showTokenFlow && <svg ref={composerWireRef} className="token-flow-wire z-[1]" width="100%" height="100%" aria-hidden="true"><path /></svg>}
       {isEmptyNew && <div className="min-h-0 flex-1" />}
     </div>
   );
@@ -1676,7 +1683,7 @@ function GoalBar({ goal, t }: { goal: GoalStatusInfo | null; t: (key: string, pa
 }
 
 // The reply being streamed: the one part of the chat a chunk re-renders.
-const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, tokenDisplay }: {
+const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, tokenDisplay, waitingForModel, model }: {
   store: StreamingStore;
   /** Runs after each chunk is in the DOM. */
   onCommit: () => void;
@@ -1686,10 +1693,17 @@ const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResul
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
   tokenDisplay: TokenDisplayMode;
+  waitingForModel: boolean;
+  model: { provider: string; modelId: string } | null;
 }) {
   const message = useStreamingSelector(store, selectStreamingMessage);
-  useLayoutEffect(onCommit, [message, onCommit]);
-  if (!message) return null;
+  const { t } = useI18n();
+  useLayoutEffect(onCommit, [message, onCommit, waitingForModel]);
+  if (!message) {
+    if (!waitingForModel) return null;
+    return <TokenFlow provider={model?.provider ?? ""} model={model?.modelId ?? ""}
+      modelName={model ? getModelDisplayName(model.provider, model.modelId, modelNames) : t("chat.waitingModel")} />;
+  }
   return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} />;
 });
 

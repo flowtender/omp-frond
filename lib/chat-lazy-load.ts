@@ -2,13 +2,10 @@ export const VISIBLE_PAGE_SIZE = 50;
 // Server-side entry cap for one upward page (`/context?before=…&tail=…`).
 // Bounded pages keep long-session paging from shipping the whole branch.
 export const LOAD_OLDER_PAGE_TAIL = 200;
-// Hard ceiling on entries the saved-position restore loop may expand into the
-// DOM while hunting its anchor; past this, restoration gives up and shows the
-// bottom instead of OOM-killing low-memory (mobile) webviews.
+// Hard ceiling on entries fetched to restore a saved position automatically.
+// Older history remains reachable by scrolling and paging it in explicitly.
 export const RESTORE_ENTRY_BUDGET = 1500;
-// Rendered rows kept while the view rides the tail: live turns slide in from
-// the bottom and the same number of rows drops off the top, so a long-running
-// session holds a constant DOM instead of re-growing toward the whole branch.
+// Row shells kept while following the live tail.
 export const TAIL_RENDER_WINDOW = 300;
 export const CHAT_SCROLL_TAIL_TOLERANCE = 8;
 export const CHAT_SCROLL_REATTACH_TOLERANCE = 96;

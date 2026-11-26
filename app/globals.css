@@ -835,15 +835,18 @@ pre, code {
   --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);
 }
 
+.transcript-viewport-row { display: flow-root; }
+
 .transcript-message { margin-bottom: 16px; }
 .transcript-process { margin-bottom: 14px; }
 .transcript-flow-layout :is(.transcript-message, .transcript-process) { margin-bottom: 8px; }
 
 .token-flow {
   --token-flow-line: color-mix(in srgb, var(--accent) 58%, var(--text-muted));
+  --token-flow-model-column: 40px;
   position: relative;
   display: grid;
-  grid-template-columns: 25% minmax(0, 1fr) 40px minmax(0, 1fr) 25%;
+  grid-template-columns: 25% minmax(0, 1fr) var(--token-flow-model-column) minmax(0, 1fr) 25%;
   height: 56px;
   margin-block: 8px;
   color: var(--text-muted);
@@ -902,7 +905,8 @@ pre, code {
 
 .token-flow-rate {
   position: absolute;
-  left: 62.5%;
+  /* The right-hand counts are centered at 62.5% plus a quarter of the model column. */
+  left: calc(56.25% + var(--token-flow-model-column) / 8);
   top: 50%;
   transform: translate(-50%, calc(-50% + var(--token-flow-offset, 0px)));
   border: 1px solid var(--token-flow-line);
@@ -3041,6 +3045,50 @@ span.token.table {
   outline-offset: -3px;
 }
 
+.chat-input-sizer {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 24px;
+  max-height: 200px;
+  font-size: var(--chat-content-font-size, 14px);
+  line-height: 1.6;
+}
+
+.chat-input-sizer[data-compact] {
+  min-height: 96px;
+}
+
+.chat-input-sizer::after,
+.chat-input-textarea {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.chat-input-sizer::after {
+  /* Size the composer without collapsing the textarea to read scrollHeight.
+     The trailing space gives a final newline a line box. */
+  content: attr(data-draft) " ";
+  display: block;
+  visibility: hidden;
+  max-height: inherit;
+  overflow: hidden;
+}
+
+.chat-input-textarea {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  color: var(--text);
+  background: none;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: auto;
+}
+
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
   .chat-stats-center {
@@ -3109,8 +3157,11 @@ span.token.table {
   select {
     font-size: 16px !important;
   }
+  .chat-input-sizer {
+    font-size: max(16px, var(--chat-content-font-size, 14px));
+  }
   .chat-input-textarea {
-    font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
+    font-size: inherit !important;
   }
 }
 

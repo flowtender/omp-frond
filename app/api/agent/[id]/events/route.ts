@@ -5,7 +5,7 @@ import { readLiveComposer } from "@/lib/session-composer";
 
 export const dynamic = "force-dynamic";
 
-const OMITTED_EVENT_TYPES = new Set(["turn_start", "turn_end", "tool_execution_update"]);
+const OMITTED_EVENT_TYPES = new Set(["turn_end", "tool_execution_update"]);
 
 function toClientEvent(event: AgentEvent): AgentEvent | null {
   if (OMITTED_EVENT_TYPES.has(event.type)) return null;

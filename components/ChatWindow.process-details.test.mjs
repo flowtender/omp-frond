@@ -9,8 +9,10 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
-const { MessageView } = await jiti.import("./MessageView.tsx");
+const { getModelDisplayName, MessageView } = await jiti.import("./MessageView.tsx");
 const { TranscriptBlock } = await jiti.import("./TranscriptBlock.tsx");
+const { TokenFlow } = await jiti.import("./TokenFlow.tsx");
+const { useI18n } = await jiti.import("@/hooks/useI18n");
 const display = await import("../lib/message-display.ts");
 const views = await import("../lib/turn-views.ts");
 const duration = await import("../lib/turn-duration.ts");
@@ -47,10 +49,12 @@ function renderTranscript(messages, overrides = {}) {
     ...display, ...views, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, countToolCallFailures,
     useExpansionPreference: () => "automatic",
     TranscriptBlock,
+    TranscriptViewportRow: ({ render, pinned }) => !overrides.onlyPinnedRows || pinned ? render() : null,
     MessageView, messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
     displayOptions: {}, finalAnswerViewCache: new WeakMap(), toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
     sessionBusy: false, isStreaming: false, bashRunning: false, isNew: false, isCompacting: false, compactError: null,
     lastUserMsgRef: { current: null }, pendingSearchScroll: null, searchBlock: null, forkingEntryId: null, editEntryId: null,
+    pendingScrollRestore: null,
     session: { id: "fixture" }, sessionIdRef: { current: "fixture" }, visibleCount: 100, hasEarlierMessages: false, earlierTurnCount: 0,
     handleFork: undefined, handleEditContent: undefined, cancelEdit: undefined, handleOpenFile: undefined,
     onOpenFile: undefined, onOpenSubagent: undefined, handleCompact: undefined, setSentinel: undefined, setVisibleCount: undefined,
@@ -248,4 +252,47 @@ test("shows the request, compaction and user handoff times without a false user 
     assert.ok(html.indexOf("After compaction") < html.indexOf('data-token-handoff="user"'));
     assert.doesNotMatch(renderTranscript(messages, { ...options, sessionBusy: true }), /data-token-handoff="user"/);
   }
+});
+
+test("mounts the entire split reply for a search hit outside the viewport", () => {
+  const messages = Array.from({ length: 24 }, (_, index) => [
+    { ...user, content: `Question ${index}` },
+    reply(`Answer ${index}`, {
+      usage: { input: 12, output: 3, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+      content: [{ type: "thinking", thinking: `Reasoning ${index}` }, { type: "text", text: `Answer ${index}` }],
+    }),
+  ]).flat();
+  const options = { tokenDisplay: "flow", onlyPinnedRows: true };
+  assert.doesNotMatch(renderTranscript(messages, options), /Answer 3</);
+  const jumped = renderTranscript(messages, {
+    ...options, pendingSearchScroll: { entryId: "entry-7" }, searchBlock: messages[7].content[1],
+  });
+  assert.match(jumped, /data-search-target="true"[^>]*>[\s\S]*?Answer 3</);
+  assert.match(jumped, /Answer 23</);
+});
+
+test("renders one model row while awaiting the first assistant snapshot", () => {
+  const component = nodes.find((node) => ts.isFunctionExpression(node) && node.name?.text === "StreamingReply");
+  const code = ts.transpileModule(`(${component.getText(source)})`, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.React },
+  }).outputText;
+  let snapshot = null;
+  const StreamingReply = new Script(code).runInContext(createContext({
+    React, useLayoutEffect: React.useLayoutEffect, useStreamingSelector: () => snapshot,
+    selectStreamingMessage: () => snapshot, useI18n, getModelDisplayName, MessageView, TokenFlow,
+  }));
+  const render = (waitingForModel) => renderToStaticMarkup(React.createElement(I18nProvider, null,
+    React.createElement(StreamingReply, {
+      model: { provider: "test", modelId: "pending-model" }, modelNames: {}, tokenDisplay: "flow", waitingForModel,
+    }),
+  ));
+  assert.equal(render(false), "");
+  const pending = render(true);
+  assert.match(pending, /Token display: test\/pending-model/);
+  assert.match(pending, /New input: Not reported/);
+  snapshot = reply("first chunk", { model: "serving-model" });
+  const streaming = render(false);
+  assert.match(streaming, /Token display: test\/serving-model/);
+  assert.match(streaming, /first chunk/);
+  assert.equal((streaming.match(/data-token-flow=/g) ?? []).length, 1);
 });

@@ -1448,6 +1448,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = false;
     setAgentRunning(false);
     setAgentPhase(null);
+    setActiveToolResults((prev) => prev.size ? new Map() : prev);
     setRetryInfo(null);
     dispatch({ type: "end" });
     return wasRunning;
@@ -1814,6 +1815,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Non-terminal ends precede retries, compaction, or queued continuations.
         if (!agentRunningRef.current) break;
         setAgentPhase(null);
+        setActiveToolResults((prev) => prev.size ? new Map() : prev);
         setRetryInfo(null);
         dispatch({ type: "end" });
         if (sessionIdRef.current) {
@@ -1881,19 +1883,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message: (event.error as string | undefined) ?? "Extension command failed",
         });
         break;
+      case "turn_start":
+        if (agentRunningRef.current) setAgentPhase({ kind: "waiting_model" });
+        break;
       case "message_start":
       case "message_update": {
         // Ignore streaming events arriving after this run already finished
         // (e.g. SSE data buffered while the tab was frozen, flushed after
         // reconcile) — they would resurrect a ghost streaming bubble.
         if (!agentRunningRef.current) break;
-        const msg = event.message as Partial<AgentMessage> | undefined;
-        if (msg?.role === "user") {
-          break;
-        }
-        if (msg) {
-          dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
-        }
+        const msg = event.message as AgentMessage | undefined;
+        if (msg?.role !== "assistant") break;
+        dispatch({ type: "update", message: normalizeToolCalls(msg) });
         setAgentPhase(null);
         break;
       }
@@ -1924,13 +1925,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           });
         } else if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          if (completed.role === "toolResult") {
+            setActiveToolResults((prev) => {
+              if (!prev.has(completed.toolCallId)) return prev;
+              const next = new Map(prev);
+              next.delete(completed.toolCallId);
+              return next;
+            });
+          }
         }
         if (completed?.role === "assistant") {
+          dispatch({ type: "end" });
+          setAgentPhase(null);
           const sid = sessionIdRef.current;
           if (sid) void refreshContextUsage(sid);
         }
-        dispatch({ type: "reset" });
-        setAgentPhase({ kind: "waiting_model" });
         break;
       }
       case "tool_execution_start": {
@@ -1940,6 +1949,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (isNestedToolExecutionEvent(event)) break;
         const id = event.toolCallId as string;
         const name = event.toolName as string;
+        const startedAt = typeof event.executionStartedAt === "number" ? event.executionStartedAt : Date.now();
+        setActiveToolResults((prev) => {
+          if (prev.has(id)) return prev;
+          return new Map(prev).set(id, { role: "toolResult", toolCallId: id, toolName: name, content: [], liveTiming: { startedAt } });
+        });
         setAgentPhase((prev) => {
           const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
           if (!tools.some((t) => t.id === id)) tools.push({ id, name });
@@ -1952,18 +1966,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const id = event.toolCallId as string;
         const name = event.toolName as string;
         const partialResult = event.partialResult as Partial<ToolResultMessage> | undefined;
-        const content = partialResult?.content;
+        const content = name === "bash" || name === "powershell" || name === CODEMODE_TOOL_NAME ? partialResult?.content : undefined;
         // Live output for shells; for codemode, the calls its script has made so far.
-        if ((name === "bash" || name === "powershell" || name === CODEMODE_TOOL_NAME) && Array.isArray(content)) {
+        const startedAt = event.executionStartedAt;
+        if (Array.isArray(content) || typeof startedAt === "number") {
           setActiveToolResults((prev) => {
+            const existing = prev.get(id);
+            const liveTiming = existing?.liveTiming ?? (typeof startedAt === "number" ? { startedAt } : undefined);
+            if (liveTiming?.endedAt !== undefined || (!Array.isArray(content) && existing)) return prev;
             const next = new Map(prev);
             next.set(id, {
               role: "toolResult",
               toolCallId: id,
               toolName: name,
-              content,
-              isError: partialResult?.isError,
-              details: partialResult?.details,
+              content: Array.isArray(content) ? content : [],
+              isError: Array.isArray(content) ? partialResult?.isError : undefined,
+              details: Array.isArray(content) ? partialResult?.details : undefined,
+              liveTiming,
             });
             return next;
           });
@@ -1990,10 +2009,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (isNestedToolExecutionEvent(event)) break;
         if (typeof event.toolName === "string") onToolEnd?.(event.toolName);
         const id = event.toolCallId as string;
+        const endedAt = Date.now();
+        const result = event.result as Partial<ToolResultMessage> | undefined;
         setActiveToolResults((prev) => {
-          if (!prev.has(id)) return prev;
+          const existing = prev.get(id);
+          if (!existing) return prev;
           const next = new Map(prev);
-          next.delete(id);
+          next.set(id, {
+            ...existing,
+            content: result?.content ?? existing.content,
+            details: result?.details ?? existing.details,
+            isError: event.isError === true,
+            durationMs: result?.durationMs,
+            liveTiming: existing.liveTiming && { ...existing.liveTiming, endedAt },
+          });
           return next;
         });
         setAgentPhase((prev) => {
@@ -3165,19 +3194,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [messages.length, agentRunning, bashRunning, scrollToBottom, scrollUserMsgToTop, promptAnchorActive]);
 
-  // Images, markdown and tool output grow after the first paint, which pushes
-  // the tail out of view. Stay pinned to it until the user scrolls away.
+  // Content growth follows the live tail. A shrinking viewport also keeps
+  // the last line visible if it was already there, without resuming follow.
   useEffect(() => {
     const container = scrollContainerRef.current;
     const content = container?.firstElementChild;
     if (!container || !content) return;
+    let previousClientHeight = container.clientHeight;
+    let previousScrollHeight = container.scrollHeight;
     const observer = new ResizeObserver(() => {
-      if (stickToTailRef.current) scrollToBottom("instant");
+      const { clientHeight, scrollHeight, scrollTop } = container;
+      const wasAtBottomBeforeShrink = clientHeight < previousClientHeight
+        && isScrollAtTail(scrollTop, previousClientHeight, previousScrollHeight, 1);
+      previousClientHeight = clientHeight;
+      previousScrollHeight = scrollHeight;
+      if (stickToTailRef.current || wasAtBottomBeforeShrink) {
+        container.scrollTo({ top: scrollHeight, behavior: "instant" });
+      }
     });
     observer.observe(content);
     observer.observe(container);
     return () => observer.disconnect();
-  }, [messages.length, loading, scrollToBottom]);
+  }, [messages.length, loading]);
 
   // Load the model list with bounded retries; loadModels exposes each failure.
   useEffect(() => {

@@ -39,8 +39,6 @@ import { DismissButton } from "./DismissButton";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
-import { useChatAppearance } from "@/hooks/useChatAppearance";
-import { useFontPreferences } from "@/hooks/useFontPreferences";
 import { usePopupPlacement } from "@/hooks/usePopupPlacement";
 import { useSharedSessionDraft } from "@/hooks/useSharedSessionDraft";
 import { POPUP_GAP_PX, type PopupSide } from "@/lib/popup-placement";
@@ -716,8 +714,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   compact = false,
 }: Props, ref) {
   const { t } = useI18n();
-  const { fontSize } = useChatAppearance();
-  const { ui: uiFontFamily, uiWeight } = useFontPreferences();
   const isMobile = useIsMobile();
   const enterSendMode = useEnterSendMode();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
@@ -793,8 +789,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
     replaceMessage(message: UserMessage) {
@@ -816,8 +810,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
     prependText(text: string) {
@@ -834,8 +826,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
     rekeyDraft(previousKey: string, nextKey: string) {
@@ -930,8 +920,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
     // The caret goes after a draft that came back, so typing continues it.
@@ -1023,9 +1011,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
   }, [clearImages, draftKey]);
 
   const sharedSessionId = sharedSessionDraftId(draftKey);
@@ -1087,29 +1072,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       return nextImages;
     });
   }, [draftKey]);
-
-  const resizeTextarea = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    if (ta.value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-  }, []);
-
-  useLayoutEffect(resizeTextarea, [value, fontSize, uiFontFamily, uiWeight, resizeTextarea]);
-
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    let previousWidth = -1;
-    const observer = new ResizeObserver(([entry]) => {
-      // Height updates also notify the observer; only remeasure on width changes.
-      if (entry.contentRect.width === previousWidth) return;
-      previousWidth = entry.contentRect.width;
-      resizeTextarea();
-    });
-    observer.observe(ta);
-    return () => observer.disconnect();
-  }, [resizeTextarea]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -1374,8 +1336,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(text.length, text.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
     });
   }, []);
 
@@ -1389,8 +1349,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
     });
   }, []);
 
@@ -1612,13 +1570,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     },
     [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
-
-  const handleInput = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-  }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = Array.from(e.clipboardData?.items ?? []);
@@ -2384,6 +2335,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             );
           })()}
           <div
+            data-token-flow-composer={!compact ? "" : undefined}
             style={{
               minWidth: 0,
               display: "flex",
@@ -2433,57 +2385,42 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </svg>
             </button>
           )}
-          <textarea
-            ref={textareaRef}
-            className="chat-input-textarea"
-            aria-label={compact ? t("chat.quoteQuestion") : undefined}
-            value={value}
-            onChange={(e) => {
-              valueRef.current = e.target.value;
-              setValue(e.target.value);
-              setHistoryMenuOpen(false);
-              updateAtQuery(e.target.value, e.target.selectionStart);
-            }}
-            onSelect={(e) => {
-              const el = e.currentTarget;
-              updateAtQuery(el.value, el.selectionStart);
-            }}
-            onKeyDown={handleKeyDown}
-            onCompositionStart={() => {
-              isComposingRef.current = true;
-            }}
-            onCompositionEnd={(e) => {
-              isComposingRef.current = false;
-              lastCompositionEndAtRef.current = Date.now();
-              const el = e.currentTarget;
-              updateAtQuery(el.value, el.selectionStart);
-            }}
-            onInput={handleInput}
-            onPaste={handlePaste}
-            placeholder={
-              isStreaming && (onSteer || onFollowUp)
-                ? t("chat.steerPlaceholder")
-                : isStreaming ? t("chat.agentPlaceholder")
-                : t("chat.messagePlaceholder")
-            }
-            rows={1}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              width: "100%",
-              background: "none",
-              border: "none",
-              outline: "none",
-              resize: "none",
-              color: "var(--text)",
-              fontSize: "var(--chat-content-font-size, 14px)",
-              lineHeight: 1.6,
-              fontFamily: "inherit",
-              minHeight: compact ? 96 : 24,
-              maxHeight: 200,
-              overflow: "auto",
-            }}
-          />
+          <div className="chat-input-sizer" data-draft={value} data-compact={compact || undefined}>
+            <textarea
+              ref={textareaRef}
+              className="chat-input-textarea"
+              aria-label={compact ? t("chat.quoteQuestion") : undefined}
+              value={value}
+              onChange={(e) => {
+                valueRef.current = e.target.value;
+                setValue(e.target.value);
+                setHistoryMenuOpen(false);
+                updateAtQuery(e.target.value, e.target.selectionStart);
+              }}
+              onSelect={(e) => {
+                const el = e.currentTarget;
+                updateAtQuery(el.value, el.selectionStart);
+              }}
+              onKeyDown={handleKeyDown}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={(e) => {
+                isComposingRef.current = false;
+                lastCompositionEndAtRef.current = Date.now();
+                const el = e.currentTarget;
+                updateAtQuery(el.value, el.selectionStart);
+              }}
+              onPaste={handlePaste}
+              placeholder={
+                isStreaming && (onSteer || onFollowUp)
+                  ? t("chat.steerPlaceholder")
+                  : isStreaming ? t("chat.agentPlaceholder")
+                  : t("chat.messagePlaceholder")
+              }
+              rows={1}
+            />
+          </div>
           </div>
 
           {isStreaming ? (

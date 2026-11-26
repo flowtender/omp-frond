@@ -95,6 +95,8 @@ export interface ToolResultMessage {
   timestamp?: number;
   /** How long the tool ran, measured by pi with a monotonic clock (pi 1.1); absent for older results. */
   durationMs?: number;
+  /** Transient browser snapshot, never written to the session transcript. */
+  liveTiming?: { startedAt: number; endedAt?: number };
   usage?: AgentUsage;
 }
 

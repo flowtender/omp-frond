@@ -698,7 +698,7 @@ export class AgentSessionWrapper {
         this.activeToolEvents.clear();
         this.activeMessageEvent = null;
       }
-      this.trackActiveToolEvent(event);
+      event = this.trackActiveToolEvent(event);
       this.trackStreamingMessageEvent(event);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
@@ -1049,10 +1049,14 @@ export class AgentSessionWrapper {
    * a top-level tool, and the parent's own update already reports them. A
    * nested end can still arrive after its parent's, and is ignored like the rest.
    */
-  private trackActiveToolEvent(event: AgentEvent): void {
+  private trackActiveToolEvent(event: AgentEvent): AgentEvent {
     const toolCallId = event.toolCallId;
-    if (typeof toolCallId !== "string" || isNestedToolExecutionEvent(event)) return;
+    if (typeof toolCallId !== "string" || isNestedToolExecutionEvent(event)) return event;
     if (event.type === "tool_execution_start" || event.type === "tool_execution_update") {
+      const startedAt = this.activeToolEvents.get(toolCallId)?.executionStartedAt;
+      if (typeof startedAt === "number" || event.type === "tool_execution_start") {
+        event = { ...event, executionStartedAt: startedAt ?? Date.now() };
+      }
       this.activeToolEvents.set(toolCallId, event);
     } else if (event.type === "tool_execution_end") {
       this.activeToolEvents.delete(toolCallId);
@@ -1061,6 +1065,7 @@ export class AgentSessionWrapper {
         if (id.startsWith(nestedPrefix)) this.activeToolEvents.delete(id);
       }
     }
+    return event;
   }
 
   /**

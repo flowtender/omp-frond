@@ -103,3 +103,17 @@ test("connected reports an idle session with no open requests", async () => {
   assert.deepEqual(connected.pendingExtensionUiIds, []);
   h.controller.abort();
 });
+
+test("sends a turn start without waiting for an assistant message", async () => {
+  const h = harness({ running: true });
+  const reader = (await h.response).body.getReader();
+  try {
+    await reader.read();
+    h.state.listener({ type: "turn_start" });
+    h.state.listener({ type: "message_start", message: { role: "assistant", content: [] } });
+    const frame = new TextDecoder().decode((await reader.read()).value);
+    assert.equal(frame, 'data: {"type":"turn_start"}\n\n');
+  } finally {
+    await reader.cancel();
+  }
+});

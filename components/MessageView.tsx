@@ -1137,9 +1137,12 @@ function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDur
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
-    const result = toolResults?.get(tc.toolCallId);
+    const snapshot = toolResults?.get(tc.toolCallId);
+    const liveTiming = snapshot?.liveTiming;
+    const result = snapshot && liveTiming && liveTiming.endedAt === undefined && !snapshot.details && snapshot.content.length === 0
+      ? undefined : snapshot;
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} onOpenSubagent={onOpenSubagent} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} liveTiming={liveTiming} onOpenSubagent={onOpenSubagent} />;
   }
   if (block.type === "image") {
     const src = imageSource(block);
@@ -1323,7 +1326,7 @@ export function formatToolDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
 }
 
-function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSubagent?: (sessionId: string, label: string) => void }) {
+function ToolCallBlock({ block, result, duration, liveTiming, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; liveTiming?: ToolResultMessage["liveTiming"]; onOpenSubagent?: (sessionId: string, label: string) => void }) {
   const { t } = useI18n();
   const compactJson = useToolDisplayPreference("compactJson");
   const readPreviews = useToolDisplayPreference("readPreviews");
@@ -1383,7 +1386,8 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         output={resultText ?? ""}
         isError={isError}
         hasFinalTiming={isRecord(result?.details) && typeof result.details.wallTimeMs === "number"}
-        duration={duration}
+        duration={recordedDurationMs(result?.durationMs) ?? (isRecord(result?.details) ? recordedDurationMs(result.details.wallTimeMs) : undefined) ?? duration}
+        liveTiming={liveTiming}
       />;
     }
     return (
@@ -1391,9 +1395,10 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         callId={block.toolCallId}
         command={isRecord(block.input) && typeof block.input.command === "string" ? block.input.command : ""}
         output={resultText ?? ""}
-        pending={!result}
+        pending={!result || (liveTiming !== undefined && liveTiming.endedAt === undefined)}
         isError={isError}
         duration={duration}
+        liveTiming={liveTiming}
         local={normalizedToolName.includes("(local)")}
         streaming={isStreamingInput}
       />
@@ -1425,7 +1430,8 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
       labelBadge={inputView.labelBadge}
       timeout={inputView.timeout}
       badge={inputView.badge}
-      duration={duration}
+      duration={toolNameIs(block.toolName, "eval") ? recordedDurationMs(result?.durationMs) ?? duration : duration}
+      liveTiming={liveTiming}
       count={codemodeCallCount}
       action={subagent && onOpenSubagent && (
           <button
@@ -1598,7 +1604,23 @@ function useToolExpanded(callId: string, hasFailure: boolean): [boolean, (expand
   }];
 }
 
-function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, targetLanguage, facts, metadata, labelBadge, badge, timeout, duration, count = 0, action, children }: {
+function LiveToolElapsed({ timing, timeout }: { timing: NonNullable<ToolResultMessage["liveTiming"]>; timeout?: number | null }) {
+  const { startedAt, endedAt } = timing;
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (endedAt !== undefined) return;
+    const timer = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(timer);
+  }, [startedAt, endedAt]);
+  return formatToolTime(Math.max(0, (endedAt ?? now) - startedAt), timeout);
+}
+
+function formatToolTime(duration: number | undefined, timeout: number | null | undefined) {
+  if (timeout === undefined) return duration === undefined ? null : formatToolDuration(duration);
+  return `${duration === undefined ? "—" : (duration / 1000).toFixed(1)}/${timeout === null ? "-" : timeout === 0 ? "∞" : `${timeout}s`}`;
+}
+
+function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, targetLanguage, facts, metadata, labelBadge, badge, timeout, duration, liveTiming, count = 0, action, children }: {
   callId: string;
   toolName: string;
   label?: string;
@@ -1611,8 +1633,9 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
   metadata?: ReactNode;
   labelBadge?: ReactNode;
   badge?: ReactNode;
-  timeout?: number;
+  timeout?: number | null;
   duration?: number;
+  liveTiming?: ToolResultMessage["liveTiming"];
   count?: number;
   action?: ReactNode;
   children: (expanded: boolean) => ReactNode;
@@ -1657,10 +1680,9 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
               {count === 1 ? t("codemode.callCountOne") : t("codemode.callCount", { count })}
             </span>
           )}
-          {(duration !== undefined || timeout !== undefined) && (
-            <span className="tool-card-time" title={timeout === undefined ? undefined : t(timeout === 0 ? "chat.eval.noTimeout" : "chat.eval.requestedTimeout")}>
-              {timeout === undefined ? duration !== undefined && formatToolDuration(duration)
-                : `${duration === undefined ? "—" : (duration / 1000).toFixed(1)}/${timeout === 0 ? "∞" : `${timeout}s`}`}
+          {(duration !== undefined || liveTiming || timeout !== undefined) && (
+            <span className="tool-card-time" title={timeout == null ? undefined : t(timeout === 0 ? "chat.eval.noTimeout" : "chat.eval.requestedTimeout")}>
+              {duration === undefined && liveTiming ? <LiveToolElapsed timing={liveTiming} timeout={timeout} /> : formatToolTime(duration, timeout)}
             </span>
           )}
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
@@ -2013,6 +2035,7 @@ function ConsoleOutputPreview({
   local,
   status,
   streaming = false,
+  liveTiming,
 }: {
   callId: string;
   command: string;
@@ -2020,6 +2043,7 @@ function ConsoleOutputPreview({
   pending: boolean;
   isError: boolean;
   duration?: number;
+  liveTiming?: ToolResultMessage["liveTiming"];
   local?: boolean;
   status?: string;
   streaming?: boolean;
@@ -2043,9 +2067,10 @@ function ConsoleOutputPreview({
 
       {expanded && <ShellOutput output={output} pending={pending} isError={isError} />}
 
-      {(status || duration !== undefined) && (
+      {(status || duration !== undefined || liveTiming) && (
         <div className="shell-output-footer">
-          {status}{status && duration !== undefined ? " · " : ""}{duration !== undefined && formatToolDuration(duration)}
+          {status}{status && (duration !== undefined || liveTiming) ? " · " : ""}
+          {duration === undefined && liveTiming ? <LiveToolElapsed timing={liveTiming} /> : formatToolTime(duration, undefined)}
         </div>
       )}
     </div>
@@ -2104,7 +2129,7 @@ function ShellOutput({ output, pending = false, isError, showLabel = true, langu
   );
 }
 
-function MountedToolCards({ callId, dispatches, result, command, output, isError, hasFinalTiming, duration }: {
+function MountedToolCards({ callId, dispatches, result, command, output, isError, hasFinalTiming, duration, liveTiming }: {
   callId: string;
   dispatches: readonly ToolDispatch[];
   result?: ToolResultMessage;
@@ -2113,6 +2138,7 @@ function MountedToolCards({ callId, dispatches, result, command, output, isError
   isError: boolean;
   hasFinalTiming: boolean;
   duration?: number;
+  liveTiming?: ToolResultMessage["liveTiming"];
 }) {
   const { t } = useI18n();
   const readPreviews = useToolDisplayPreference("readPreviews");
@@ -2156,6 +2182,7 @@ function MountedToolCards({ callId, dispatches, result, command, output, isError
             isError={failed || (single && isError)}
             hasFailure={failed || (single && isError) || taskToolCards(tool, inner, "", result, index).some((card) => card.status === "failed")}
             duration={single ? duration : undefined}
+            liveTiming={single ? liveTiming : undefined}
           >
             {(expanded) => expanded && <>
               {args && visibleArgs && Object.keys(visibleArgs).length > 0 && <ShellToolArguments tool={tool} args={visibleArgs} sourceArgs={args} />}
@@ -3027,7 +3054,7 @@ interface ToolInputView {
   evalCode?: { text: string; language: "js" | "py" };
   labelBadge?: ReactNode;
   badge?: ReactNode;
-  timeout?: number;
+  timeout?: number | null;
 }
 
 function ToolHeaderBadge({ children, title, icon = false, state }: { children: ReactNode; title: string; icon?: boolean; state?: "on" | "off" }) {
@@ -3141,7 +3168,7 @@ function describeToolInput(tool: string, args: Record<string, unknown>, t: (key:
       }
     }
     view.badge = flagBadge("reset", false);
-    if (typeof timeout === "number" && Number.isFinite(timeout)) {
+    if (timeout === null || (typeof timeout === "number" && Number.isFinite(timeout))) {
       displayed.add("timeout");
       view.timeout = timeout;
     }

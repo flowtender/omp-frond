@@ -1546,6 +1546,21 @@ test("compact JSON arguments keep short nested values together without modifying
   assert.equal(getToolCallInputText({ ...block, rawInput: '{"rows":[' }, true), '{"rows":[');
 });
 
+test("eval measures from activation and replaces the estimate with SDK duration", (t) => {
+  t.mock.method(Date, "now", () => 5500);
+  const callId = "timed-eval";
+  const message = { role: "assistant", timestamp: 1000, content: [
+    { type: "toolCall", toolCallId: callId, toolName: "eval", input: { language: "js", code: "1", timeout: null } },
+  ] };
+  const snapshot = { role: "toolResult", toolCallId: callId, content: [] };
+  const render = (result) => renderMessage(message, { toolResults: new Map(result ? [[callId, result]] : []) });
+  assert.match(render(), /class="tool-card-time">—\/-<\/span>/);
+  assert.match(render({ ...snapshot, liveTiming: { startedAt: 3000 } }), /class="tool-card-time">2\.5\/-<\/span>/);
+  const ended = { ...snapshot, liveTiming: { startedAt: 3000, endedAt: 4600 } };
+  assert.match(render(ended), /class="tool-card-time">1\.6\/-<\/span>/);
+  assert.match(render({ ...ended, durationMs: 1300 }), /class="tool-card-time">1\.3\/-<\/span>/);
+});
+
 test("highlights mounted eval and read without losing ANSI console output", async (t) => {
   const { loadPrismLanguages } = await jiti.import("@/lib/prism-languages");
   await loadPrismLanguages();
@@ -1565,6 +1580,9 @@ test("highlights mounted eval and read without losing ANSI console output", asyn
   const unlimited = renderMounted("mounted-eval-unlimited", "eval", { language: "js", code: "1", timeout: 0 }, "1");
   assert.match(unlimited, />2\.2\/∞<\/span>/);
   assert.match(unlimited, /data-state="off"[^>]*aria-label="Reuse this language’s existing kernel\."><svg/);
+  const nullTimeout = renderMounted("mounted-eval-null-timeout", "eval", { language: "js", code: "1", timeout: null }, "1");
+  assert.match(nullTimeout, /class="tool-card-time">2\.2\/-<\/span>/);
+  assert.doesNotMatch(nullTimeout, />timeout<\/td>/);
   const noReset = renderMounted("mounted-eval-no-reset", "eval", { language: "js", code: "1", reset: false }, "1");
   assert.match(noReset, /data-state="off"[^>]*aria-label="Reuse this language’s existing kernel\."><svg/);
   const nullReset = renderMounted("mounted-eval-null-reset", "eval", { language: "js", code: "1", reset: null }, "1");
