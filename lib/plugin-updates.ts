@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 type CommandRunner = (
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv },
+  options: { cwd: string; env?: Partial<NodeJS.ProcessEnv> },
 ) => Promise<string>;
 
 type CheckOptions = {
@@ -72,7 +72,7 @@ function result(
 async function runCommand(
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv },
+  options: { cwd: string; env?: Partial<NodeJS.ProcessEnv> },
 ): Promise<string> {
   // A bare `npm` resolves to `npm.cmd` on Windows, which `execFile` cannot
   // spawn (CVE-2024-27980); run the bundled `npm-cli.js` through `node`.
