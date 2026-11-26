@@ -7,6 +7,7 @@ import { Tokenizer } from "@oh-my-pi/pi-agent-core";
 import type { AgentMessage as OmpAgentMessage } from "@oh-my-pi/pi-agent-core";
 import { calculatePromptTokens, hasContextTokenUsage } from "@oh-my-pi/pi-agent-core/compaction";
 import { parseModelString, splitUpstreamRouting } from "@oh-my-pi/pi-coding-agent/config/model-selector";
+import { parseTitleSlotLine } from "@oh-my-pi/pi-coding-agent/session/session-title-slot";
 import { closeSync, existsSync, fstatSync, openSync, readSync, statSync } from "fs";
 import { join, normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
@@ -563,24 +564,41 @@ export function readSessionHeader(filePath: string): SessionHeader | null {
     const chunks: Buffer[] = [];
     const maxHeaderBytes = 64 * 1024;
     let position = 0;
-    let foundNewline = false;
+    let titleSlotSeen = false;
 
-    while (position < maxHeaderBytes && !foundNewline) {
+    while (position < maxHeaderBytes) {
       const buffer = Buffer.allocUnsafe(Math.min(4096, maxHeaderBytes - position));
       const bytesRead = readSync(fd, buffer, 0, buffer.length, position);
       if (bytesRead === 0) break;
-      const data = buffer.subarray(0, bytesRead);
-      const newlineIndex = data.indexOf(0x0a);
-      chunks.push(newlineIndex === -1 ? data : data.subarray(0, newlineIndex));
       position += bytesRead;
-      foundNewline = newlineIndex !== -1;
+      const data = buffer.subarray(0, bytesRead);
+      let start = 0;
+      for (;;) {
+        const newline = data.indexOf(0x0a, start);
+        if (newline < 0) {
+          chunks.push(data.subarray(start));
+          break;
+        }
+        chunks.push(data.subarray(start, newline));
+        const line = Buffer.concat(chunks).toString("utf8");
+        if (!titleSlotSeen && parseTitleSlotLine(line)) {
+          titleSlotSeen = true;
+          chunks.length = 0;
+          start = newline + 1;
+          continue;
+        }
+        try {
+          const header = JSON.parse(line) as SessionHeader;
+          return header.type === "session" ? header : null;
+        } catch {
+          return null;
+        }
+      }
     }
 
-    if (!foundNewline && position >= maxHeaderBytes) return null;
-    const firstLine = Buffer.concat(chunks).toString("utf8").trimEnd();
-    if (!firstLine) return null;
+    if (position >= maxHeaderBytes) return null;
     try {
-      const header = JSON.parse(firstLine) as SessionHeader;
+      const header = JSON.parse(Buffer.concat(chunks).toString("utf8")) as SessionHeader;
       return header.type === "session" ? header : null;
     } catch {
       return null;

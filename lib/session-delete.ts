@@ -15,6 +15,7 @@
 
 import { readdirSync, readFileSync, unlinkSync } from "fs";
 import { dirname, join } from "path";
+import { parseTitleSlotLine } from "@oh-my-pi/pi-coding-agent/session/session-title-slot";
 import { abortSubagent, getRpcSession, getRpcSessionInfos, getRunningRpcSessionIds } from "./rpc-manager";
 import {
   invalidateSessionListCache,
@@ -101,9 +102,10 @@ export async function deleteSessions(
         if (targetPathKeys.has(sessionPathKey(childPath))) continue;
         try {
           const lines = readFileSync(childPath, "utf8").split("\n");
-          const header = JSON.parse(lines[0]) as { type?: string; id?: string };
+          const headerIndex = parseTitleSlotLine(lines[0]) ? 1 : 0;
+          const header = JSON.parse(lines[headerIndex]) as { type?: string; id?: string };
           if (header.type !== "session" || typeof header.id !== "string") continue;
-          const entries = lines.slice(1).flatMap((line) => {
+          const entries = lines.slice(headerIndex + 1).flatMap((line) => {
             try { return [JSON.parse(line) as SessionEntry]; } catch { return []; }
           });
           const subagent = readSubagentRun(entries, header.id, childPath);

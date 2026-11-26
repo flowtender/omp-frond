@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { parseTitleSlotLine } from "@oh-my-pi/pi-coding-agent/session/session-title-slot";
 import { writeFileAtomicSync } from "./atomic-file";
 import { sessionPathKey } from "./session-path";
 import { readSessionHeader } from "./session-reader";
@@ -34,15 +35,19 @@ export function* childrenToReparent(directory: string, isDeleted: (pathKey: stri
 export function reparentSessionFile(path: string, parentSession: string | undefined, parentSessionId?: string): void {
   const original = readFileSync(path);
   const replacements: Buffer[] = [];
+  const firstNewline = original.indexOf(0x0a);
+  const headerStart = firstNewline >= 0 && parseTitleSlotLine(original.toString("utf8", 0, firstNewline))
+    ? firstNewline + 1 : 0;
   let unchangedStart = 0;
-  for (let start = 0; start < original.length;) {
+  for (let start = headerStart; start < original.length;) {
     const newline = original.indexOf(0x0a, start);
     const end = newline < 0 ? original.length : newline;
     const jsonEnd = end > start && original[end - 1] === 0x0d ? end - 1 : end;
-    if (start === 0) {
+    if (start === headerStart) {
       const header = JSON.parse(original.toString("utf8", start, jsonEnd));
+      if (header?.type !== "session") throw new Error("Invalid session header");
       header.parentSession = parentSession;
-      replacements.push(Buffer.from(JSON.stringify(header)));
+      replacements.push(original.subarray(0, headerStart), Buffer.from(JSON.stringify(header)));
       unchangedStart = jsonEnd;
       if (!parentSessionId || !parentSession) break;
     } else {

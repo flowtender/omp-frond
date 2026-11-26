@@ -21,6 +21,7 @@ let deleteSessionsRoute;
 const { MAX_SESSION_DELETE_IDS } = await jiti.import("../../../lib/session-delete.ts");
 const { PROJECT_DELETE_IDS_PER_REQUEST } = await jiti.import("../../../lib/sidebar-actions.ts");
 const { refreshDirsFromEnv } = await jiti.import("@oh-my-pi/pi-utils");
+const { serializeTitleSlot } = await jiti.import("@oh-my-pi/pi-coding-agent/session/session-title-slot");
 const { invalidateSessionListCache, invalidateSessionPathCache } = await jiti.import("../../../lib/session-reader.ts");
 const {
   readSessionUiState,
@@ -46,8 +47,8 @@ function post(body, headers = JSON_HEADERS) {
   }));
 }
 
-/** A session file as pi writes it: header, then one exchange; a subagent's carries pi-web's meta entry. */
-async function writeSession(dir, name, { id, cwd, parentSession, subagentOf }) {
+/** A legacy or omp title-slot session, with pi-web metadata for subagents. */
+async function writeSession(dir, name, { id, cwd, parentSession, subagentOf, titled = false }) {
   const path = join(dir, `${name}.jsonl`);
   const lines = [{ type: "session", version: 3, id, timestamp: TIME, cwd, ...(parentSession ? { parentSession } : {}) }];
   if (subagentOf) {
@@ -64,7 +65,8 @@ async function writeSession(dir, name, { id, cwd, parentSession, subagentOf }) {
     { type: "message", id: `${id}-u`, parentId: lines.at(-1).id ?? null, timestamp: TIME, message: { role: "user", content: `hello ${name}`, timestamp: Date.parse(TIME) } },
     { type: "message", id: `${id}-a`, parentId: `${id}-u`, timestamp: TIME, message: { role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: Date.parse(TIME) } },
   );
-  await writeFile(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+  const slot = titled ? serializeTitleSlot({ title: `title ${name}`, updatedAt: TIME }) : "";
+  await writeFile(path, `${slot}${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
   return path;
 }
 
@@ -97,13 +99,13 @@ async function scratchAgentDir(t) {
 test("deletes a project's sessions in one request, with their subagents, keeping a run and re-pointing what stays", async (t) => {
   const { dir, sessionsDir, ids } = await scratchAgentDir(t);
   const cwd = "/work/alpha";
-  const keepRoot = await writeSession(sessionsDir, "keep-root", { id: "keep-root", cwd });
-  const a = await writeSession(sessionsDir, "a", { id: "del-a", cwd, parentSession: keepRoot });
-  const b = await writeSession(sessionsDir, "b", { id: "del-b", cwd, parentSession: a });
-  const aSub = await writeSession(sessionsDir, "a-sub", { id: "del-a-sub", cwd, parentSession: a, subagentOf: { id: "del-a", path: a } });
-  // A fork of b that the confirmation did not count (another window made it):
-  // it stays, re-pointed past b and a to the nearest ancestor left.
-  const keepFork = await writeSession(sessionsDir, "keep-fork", { id: "keep-fork", cwd, parentSession: b });
+  const keepRoot = await writeSession(sessionsDir, "keep-root", { id: "keep-root", cwd, titled: true });
+  const a = await writeSession(sessionsDir, "a", { id: "del-a", cwd, parentSession: keepRoot, titled: true });
+  const b = await writeSession(sessionsDir, "b", { id: "del-b", cwd, parentSession: a, titled: true });
+  const aSub = await writeSession(sessionsDir, "a-sub", { id: "del-a-sub", cwd, parentSession: a, subagentOf: { id: "del-a", path: a }, titled: true });
+  // A fork of b that the confirmation did not count stays re-pointed.
+  const keepFork = await writeSession(sessionsDir, "keep-fork", { id: "keep-fork", cwd, parentSession: b, titled: true });
+  const forkSlot = readFileSync(keepFork).subarray(0, 256);
   const running = await writeSession(sessionsDir, "running", { id: "run-x", cwd });
   ids.push("keep-root", "del-a", "del-b", "del-a-sub", "keep-fork", "run-x");
 
@@ -156,7 +158,9 @@ test("deletes a project's sessions in one request, with their subagents, keeping
   assert.deepEqual(shutdowns, ["del-b"]);
   assert.ok(globalThis.__ompSessions.has("run-x"));
 
-  const forkHeader = JSON.parse(readFileSync(keepFork, "utf8").split("\n")[0]);
+  const forkBytes = readFileSync(keepFork);
+  assert.deepEqual(forkBytes.subarray(0, 256), forkSlot);
+  const forkHeader = JSON.parse(forkBytes.toString("utf8").split("\n")[1]);
   assert.equal(forkHeader.parentSession, keepRoot);
   // Pins and archive times go with the sessions; the others stay.
   assert.deepEqual(Object.keys(readSessionUiState().sessions), ["keep-root"]);
@@ -166,24 +170,26 @@ test("what stays is re-pointed at its nearest ancestor left, or loses a parent n
   const { sessionsDir, ids } = await scratchAgentDir(t);
   const cwd = "/work/alpha";
   const root = await writeSession(sessionsDir, "root", { id: "del-root", cwd });
-  const middle = await writeSession(sessionsDir, "middle", { id: "keep-middle", cwd, parentSession: root });
-  const child = await writeSession(sessionsDir, "child", { id: "del-child", cwd, parentSession: middle });
-  const grandchild = await writeSession(sessionsDir, "grandchild", { id: "keep-grandchild", cwd, parentSession: child });
-  // A subagent of keep-middle whose header names the deleted child: its meta follows the header.
-  const sub = await writeSession(sessionsDir, "sub", { id: "keep-sub", cwd, parentSession: child, subagentOf: { id: "keep-middle", path: middle } });
+  const middle = await writeSession(sessionsDir, "middle", { id: "keep-middle", cwd, parentSession: root, titled: true });
+  const child = await writeSession(sessionsDir, "child", { id: "del-child", cwd, parentSession: middle, titled: true });
+  const grandchild = await writeSession(sessionsDir, "grandchild", { id: "keep-grandchild", cwd, parentSession: child, titled: true });
+  // A subagent of keep-middle whose header names the deleted child.
+  const sub = await writeSession(sessionsDir, "sub", { id: "keep-sub", cwd, parentSession: child, subagentOf: { id: "keep-middle", path: middle }, titled: true });
+  const subSlot = readFileSync(sub).subarray(0, 256);
   ids.push("del-root", "keep-middle", "del-child", "keep-grandchild", "keep-sub");
 
   const result = await (await post({ ids: ["del-root", "del-child"] })).json();
 
   assert.deepEqual(result.deleted.toSorted(), ["del-child", "del-root"]);
   assert.equal(existsSync(root) || existsSync(child), false);
-  const lines = (path) => readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const lines = (path) => readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((line) => line.type !== "title");
   // Nothing above the deleted root stays: the header loses its parent.
   assert.equal("parentSession" in lines(middle)[0], false);
   assert.equal(lines(grandchild)[0].parentSession, middle);
   const [subHeader, subMeta, ...subRest] = lines(sub);
   assert.equal(subHeader.parentSession, middle);
   assert.deepEqual([subMeta.data.parentSessionId, subMeta.data.parentSessionPath], ["keep-middle", middle]);
+  assert.deepEqual(readFileSync(sub).subarray(0, 256), subSlot);
   assert.equal(subRest.length, 2, "the rest of the file is kept");
 });
 
@@ -196,17 +202,20 @@ for (const operation of ["single", "bulk"]) {
     }), { params: Promise.resolve({ id }) });
   }
 
-  test(`${operation} delete atomically reparents a transcript without changing its remaining bytes`, async (t) => {
+  for (const titled of [false, true]) test(`${operation} delete atomically reparents a ${titled ? "title-slot" : "legacy"} transcript without changing its remaining bytes`, async (t) => {
     const { dir, sessionsDir, ids } = await scratchAgentDir(t);
     const cwd = "/work/alpha";
     const id = `parent-${operation}`;
-    const parent = await writeSession(sessionsDir, id, { id, cwd });
+    const parent = await writeSession(sessionsDir, id, { id, cwd, titled });
     const childId = `child-${operation}`;
-    const child = await writeSession(sessionsDir, childId, { id: childId, cwd, parentSession: parent });
+    const child = await writeSession(sessionsDir, childId, { id: childId, cwd, parentSession: parent, titled });
     ids.push(id, childId);
-    const header = JSON.parse(readFileSync(child, "utf8").split("\n")[0]);
+    const original = readFileSync(child, "utf8").split("\n");
+    const slot = titled ? Buffer.from(`${original[0]}\n`) : Buffer.alloc(0);
+    const header = JSON.parse(original[titled ? 1 : 0]);
+    header.sdkFutureField = { nested: ["untouched", 42] };
     const tail = Buffer.from('\r\n{ "type": "note", "text": "café" }\r\n\n{"partial":');
-    const before = Buffer.concat([Buffer.from(JSON.stringify(header)), tail, Buffer.from([0xff])]);
+    const before = Buffer.concat([slot, Buffer.from(JSON.stringify(header)), tail, Buffer.from([0xff])]);
     await writeFile(child, before);
     let target = child;
     if (process.platform !== "win32") {
@@ -223,7 +232,7 @@ for (const operation of ["single", "bulk"]) {
     assert.equal(existsSync(parent), false);
     assert.deepEqual(readFileSync(oldInode), before, "the original inode was not overwritten");
     delete header.parentSession;
-    assert.deepEqual(readFileSync(child), Buffer.concat([Buffer.from(JSON.stringify(header)), tail, Buffer.from([0xff])]));
+    assert.deepEqual(readFileSync(child), Buffer.concat([slot, Buffer.from(JSON.stringify(header)), tail, Buffer.from([0xff])]));
     if (target !== child) {
       assert.equal((await lstat(child)).isSymbolicLink(), true);
       assert.equal((await stat(target)).mode & 0o777, 0o660);
