@@ -46,11 +46,16 @@ export function promptCacheViewAt(info: PromptCacheInfo, nowMs: number): PromptC
 export type PromptCacheIndicatorSource = "off" | "live" | "inferred";
 export type PromptCacheIndicatorStyle = "terminal" | "gradient";
 
+// A minute value that fits in a browser's signed 32-bit timeout.
+export const MAX_INFERRED_CACHE_TIMEOUT_MINUTES = Math.floor(0x7fffffff / 60_000);
+
 export interface PromptCacheIndicatorSettings {
   source: PromptCacheIndicatorSource;
   style: PromptCacheIndicatorStyle;
   /** Dim a status read off a transcript and mark it with a question mark. */
   distinguishInferred: boolean;
+  /** Fallback for inferred entries without a lifetime; zero uses omp's estimate. */
+  inferredTimeoutMinutes: number;
 }
 
 /** The terminal's behaviour: every session's marker, inferred or not, drawn the same way. */
@@ -58,6 +63,7 @@ export const PROMPT_CACHE_INDICATOR_DEFAULTS: PromptCacheIndicatorSettings = {
   source: "inferred",
   style: "terminal",
   distinguishInferred: false,
+  inferredTimeoutMinutes: 0,
 };
 
 export function parsePromptCacheIndicatorSettings(raw: string | null): PromptCacheIndicatorSettings {
@@ -69,21 +75,28 @@ export function parsePromptCacheIndicatorSettings(raw: string | null): PromptCac
     return PROMPT_CACHE_INDICATOR_DEFAULTS;
   }
   if (!parsed || typeof parsed !== "object") return PROMPT_CACHE_INDICATOR_DEFAULTS;
-  const { source, style, distinguishInferred } = parsed as Record<string, unknown>;
+  const { source, style, distinguishInferred, inferredTimeoutMinutes } = parsed as Record<string, unknown>;
   return {
     source: source === "off" || source === "live" || source === "inferred" ? source : PROMPT_CACHE_INDICATOR_DEFAULTS.source,
     style: style === "terminal" || style === "gradient" ? style : PROMPT_CACHE_INDICATOR_DEFAULTS.style,
     distinguishInferred: typeof distinguishInferred === "boolean" ? distinguishInferred : PROMPT_CACHE_INDICATOR_DEFAULTS.distinguishInferred,
+    inferredTimeoutMinutes: typeof inferredTimeoutMinutes === "number" && Number.isInteger(inferredTimeoutMinutes)
+      && inferredTimeoutMinutes >= 0 && inferredTimeoutMinutes <= MAX_INFERRED_CACHE_TIMEOUT_MINUTES
+      ? inferredTimeoutMinutes : PROMPT_CACHE_INDICATOR_DEFAULTS.inferredTimeoutMinutes,
   };
 }
 
-/** What the indicator shows under `source`: a status read without a live session only when inference is allowed. */
+/** The indicator's report, with a local fallback lifetime for inferred entries. */
 export function visiblePromptCacheInfo(
-  source: PromptCacheIndicatorSource,
+  { source, inferredTimeoutMinutes }: PromptCacheIndicatorSettings,
   report: PromptCacheReport | null | undefined,
 ): PromptCacheInfo | null {
-  if (!report || source === "off") return null;
-  return report.live || source === "inferred" ? report.info : null;
+  if (!report || source === "off" || (!report.live && source !== "inferred")) return null;
+  const { info } = report;
+  if (info.state === "warm" && info.inferred && info.ttlMs === undefined && inferredTimeoutMinutes > 0) {
+    return { ...info, ttlMs: inferredTimeoutMinutes * 60_000 };
+  }
+  return info;
 }
 
 export type PromptCacheReports = Readonly<Record<string, PromptCacheReport>>;

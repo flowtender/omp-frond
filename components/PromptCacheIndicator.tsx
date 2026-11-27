@@ -55,7 +55,7 @@ function coldReasonText(reason: PromptCacheColdReason | undefined, t: (key: stri
 export function PromptCacheIndicator({ report, size = 12, className }: { report: PromptCacheReport | null | undefined; size?: number; className?: string }) {
   const { locale, t } = useI18n();
   const settings = usePromptCacheIndicatorSettings();
-  const info = visiblePromptCacheInfo(settings.source, report);
+  const info = visiblePromptCacheInfo(settings, report);
   const [now, setNow] = useState(() => Date.now());
   const view = info ? promptCacheViewAt(info, now) : null;
   const repaintAt = view && info ? nextRepaintAt(view, info.ttlMs, settings.style, now) : undefined;
@@ -66,10 +66,10 @@ export function PromptCacheIndicator({ report, size = 12, className }: { report:
     return () => window.clearTimeout(timer);
   }, [repaintAt]);
 
-  // A new report is read against the current time, not the time of the last repaint.
+  // Read a new report or timeout against the current time, not the last repaint.
   useEffect(() => {
     setNow(Date.now());
-  }, [report]);
+  }, [report, settings.inferredTimeoutMinutes]);
 
   if (!info || !view) return null;
   const marked = settings.distinguishInferred && view.inferred;

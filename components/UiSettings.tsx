@@ -18,7 +18,7 @@ import { setTokenDisplay, TOKEN_DISPLAY_MODES, useTokenDisplay } from "@/hooks/u
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { headerLanguageSwitch, headerThemeSwitch } from "@/hooks/useHeaderControls";
 import { setPromptCacheIndicatorSettings, usePromptCacheIndicatorSettings } from "@/hooks/usePromptCacheIndicator";
-import type { PromptCacheIndicatorSource, PromptCacheIndicatorStyle } from "@/lib/prompt-cache-shared";
+import { MAX_INFERRED_CACHE_TIMEOUT_MINUTES, type PromptCacheIndicatorSource, type PromptCacheIndicatorStyle } from "@/lib/prompt-cache-shared";
 import type { RuntimeSessionBinding } from "@/lib/agent-client";
 import { useSessionReload } from "@/hooks/useSessionReload";
 import type { ToolSettingsResponse } from "@/lib/api-types";
@@ -261,6 +261,26 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
               onChange={(distinguishInferred) => setPromptCacheIndicatorSettings({ distinguishInferred })}
             />
           </div>
+          <label className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.promptCacheInferredTimeout")}</span>
+            <input
+              type="number"
+              min={0}
+              max={MAX_INFERRED_CACHE_TIMEOUT_MINUTES}
+              value={promptCacheIndicator.inferredTimeoutMinutes || ""}
+              placeholder={t("settings.promptCacheInferredTimeoutAuto")}
+              aria-describedby="settings-prompt-cache-timeout-description"
+              disabled={promptCacheIndicator.source === "off"}
+              onChange={(event) => {
+                const input = event.currentTarget;
+                if (input.validity.valid) {
+                  setPromptCacheIndicatorSettings({ inferredTimeoutMinutes: input.value === "" ? 0 : input.valueAsNumber });
+                }
+              }}
+              style={{ color: "var(--text)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", width: "7rem" }}
+            />
+          </label>
+          <p id="settings-prompt-cache-timeout-description" className="settings-general-description">{t("settings.promptCacheInferredTimeoutDescription")}</p>
         </div>
         <p id="settings-prompt-cache-description" className="settings-general-description">{t("settings.promptCacheDescription")}</p>
       </section>
