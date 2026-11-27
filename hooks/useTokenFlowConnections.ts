@@ -64,30 +64,29 @@ export function useTokenFlowConnections(
       type Edge = { bounds: DOMRect; block: boolean };
       type Row = { element: HTMLElement; bounds: DOMRect; handoff: boolean; source?: DOMRect; target?: Edge };
       const rows: Row[] = [];
-      let previous: { bounds: DOMRect; response: boolean } | undefined;
+      // The landmark a following row wires in from: the process fold header sits
+      // between a bubble and the turn's first row, so a row may feed another row.
+      let last: DOMRect | undefined;
       let previousRow: Row | undefined;
       for (const element of content.querySelectorAll<HTMLElement>(landmarks)) {
         if (element.closest(".transcript-flow-layout") !== content) continue;
         if (element.hasAttribute("data-transcript-gap")) {
-          previous = previousRow = undefined;
+          last = previousRow = undefined;
           continue;
         }
         const bounds = element.getBoundingClientRect();
         if (bounds.height <= 0) continue;
         const handoff = element.hasAttribute("data-token-handoff");
         const block = !handoff && !element.hasAttribute("data-token-flow");
-        const response = element.dataset.transcriptBlock === "response";
-        if (previousRow && (!previousRow.handoff || (block && !response))) {
-          previousRow.target = { bounds, block };
-        }
+        if (previousRow) previousRow.target = { bounds, block };
         if (block) {
-          previous = { bounds, response };
+          last = bounds;
           previousRow = undefined;
         } else {
-          const row = { element, bounds, handoff, source: previous?.response === handoff ? previous.bounds : undefined };
+          const row = { element, bounds, handoff, source: last };
           rows.push(row);
           previousRow = row;
-          previous = undefined;
+          last = bounds;
         }
       }
 
@@ -109,7 +108,9 @@ export function useTokenFlowConnections(
           const base = `M${fromX} ${startY} ${input} q0 ${radius} ${-radius} ${radius} H${left + radius} q${-radius} 0 ${-radius} ${radius}`;
           const fallback = `${base} ${output} ${arrow(toX, endY)}`;
           path?.setAttribute("d", fallback);
-          if (composerPath && path && previousRow?.element === element && !target && element.dataset.tokenHandoff === "user") {
+          // A trailing user handoff hands to the composer even when a streaming
+          // model row now follows it; a real next bubble (a block) takes over.
+          if (composerPath && path && previousRow?.element === element && (!target || !target.block) && element.dataset.tokenHandoff === "user") {
             composerHandoff = { row: element, path, base, fallback };
           }
           continue;

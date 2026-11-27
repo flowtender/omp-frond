@@ -9,9 +9,9 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
-const { getModelDisplayName, MessageView } = await jiti.import("./MessageView.tsx");
+const { getModelDisplayName, handoffTimeOf, MessageView } = await jiti.import("./MessageView.tsx");
 const { TranscriptBlock } = await jiti.import("./TranscriptBlock.tsx");
-const { TokenFlow } = await jiti.import("./TokenFlow.tsx");
+const { TokenFlow, TokenFlowHandoff } = await jiti.import("./TokenFlow.tsx");
 const { useI18n } = await jiti.import("@/hooks/useI18n");
 const { usePacedStreamingMessage } = await jiti.import("@/hooks/useStreamingSelector");
 const display = await import("../lib/message-display.ts");
@@ -50,6 +50,8 @@ function renderTranscript(messages, overrides = {}) {
     ...display, ...views, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, countToolCallFailures,
     useExpansionPreference: () => "automatic",
     TranscriptBlock,
+    TokenFlowHandoff,
+    handoffTimeOf,
     TranscriptViewportRow: ({ render, pinned }) => !overrides.onlyPinnedRows || pinned ? render() : null,
     MessageView, messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
     displayOptions: {}, finalAnswerViewCache: new WeakMap(), toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
@@ -245,7 +247,7 @@ test("tool results and appended steering are input boxes, not model output", () 
     tokenDisplay: "flow", useExpansionPreference: () => "expanded",
   });
   const sequence = Array.from(html.matchAll(/data-token-flow=""|data-token-handoff="([^"]+)"|data-transcript-block="([^"]+)"/g), (match) => match[1] ?? match[2] ?? "model");
-  assert.deepEqual(sequence, ["context", "model", "response", "response", "tools", "context", "context", "context", "model", "response", "user"]);
+  assert.deepEqual(sequence, ["context", "process", "model", "response", "response", "tools", "context", "context", "context", "model", "response", "user"]);
   assert.match(html, /data-token-handoff="tools"[^>]*aria-label="2 tool calls".*?title="read".*?data-tool-icon="read".*?title="grep".*?data-tool-icon="grep"/s);
   assert.doesNotMatch(renderTranscript([user, batch, steering, reply("Summary", { usage })]), /data-token-handoff/);
 });
@@ -269,7 +271,7 @@ test("shows the request, compaction and user handoff times without a false user 
     const html = renderTranscript(messages, options);
     const rows = Array.from(html.matchAll(/data-token-(?:flow=""|handoff="([^"]+)")[\s\S]*?class="token-flow-time">([^<]+)/g),
       ([, kind, time]) => [kind ?? "model", time]);
-    assert.deepEqual(rows, [["model", localTime(0)], ["compaction", localTime(2)], ["model", localTime(3)], ["user", localTime(4)]]);
+    assert.deepEqual(rows, [["model", localTime(0)], ["compaction", localTime(2)], ["process", localTime(4)], ["model", localTime(3)], ["user", localTime(4)]]);
     assert.ok(html.indexOf("After compaction") < html.indexOf('data-token-handoff="user"'));
     assert.doesNotMatch(renderTranscript(messages, { ...options, sessionBusy: true }), /data-token-handoff="user"/);
   }

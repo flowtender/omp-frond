@@ -955,6 +955,36 @@ pre, code {
   color: var(--text);
 }
 
+/* The collapsible agent-work fold, drawn as a handoff row on the wire. */
+.token-flow-handoff-fold {
+  width: 100%;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.token-flow-handoff-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  /* Sit on the wire instead of letting it cut through the words. */
+  padding-inline: 4px 2px;
+  background: var(--bg);
+}
+
+.token-flow-handoff-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
 .token-flow > :is(.token-flow-counts, .token-flow-model) { grid-row: 1; }
 
 /* Center the diagram in the clear span between its boxes, not between their metadata rows. */

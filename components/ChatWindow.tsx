@@ -16,10 +16,10 @@ import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
-import { getModelDisplayName, MessageView } from "./MessageView";
+import { getModelDisplayName, handoffTimeOf, MessageView } from "./MessageView";
 import { TranscriptBlock } from "./TranscriptBlock";
 import { TranscriptViewportRow } from "./TranscriptViewportRow";
-import { TokenFlow } from "./TokenFlow";
+import { TokenFlow, TokenFlowHandoff } from "./TokenFlow";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -217,7 +217,7 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, renderAnswer, t }: { messageCount: number; toolCallCount: number; failureCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; renderAnswer?: (processVisible: boolean) => ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durationMs, cacheMisses, flow = false, time = null, defaultExpanded = false, reveal = false, children, renderAnswer, t }: { messageCount: number; toolCallCount: number; failureCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; flow?: boolean; time?: string | null; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; renderAnswer?: (processVisible: boolean) => ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const preference = useExpansionPreference("process");
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
   const expanded = manualExpanded ?? (preference === "automatic" ? defaultExpanded : preference === "expanded");
@@ -232,39 +232,64 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durati
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
   const failureText = failureCount > 0 && !(expanded || reveal) ? t("chat.processFailures", { count: failureCount }) : undefined;
 
+  const chevron = (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ transform: expanded || reveal ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+      <polyline points="4 2.5 7.5 6 4 9.5" />
+    </svg>
+  );
+  const summary = (
+    <>
+      {parts.join(" · ")}
+      {failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${failureText}`}</span>}
+      {cacheMissText && ` · ${cacheMissText}`}
+    </>
+  );
+  const ariaLabel = [t("chat.processDetails"), ...parts, ...(failureText ? [failureText] : []), ...(cacheMissText ? [cacheMissText] : [])].join(" · ");
+  const toggle = (
+    <button
+      type="button"
+      aria-expanded={expanded || reveal}
+      aria-label={ariaLabel}
+      onClick={() => setManualExpanded(!(expanded || reveal))}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        width: "auto",
+        maxWidth: "100%",
+        minHeight: 24,
+        padding: "2px 0",
+        border: "none",
+        background: "transparent",
+        color: "var(--text-muted)",
+        cursor: "pointer",
+        fontSize: 12,
+        textAlign: "left",
+      }}
+      title={expanded || reveal ? t("chat.collapseProcess") : t("chat.expandProcess")}
+    >
+      <span style={{ flexShrink: 0, display: "inline-flex" }}>{chevron}</span>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} dir="auto">
+        {summary}
+      </span>
+    </button>
+  );
+  // In flow mode the fold is a handoff row on the wire: the wire reaches it from
+  // the bubble above and leaves toward the turn's first row, so its counts sit
+  // on the row instead of under a wire crossing them.
   const process = (
-    <TranscriptBlock className="transcript-process" kind={expanded || reveal ? null : "context"}>
-      <button
-        type="button"
-        aria-expanded={expanded || reveal}
-        aria-label={[t("chat.processDetails"), ...parts, ...(failureText ? [failureText] : []), ...(cacheMissText ? [cacheMissText] : [])].join(" · ")}
-        onClick={() => setManualExpanded(!(expanded || reveal))}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "auto",
-          maxWidth: "100%",
-          minHeight: 24,
-          padding: "2px 0",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-        title={expanded || reveal ? t("chat.collapseProcess") : t("chat.expandProcess")}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded || reveal ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="4 2.5 7.5 6 4 9.5" />
-        </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
-          {failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${failureText}`}</span>}
-          {cacheMissText && ` · ${cacheMissText}`}
-        </span>
-      </button>
+    <TranscriptBlock className="transcript-process" kind={flow || expanded || reveal ? null : "context"}>
+      {flow ? (
+        <TokenFlowHandoff
+          kind="process"
+          label={ariaLabel}
+          display={<span className="token-flow-handoff-summary" dir="auto">{summary}</span>}
+          time={time}
+          button={{ expanded: expanded || reveal, onClick: () => setManualExpanded(!(expanded || reveal)) }}
+        >
+          <span className="token-flow-handoff-icon" aria-hidden="true">{chevron}</span>
+        </TokenFlowHandoff>
+      ) : toggle}
       {(expanded || reveal) && (
         <div style={{ marginTop: 8 }}>
           {children}
@@ -1426,7 +1451,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     const answered = collapsesProcessDetails(finalAnswerMessage);
                     const processCacheMisses = cacheMissMarker ? summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1)) : undefined;
                     return (
-                      <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} renderAnswer={splitFlowUsage ? renderAnswer : undefined} t={t}>
+                      <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} flow={tokenDisplay === "flow"} time={tokenDisplay === "flow" ? handoffTimeOf(messages[finalAssistantIdx] as AssistantMessage) : null} defaultExpanded={!answered} reveal={revealProcess} renderAnswer={splitFlowUsage ? renderAnswer : undefined} t={t}>
                         {views}
                       </ProcessDetailsGroup>
                     );

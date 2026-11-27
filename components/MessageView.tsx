@@ -326,7 +326,7 @@ export function getModelDisplayName(
     ?? `${provider}/${responseModel}`;
 }
 
-function formatTime(ts?: number): string | null {
+export function formatTime(ts?: number): string | null {
   if (!ts) return null;
   const d = new Date(ts);
   const now = new Date();
@@ -337,6 +337,12 @@ function formatTime(ts?: number): string | null {
   if (isToday) return time;
   const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
+}
+
+/** When a message's recorded work ended, for the flow handoff drawn beside it. */
+export function handoffTimeOf(message: { timestamp?: number; durationMs?: unknown }): string | null {
+  const durationMs = recordedDurationMs(message.durationMs);
+  return message.timestamp && durationMs !== undefined ? formatTime(message.timestamp + durationMs) : null;
 }
 
 export function replaceUserMessageText(message: UserMessage, text: string): UserMessage {
@@ -930,8 +936,7 @@ function AssistantMessageView({
     : undefined;
   const hasToolHandoff = Boolean(toolBlocks?.length);
   const hasUserHandoff = tokenDisplay === "flow" && !isStreaming && flowReturnsToUser && !hasToolHandoff;
-  const handoffTime = (hasToolHandoff || hasUserHandoff) && message.timestamp && messageDurationMs !== undefined
-    ? formatTime(message.timestamp + messageDurationMs) : null;
+  const handoffTime = hasToolHandoff || hasUserHandoff ? handoffTimeOf(message) : null;
   if (blocks.length === 0 && !isStreaming && !providerError && !truncated && !hasUserHandoff) return flow ?? null;
   const usageText = !isStreaming && message.usage ? formatUsage(message.usage, hideCost, tokenDisplay === "text") : "";
   const renderBlock = ({ block, originalIndex }: typeof blockItems[number]) => {

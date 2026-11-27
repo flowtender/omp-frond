@@ -39,14 +39,16 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
   );
 }
 
-export function TokenFlowHandoff({ kind, label, time, children }: {
-  kind: "tools" | "user" | "compaction";
+export function TokenFlowHandoff({ kind, label, display, time, children, button }: {
+  kind: "tools" | "user" | "compaction" | "process";
   label: string;
+  display?: ReactNode;
   time: string | null;
   children?: ReactNode;
+  button?: { expanded: boolean; onClick: () => void };
 }) {
-  return (
-    <div className="token-flow token-flow-handoff" data-token-handoff={kind} role="group" aria-label={label}>
+  const content = (
+    <>
       <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
       <div className="token-flow-handoff-icons">{children ?? (
         <span className="token-flow-handoff-icon" title={label} aria-hidden="true">
@@ -56,8 +58,18 @@ export function TokenFlowHandoff({ kind, label, time, children }: {
             )}
           </svg>
         </span>
-      )}</div>
+      )}{display !== undefined && <span className="token-flow-handoff-label">{display}</span>}</div>
       <FlowTime time={time} />
+    </>
+  );
+  if (button) return (
+    <button type="button" className="token-flow token-flow-handoff token-flow-handoff-fold" data-token-handoff={kind} aria-expanded={button.expanded} aria-label={label} onClick={button.onClick}>
+      {content}
+    </button>
+  );
+  return (
+    <div className="token-flow token-flow-handoff" data-token-handoff={kind} role="group" aria-label={label}>
+      {content}
     </div>
   );
 }
