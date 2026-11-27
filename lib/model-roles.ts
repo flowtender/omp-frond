@@ -1,15 +1,19 @@
 import type { ModelRegistry, Settings } from "@oh-my-pi/pi-coding-agent";
 import {
+  formatModelRoleAlias,
   getKnownRoleIds,
   getRoleInfo,
+  MODEL_ROLE_ALIAS_PREFIX,
   MODEL_ROLES,
   MODEL_ROLE_IDS,
   type ModelRole,
 } from "@oh-my-pi/pi-coding-agent/config/model-roles";
-import { resolveModelRoleValue } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { resolveModelRoleValue, rolePriorityDefaults } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { modelPerfKey } from "@oh-my-pi/pi-coding-agent/session/agent-storage";
+import { describeModelCompactionPoint } from "@oh-my-pi/pi-coding-agent/session/model-compaction-threshold";
 import { scopedRolePool } from "@oh-my-pi/pi-coding-agent/modes/view-model/overlays/model-browser";
 import type { Api, Model } from "@oh-my-pi/pi-ai";
-import type { ModelRoleAssignment, ModelRoleModelRef, ModelRoleScope } from "./api-types";
+import type { ModelRoleAssignment, ModelRoleFallback, ModelRoleModelRef, ModelRoleScope } from "./api-types";
 import { resolveVisibleModels } from "./model-scope";
 import { getSetting } from "./omp-settings";
 
@@ -27,30 +31,6 @@ export type { ModelRoleAssignment, ModelRoleModelRef, ModelRoleScope };
  * source for the browser, so both surfaces read and write the same
  * `modelRoles` record in `~/.omp/agent/config.yml`.
  */
-
-/** Description shown under each role in the web selector. */
-const ROLE_DESCRIPTIONS: Record<string, string> = {
-  default: "Model used for ordinary turns. Also the startup model.",
-  smol: "Cheap, fast model for scout and other subagent and background work. Inherits default when unset.",
-  slow: "Deep-reasoning model, used by the reviewer agent. Inherits default when unset.",
-  vision: "Describes attached images when the active model cannot read them.",
-  plan: "Model plan mode switches to on entry and restores on exit.",
-  commit: "Model that writes commit messages and changelogs.",
-  tiny: "Smallest model, used for session titles and classification. Follows smol when unset.",
-  memory: "Model behind long-term memory completions. Follows tiny, then smol, when unset.",
-  task: "Model subagents inherit from the session.",
-  advisor: "Second model that passively reviews each turn. Falls back to slow only when slow is set.",
-  widget: "Model that authors background-job widgets. Follows smol when unset.",
-  image: "Image-generation model.",
-  web: "Web-search model.",
-  speech: "Text-to-speech model.",
-  dictation: "Speech-to-text model for dictation.",
-  judge: "Model for judgment and classifier calls.",
-};
-
-export function describeModelRole(role: string): string | undefined {
-  return ROLE_DESCRIPTIONS[role];
-}
 
 function toModelRef(model: Model<Api>, thinkingLevel?: string): ModelRoleModelRef {
   return {
@@ -79,20 +59,74 @@ export function readDefaultModelRole(settings: Settings): { provider: string; mo
 }
 
 /**
- * Every role omp knows about, with its configured selector and what that
- * selector resolves to against the currently available models.
+ * The role omp falls back to when a role is unset: its `ROLE_CONFIGURED_FALLBACK`
+ * plus the default-inheritance of `smol` and `slow` in `config/model-resolver.ts`,
+ * neither of which the SDK exports. `describeUnsetRole` checks the answer against
+ * the resolver, so a drifted table loses the role name instead of showing a wrong one.
+ */
+const FALLBACK_ROLE: Record<string, string> = {
+  smol: "default",
+  slow: "default",
+  tiny: "smol",
+  memory: "tiny",
+  widget: "smol",
+  advisor: "slow",
+};
+
+function fallbackRoleOf(role: string): string | undefined {
+  const fixed = FALLBACK_ROLE[role];
+  if (fixed) return fixed;
+  // Kind roles (judge, ...) chain to other roles in their built-in priority list.
+  const alias = rolePriorityDefaults(role).find((pattern) => pattern.startsWith(MODEL_ROLE_ALIAS_PREFIX));
+  return alias?.slice(MODEL_ROLE_ALIAS_PREFIX.length).split(":")[0];
+}
+
+function sameModel(a: Model<Api> | undefined, b: Model<Api> | undefined): boolean {
+  return a !== undefined && b !== undefined && a.provider === b.provider && a.id === b.id;
+}
+
+/** What an unset role runs, and which role it falls back to when that role resolves to the same model. */
+function describeUnsetRole(role: string, settings: Settings, availableModels: Model<Api>[]): ModelRoleFallback {
+  const resolveAlias = (alias: string) =>
+    resolveModelRoleValue(formatModelRoleAlias(alias), availableModels, { settings });
+  const effective = resolveAlias(role);
+  const candidate = fallbackRoleOf(role);
+  const viaCandidate = candidate && candidate !== role && sameModel(effective.model, resolveAlias(candidate).model);
+  return {
+    ...(viaCandidate ? { role: candidate } : {}),
+    ...(effective.model ? { model: toModelRef(effective.model, effective.thinkingLevel) } : {}),
+    priorityChain: rolePriorityDefaults(role),
+  };
+}
+
+/**
+ * Every role omp knows about, with its configured selector, what that selector
+ * (or, when unset, omp's fallback) resolves to against the currently available
+ * models, and the facts omp's own Models hub shows beside a role.
  */
 export function listModelRoles(
   settings: Settings,
   availableModels: Model<Api>[],
 ): ModelRoleAssignment[] {
   const builtinIds = new Set<string>(MODEL_ROLE_IDS);
+  const cycleOrder = getSetting<string[]>(settings, "cycleOrder") ?? [];
+  const retryChains = getSetting<Record<string, string[]>>(settings, "retry.fallbackChains") ?? {};
+  const modelPerf = settings.getStorage()?.getModelPerf();
   return getKnownRoleIds(settings).map((role) => {
     const info = getRoleInfo(role, settings);
     const selector = settings.getModelRole(role);
     const resolution = selector
       ? resolveModelRoleValue(selector, availableModels, { settings })
       : undefined;
+    const fallback = selector ? undefined : describeUnsetRole(role, settings, availableModels);
+    const runningModel = resolution?.model ?? (fallback?.model && availableModels.find(
+      (model) => model.provider === fallback.model?.provider && model.id === fallback.model?.modelId,
+    ));
+    const perf = runningModel ? modelPerf?.get(modelPerfKey(`${runningModel.provider}/${runningModel.id}`)) : undefined;
+    const globalSelector = settings.getGlobalModelRole(role);
+    const projectSelector = settings.getProjectModelRole(role);
+    const cycleIndex = cycleOrder.indexOf(role);
+    const retryChain = retryChains[role];
 
     return {
       role,
@@ -101,10 +135,25 @@ export function listModelRoles(
       ...(info.color ? { color: String(info.color) } : {}),
       builtin: builtinIds.has(role),
       hidden: Boolean(MODEL_ROLES[role as ModelRole]?.hidden),
+      section: info.section,
       ...(selector ? { selector } : {}),
       source: settings.getModelRoleSource(role),
       provenance: settings.getModelRoleProvenance(role),
+      ...(globalSelector || projectSelector
+        ? { layers: { ...(globalSelector ? { global: globalSelector } : {}), ...(projectSelector ? { project: projectSelector } : {}) } }
+        : {}),
+      ...(cycleIndex >= 0 ? { cycleIndex: cycleIndex + 1 } : {}),
+      ...(retryChain?.length ? { retryChain } : {}),
       ...(resolution?.model ? { resolved: toModelRef(resolution.model, resolution.thinkingLevel) } : {}),
+      ...(fallback ? { fallback } : {}),
+      ...(runningModel
+        ? {
+            facts: {
+              compaction: describeModelCompactionPoint(settings, runningModel),
+              ...(perf ? { perf: { samples: perf.samples, tps: perf.tps, ttftMs: perf.ttftMs } } : {}),
+            },
+          }
+        : {}),
       ...(resolution?.warning ? { warning: resolution.warning } : {}),
     };
   });

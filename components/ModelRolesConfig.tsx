@@ -7,6 +7,7 @@ import type {
   ModelPresetsResponse,
   ModelRoleAssignment,
   ModelRoleCandidate,
+  ModelRoleModelRef,
   ModelRoleScope,
   ModelRoleSettingsResponse,
 } from "@/lib/api-types";
@@ -99,6 +100,61 @@ function RoleScopeTarget({ label, scope, projectAvailable, stacked = false, onCh
   );
 }
 
+/** What omp runs a built-in role for; custom roles have no description. */
+function describeRole(role: Pick<ModelRoleAssignment, "role" | "builtin">, t: Translate): string | undefined {
+  return role.builtin ? t(`roles.describe.${role.role}`) : undefined;
+}
+
+const compactTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+
+function modelLabel(model: ModelRoleModelRef): string {
+  return model.name ?? model.modelId;
+}
+
+/**
+ * What omp's own Models hub shows beside a role: the unset label naming the
+ * fallback, and the detail lines (layers, built-in order, cycle, retry chain,
+ * facts about the model it runs).
+ */
+function describeRoleStatus(
+  role: ModelRoleAssignment,
+  candidateCount: number,
+  t: Translate,
+): { unsetLabel?: string; details: string[] } {
+  const { fallback, layers, facts } = role;
+  const details: string[] = [];
+  if (layers?.project && layers.global && layers.project !== layers.global) {
+    details.push(t("roles.layers", { project: layers.project, global: layers.global }));
+  }
+  if (fallback && fallback.priorityChain.length > 0) {
+    details.push(t("roles.priorityChain", { chain: fallback.priorityChain.join(", ") }));
+  }
+  if (role.cycleIndex) details.push(t("roles.cycle", { position: role.cycleIndex }));
+  if (role.retryChain) details.push(t("roles.retryChain", { chain: role.retryChain.join(" → ") }));
+  const modelFacts: string[] = [];
+  if (facts?.compaction.tokens) {
+    const tokens = compactTokens.format(facts.compaction.tokens);
+    modelFacts.push(facts.compaction.basis
+      ? t("roles.compaction", { tokens, basis: facts.compaction.basis })
+      : t("roles.compactionTokens", { tokens }));
+  }
+  if (facts?.perf) {
+    const tps = Math.round(facts.perf.tps);
+    modelFacts.push(facts.perf.ttftMs === null
+      ? t("roles.perfNoTtft", { tps })
+      : t("roles.perf", { tps, ttft: (facts.perf.ttftMs / 1000).toFixed(1) }));
+  }
+  if (modelFacts.length > 0) details.push(modelFacts.join(" · "));
+  if (candidateCount === 0) details.push(t("roles.noCandidates"));
+
+  const unsetLabel = fallback?.model
+    ? fallback.role
+      ? t("roles.unsetDefaultsTo", { role: fallback.role, model: modelLabel(fallback.model) })
+      : t("roles.unsetDefaultsToModel", { model: modelLabel(fallback.model) })
+    : undefined;
+  return { unsetLabel, details };
+}
+
 /** What a role is set to in the live setup, as a selector. */
 function liveRoleSelector(role: ModelRoleAssignment | undefined): string {
   if (role?.selector) return role.selector;
@@ -135,15 +191,22 @@ function CurrentRolesPane({ cwd, roles, candidates, onRolesSaved }: {
     }
   };
 
-  const rows = roles.filter((role) => !role.hidden).map((role): ModelRoleRow => ({
-    role: role.role,
-    name: role.name,
-    tag: role.tag,
-    selector: role.selector,
-    model: role.resolved ? `${role.resolved.provider}/${role.resolved.modelId}` : "",
-    note: t(`roles.source.${role.source}`),
-    warning: role.warning,
-  }));
+  const rows = roles.filter((role) => !role.hidden).map((role): ModelRoleRow => {
+    const { unsetLabel, details } = describeRoleStatus(role, candidates[role.role]?.length ?? 0, t);
+    return {
+      role: role.role,
+      name: role.name,
+      tag: role.tag,
+      section: role.section,
+      description: describeRole(role, t),
+      details,
+      unsetLabel,
+      selector: role.selector,
+      model: role.resolved ? `${role.resolved.provider}/${role.resolved.modelId}` : "",
+      note: t(`roles.source.${role.source}`),
+      warning: role.warning,
+    };
+  });
 
   return (
     <ConfigDetailStack>
@@ -255,7 +318,7 @@ function PresetPane({ cwd, preset, roles, candidates, activation, onDirtyChange,
 
   const liveRoles = new Map(roles.map((role) => [role.role, role]));
   const rows: ModelRoleRow[] = [
-    ...roles.filter((role) => !role.hidden).map((role) => ({ role: role.role, name: role.name, tag: role.tag })),
+    ...roles.filter((role) => !role.hidden).map((role) => ({ role: role.role, name: role.name, tag: role.tag, section: role.section, description: describeRole(role, t) })),
     ...Object.keys(draft.modelRoles).filter((role) => !liveRoles.has(role)).map((role) => ({ role, name: role })),
   ].map((row) => {
     const selector = draft.modelRoles[row.role];

@@ -21,6 +21,14 @@ export interface ModelRoleRow {
   model: string;
   /** Under the role's name, e.g. which config supplies it. */
   note?: string;
+  /** One line under the role's name: what omp runs with it. */
+  description?: string;
+  /** `kind` rows (non-chat models) get their own heading, after the chat rows. */
+  section?: "chat" | "kind";
+  /** Facts under the description, one line each. */
+  details?: readonly string[];
+  /** Replaces "— not set —" in the picker, e.g. to name the fallback an unset role runs. */
+  unsetLabel?: string;
   warning?: string;
   /** Other values of this role to read against the picker, e.g. a preset's saved model and the live one. */
   references?: readonly ModelRoleReference[];
@@ -50,17 +58,28 @@ interface Props {
  */
 export function ModelRoleRows({ rows, candidates, disabled = false, pendingRole = null, onAssign }: Props) {
   const { t } = useI18n();
+  const sectionOf = (row: ModelRoleRow | undefined) => row?.section ?? "chat";
+  const ordered = [...rows.filter((row) => sectionOf(row) === "chat"), ...rows.filter((row) => sectionOf(row) === "kind")];
+  const hasKindRows = ordered.some((row) => sectionOf(row) === "kind");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {rows.map((row) => {
+      {ordered.map((row, index) => {
+        const heading = hasKindRows && (index === 0 || sectionOf(ordered[index - 1]) !== sectionOf(row))
+          ? t(sectionOf(row) === "kind" ? "roles.section.kind" : "roles.section.chat")
+          : undefined;
         const locked = disabled || pendingRole === row.role;
         const currentThinkingLevel = getModelRoleThinkingLevel(row.selector);
         const models = candidates[row.role] ?? [];
         const selected = models.find((model) => model.selector === row.model);
         const thinkingOptions = getModelRoleThinkingOptions(selected?.thinkingLevels);
         return (
+          <Fragment key={row.role}>
+          {heading && (
+            <div style={{ marginTop: index === 0 ? 0 : 10, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+              {heading}
+            </div>
+          )}
           <div
-            key={row.role}
             style={{
               display: "flex",
               flexDirection: "column",
@@ -136,7 +155,7 @@ export function ModelRoleRows({ rows, candidates, disabled = false, pendingRole 
                     onAssign(row.role, formatModelRoleSelector(value, nextLevel));
                   }}
                   options={[
-                    { value: "", label: t("roles.unset") },
+                    { value: "", label: row.unsetLabel ?? t("roles.unset") },
                     ...models.map((model) => ({
                       value: model.selector,
                       label: `${model.name} — ${model.provider}`,
@@ -154,6 +173,26 @@ export function ModelRoleRows({ rows, candidates, disabled = false, pendingRole 
               )}
             </div>
 
+            {row.description && (
+              <div style={{ paddingLeft: 72, fontSize: 10.5, lineHeight: 1.4, color: "var(--text-dim)" }}>
+                {row.description}
+              </div>
+            )}
+
+            {row.details && row.details.length > 0 && (
+              <div style={{ paddingLeft: 72, display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+                {row.details.map((detail) => (
+                  <div
+                    key={detail}
+                    title={detail}
+                    style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.5, lineHeight: 1.4, color: "var(--text-dim)" }}
+                  >
+                    {detail}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {row.model && (
               <div style={{ paddingLeft: 72 }}>
                 <ThinkingLevelStrip
@@ -168,6 +207,7 @@ export function ModelRoleRows({ rows, candidates, disabled = false, pendingRole 
               </div>
             )}
           </div>
+          </Fragment>
         );
       })}
     </div>

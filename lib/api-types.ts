@@ -933,6 +933,23 @@ export interface ModelRoleModelRef {
   thinkingLevel?: string;
 }
 
+/** The facts omp's Models hub shows beside the model a role runs. */
+export interface ModelRoleModelFacts {
+  /** Where auto-compaction triggers; `tokens` is absent when it is off or the window is unknown. */
+  compaction: { tokens?: number; basis?: string; source: string };
+  /** Measured speed from this machine's own usage. */
+  perf?: { samples: number; tps: number; ttftMs: number | null };
+}
+
+/** What an unset role runs instead. */
+export interface ModelRoleFallback {
+  /** The role omp falls back to, named only when that role resolves to the same model. */
+  role?: string;
+  model?: ModelRoleModelRef;
+  /** omp's built-in priority patterns for the role, tried when nothing is configured. */
+  priorityChain: string[];
+}
+
 /**
  * One of omp's model roles as the browser sees it.
  *
@@ -954,8 +971,20 @@ export interface ModelRoleAssignment {
   builtin: boolean;
   /** Functional but hidden from omp's own selector UI. */
   hidden: boolean;
+  /** `kind` roles take non-chat models (image, search, speech, judge); omp lists them apart from the chat roles. */
+  section: "chat" | "kind";
   /** Raw configured selector, e.g. `anthropic/claude-sonnet-4-6:high`. */
   selector?: string;
+  /** The global and project layers' own selectors, when set. */
+  layers?: { global?: string; project?: string };
+  /** 1-based position in omp's Ctrl+P role cycle, absent when the role is not in it. */
+  cycleIndex?: number;
+  /** Models omp retries with, in order, when the role's model fails (`retry.fallbackChains`). */
+  retryChain?: string[];
+  /** Present while the role has no selector. */
+  fallback?: ModelRoleFallback;
+  /** Facts about the model the role runs, configured or fallen back to. */
+  facts?: ModelRoleModelFacts;
   /** Which persisted layer supplies the effective value. */
   source: ModelRoleScope | "default";
   /** Full merge provenance, including runtime and config-overlay layers. */
