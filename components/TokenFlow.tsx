@@ -29,35 +29,43 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
 }
 
 /**
- * A collapsed run of requests: the wire drops into a bracket around the AI icon.
- * Output sits left of the icon and input right of it, as in a model row; the toggle is the bracket's caption.
+ * A collapsed run of requests: the wire drops into a bracket pair around the AI icon.
+ * Output rows sit left of the icon and input rows right of it, as in a model row;
+ * the toggle (children) sits on the wire leaving the bracket.
  */
-export function TokenFlowFold({ usage, missing, models, children }: {
+export function TokenFlowFold({ usage, missing, models, outputRows, inputRows, children }: {
   usage?: TokenTotals;
   missing: boolean;
   models: { provider: string; model: string }[];
+  outputRows: ReactNode[];
+  inputRows: ReactNode[];
   children: ReactNode;
 }) {
   const { t } = useI18n();
   // A fold spanning several models has no single icon to show.
   const icons = new Set(models.map(({ provider, model }) => modelIconProviders(provider, model).at(-1)));
+  const statRows = (rows: ReactNode[]) => rows.map((row, index) => <span key={index} className="token-flow-fold-stat">{row}</span>);
   return (
     <div className="token-flow token-flow-fold" data-transcript-port="fold" role="group" aria-label={t("chat.processDetails")}>
       <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
       <div className="token-flow-fold-body">
-        <div className="token-flow-fold-flow">
+        <div className="token-flow-fold-side token-flow-fold-output">
           <OutputCounts usage={usage} partial={missing} />
-          <ModelMark icon={icons.size === 1 ? [...icons][0] : undefined} />
-          <InputCounts usage={usage} partial={missing} />
+          {statRows(outputRows)}
         </div>
-        <div className="token-flow-fold-caption">{children}</div>
+        <ModelMark icon={icons.size === 1 ? [...icons][0] : undefined} />
+        <div className="token-flow-fold-side token-flow-fold-input">
+          <InputCounts usage={usage} partial={missing} />
+          {statRows(inputRows)}
+        </div>
       </div>
+      <div className="token-flow-fold-exit">{children}</div>
     </div>
   );
 }
 
 export function TokenFlowHandoff({ kind, label, time, children }: {
-  kind: "tools" | "user" | "compaction";
+  kind: "tools" | "user" | "compaction" | "process";
   label: string;
   time: string | null;
   children?: ReactNode;

@@ -130,13 +130,15 @@ export function useTokenFlowConnections(
         const turnDown = `q0 ${radius} ${turn * radius} ${radius} H${exitX - turn * radius} q${turn * radius} 0 ${turn * radius} ${radius}`;
         if (port === "fold") {
           const body = element.querySelector(".token-flow-fold-body")?.getBoundingClientRect();
-          if (!body) continue;
+          const exit = element.querySelector(".token-flow-fold-exit")?.getBoundingClientRect();
+          if (!body || !exit) continue;
           const centerX = bounds.width / 2;
-          const bodyTop = body.top - bounds.top;
           const endY = target ? target.bounds.top - bounds.top : bounds.height;
-          const intoBracket = foldEntry(fromX, startY, centerX, bodyTop);
-          const outOfBracket = verticalConnector(centerX, body.bottom - bounds.top, toX, endY);
-          path?.setAttribute("d", `${intoBracket} M${centerX} ${body.bottom - bounds.top} ${outOfBracket}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
+          const intoBracket = foldEntry(fromX, startY, centerX, body.top - bounds.top);
+          // The wire runs straight behind the toggle and only shifts rails below it.
+          const bracketToToggle = `M${centerX} ${body.bottom - bounds.top} V${exit.bottom - bounds.top}`;
+          const outOfToggle = verticalConnector(centerX, exit.bottom - bounds.top, toX, endY);
+          path?.setAttribute("d", `${intoBracket} ${bracketToToggle} ${outOfToggle}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
           continue;
         }
         if (port === "handoff") {

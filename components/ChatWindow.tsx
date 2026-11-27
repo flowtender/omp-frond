@@ -224,13 +224,16 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
     if (reveal) setManualExpanded(true);
   }, [reveal]);
   const collapsed = !expanded && !reveal;
-  const parts: string[] = [];
-  if (messageCount > 0) parts.push(`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`);
-  if (requestCount > 0) parts.push(`${requestCount} ${t(requestCount === 1 ? "chat.modelRequest" : "chat.modelRequests")}`);
-  if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
-  if (compaction) parts.push(t("i18n.conversationCompacted"));
-  if (status && collapsed) parts.push(status);
-  if (durationMs !== undefined) parts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
+  const sizeParts: string[] = [];
+  if (messageCount > 0) sizeParts.push(`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`);
+  if (requestCount > 0) sizeParts.push(`${requestCount} ${t(requestCount === 1 ? "chat.modelRequest" : "chat.modelRequests")}`);
+  const toolParts: string[] = [];
+  if (toolCallCount > 0) toolParts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
+  const otherParts: string[] = [];
+  if (compaction) otherParts.push(t("i18n.conversationCompacted"));
+  if (status && collapsed) otherParts.push(status);
+  if (durationMs !== undefined) otherParts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
+  const parts = [...sizeParts, ...toolParts, ...otherParts];
   // Folded, the cache misses inside are added up here; open, each shows under its step.
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
   const failureText = failureCount > 0 && !(expanded || reveal) ? t("chat.processFailures", { count: failureCount }) : undefined;
@@ -248,15 +251,18 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
     </>
   );
   const foldSummaryId = useId();
+  const toggleProps = {
+    type: "button" as const,
+    "aria-expanded": !collapsed,
+    onClick: () => setManualExpanded(collapsed),
+    title: collapsed ? t("chat.expandProcess") : t("chat.collapseProcess"),
+  };
   const toggle = (
     <button
-      type="button"
+      {...toggleProps}
       className="transcript-fold-toggle"
-      aria-expanded={!collapsed}
       aria-label={t("chat.processDetails")}
       aria-describedby={foldSummaryId}
-      onClick={() => setManualExpanded(collapsed)}
-      title={collapsed ? t("chat.expandProcess") : t("chat.collapseProcess")}
     >
       <span style={{ flexShrink: 0, display: "inline-flex" }} aria-hidden="true">{chevron}</span>
       <span className="transcript-fold-label" id={foldSummaryId} dir="auto">
@@ -265,9 +271,33 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
       </span>
     </button>
   );
-  // In flow mode a folded run of requests is one turn marker; its counts replace the text totals.
-  if (tokenDisplay === "flow" && collapsed && requestCount > 0) {
-    return <TokenFlowFold usage={usage} missing={missingUsage} models={models}>{toggle}</TokenFlowFold>;
+  // In flow mode a run of requests is drawn on the wire: collapsed as a bracketed turn marker whose rows hold the
+  // fold's stats, open as a handoff row. Either way the toggle is an icon button on the wire.
+  if (tokenDisplay === "flow" && requestCount > 0) {
+    const summaryLabel = [t("chat.processDetails"), ...parts, failureText, cacheMissText].filter(Boolean).join(" · ");
+    const iconToggle = (
+      <button {...toggleProps} className="token-flow-handoff-icon token-flow-fold-toggle" aria-label={summaryLabel}>{chevron}</button>
+    );
+    if (collapsed) {
+      const failureRow = failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{failureText}</span>;
+      return (
+        <TokenFlowFold
+          usage={usage}
+          missing={missingUsage}
+          models={models}
+          outputRows={[...sizeParts, ...otherParts]}
+          inputRows={[...toolParts, failureRow, cacheMissText].filter(Boolean)}
+        >
+          {iconToggle}
+        </TokenFlowFold>
+      );
+    }
+    return (
+      <div className="transcript-process">
+        <TokenFlowHandoff kind="process" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>
+        {renderDetails()}
+      </div>
+    );
   }
   return (
     <div className="transcript-process">

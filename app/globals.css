@@ -969,47 +969,66 @@ pre, code {
   color: var(--text);
 }
 
-/* A collapsed fold: the wire drops into a bracket around the icon, which holds the counts and the fold's toggle. */
+/* A collapsed fold: the wire drops into a bracket pair (above and below) around the icon; stat rows flank the icon,
+   and the toggle is an icon button on the wire leaving the bracket. */
 .token-flow-fold {
   display: block;
   height: auto;
-  padding-block: 24px 12px;
+  padding-block: 24px 8px;
 }
 
 .token-flow-fold-body {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--token-flow-model-column) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
   width: min(100%, 520px);
   margin-inline: auto;
-  padding: 4px 18px;
+  padding: 14px 20px;
 }
 
 .token-flow-fold-body::before,
 .token-flow-fold-body::after {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 10px;
+  left: 0;
+  right: 0;
+  height: 8px;
   border: 1.25px solid var(--token-flow-line);
   pointer-events: none;
 }
 
-.token-flow-fold-body::before { left: 0; border-right: 0; border-radius: 7px 0 0 7px; }
-.token-flow-fold-body::after { right: 0; border-left: 0; border-radius: 0 7px 7px 0; }
+.token-flow-fold-body::before { top: 0; border-bottom: 0; border-radius: 7px 7px 0 0; }
+.token-flow-fold-body::after { bottom: 0; border-top: 0; border-radius: 0 0 7px 7px; }
 
-.token-flow-fold-flow {
+.token-flow-fold-side {
   display: flex;
-  align-items: stretch;
-  gap: 14px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.token-flow-fold-flow .token-flow-counts { flex: 1 1 0; min-height: 38px; }
+.token-flow-fold-side .token-flow-counts { display: flex; flex-direction: column; gap: 2px; align-items: inherit; }
+.token-flow-fold-output { align-items: flex-end; text-align: right; }
+.token-flow-fold-input { align-items: flex-start; }
 
-.token-flow-fold-caption {
+.token-flow-fold-body .token-flow-model { grid-column: 2; grid-row: 1; }
+
+.token-flow-fold-stat { white-space: nowrap; }
+
+.token-flow-fold-exit {
   display: flex;
   justify-content: center;
-  min-width: 0;
-  padding-top: 2px;
+  height: 34px;
+  padding-top: 3px;
+}
+
+.token-flow-fold-toggle {
+  position: relative;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
 }
 
 .transcript-fold-totals {
@@ -1034,8 +1053,6 @@ pre, code {
   text-align: start;
   cursor: pointer;
 }
-
-.token-flow-fold-caption .transcript-fold-label { justify-content: center; }
 
 .transcript-fold-label {
   display: flex;
