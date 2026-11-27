@@ -238,9 +238,11 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
   const failureText = failureCount > 0 && !(expanded || reveal) ? t("chat.processFailures", { count: failureCount }) : undefined;
 
-  const chevron = (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ transform: expanded || reveal ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-      <polyline points="4 2.5 7.5 6 4 9.5" />
+  const expandedNow = expanded || reveal;
+  const toggleIcon = (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <path d="M2.5 6h7" />
+      {!expandedNow && <path d="M6 2.5v7" />}
     </svg>
   );
   const summary = (
@@ -264,7 +266,7 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
       aria-label={t("chat.processDetails")}
       aria-describedby={foldSummaryId}
     >
-      <span style={{ flexShrink: 0, display: "inline-flex" }} aria-hidden="true">{chevron}</span>
+      <span style={{ flexShrink: 0, display: "inline-flex" }} aria-hidden="true">{toggleIcon}</span>
       <span className="transcript-fold-label" id={foldSummaryId} dir="auto">
         <span>{summary}</span>
         {collapsed && tokenDisplay === "text" && requestCount > 0 && <FoldTokenTotals usage={usage} missing={missingUsage} />}
@@ -273,10 +275,10 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
   );
   // In flow mode a run of requests is drawn on the wire: collapsed as a bracketed turn marker whose rows hold the
   // fold's stats, open as a handoff row. Either way the toggle is an icon button on the wire.
-  if (tokenDisplay === "flow" && requestCount > 0) {
+  if (tokenDisplay === "flow") {
     const summaryLabel = [t("chat.processDetails"), ...parts, failureText, cacheMissText].filter(Boolean).join(" · ");
     const iconToggle = (
-      <button {...toggleProps} className="token-flow-handoff-icon token-flow-fold-toggle" aria-label={summaryLabel}>{chevron}</button>
+      <button {...toggleProps} className="token-flow-handoff-icon token-flow-fold-toggle" aria-label={summaryLabel}>{toggleIcon}</button>
     );
     if (collapsed) {
       const failureRow = failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{failureText}</span>;
@@ -285,6 +287,7 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
           usage={usage}
           missing={missingUsage}
           models={models}
+          hasRequests={requestCount > 0}
           outputRows={[...sizeParts, ...otherParts]}
           inputRows={[...toolParts, failureRow, cacheMissText].filter(Boolean)}
         >

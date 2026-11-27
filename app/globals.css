@@ -942,10 +942,19 @@ pre, code {
 }
 
 /* Tool handoffs are quick: keep their wires close together. */
-.token-flow-handoff[data-token-handoff="tools"] {
+.token-flow-handoff:is([data-token-handoff="tools"], [data-token-handoff="process"]) {
   min-height: 34px;
   padding-block: 3px;
   margin-block: 2px;
+}
+
+/* The open-fold toggle sits on the incoming wire, on whichever rail that is. */
+.token-flow-handoff[data-token-handoff="process"] .token-flow-handoff-icons {
+  grid-area: auto;
+  position: absolute;
+  left: var(--token-flow-process-x, 75%);
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .token-flow-handoff-icons {
@@ -974,18 +983,20 @@ pre, code {
 .token-flow-fold {
   display: block;
   height: auto;
-  padding-block: 24px 8px;
+  padding-block: 0 8px;
 }
 
 .token-flow-fold-body {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--token-flow-model-column) minmax(0, 1fr);
+  /* Equal sides, so the bracket is twice its widest stat row plus the icon column. */
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   column-gap: 14px;
-  width: min(100%, 520px);
+  width: fit-content;
+  max-width: 100%;
   margin-inline: auto;
-  padding: 14px 20px;
+  padding: 18px 22px;
 }
 
 .token-flow-fold-body::before,
@@ -1009,15 +1020,22 @@ pre, code {
   min-width: 0;
 }
 
-.token-flow-fold-side .token-flow-counts { display: flex; flex-direction: column; gap: 2px; align-items: inherit; }
 .token-flow-fold-output { align-items: flex-end; text-align: right; }
 .token-flow-fold-input { align-items: flex-start; }
 
-.token-flow-fold-body .token-flow-model { grid-column: 2; grid-row: 1; }
+.token-flow-fold-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.token-flow-fold-center .token-flow-counts { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.token-flow-fold-center .token-flow-model { place-self: auto; }
 
 .token-flow-fold-stat { white-space: nowrap; }
 
-.token-flow-fold-exit {
+.token-flow-fold-toggle-slot {
   display: flex;
   justify-content: center;
   height: 34px;
@@ -1029,6 +1047,7 @@ pre, code {
   padding: 0;
   font: inherit;
   cursor: pointer;
+  border-radius: 50%;
 }
 
 .transcript-fold-totals {

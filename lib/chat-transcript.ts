@@ -118,7 +118,8 @@ export function buildChatTranscript(messages: readonly AgentMessage[], options: 
     gap = [];
   }
   for (const item of items) {
-    if (item.kind === "user" || (item.kind === "assistant" && item.part.kind === "chat")) {
+    const typedByUser = item.kind === "user" || (item.kind === "input" && messages[item.index].role === "bashExecution");
+    if (typedByUser || (item.kind === "assistant" && item.part.kind === "chat")) {
       flush(item);
       rows.push(item);
       after = item;

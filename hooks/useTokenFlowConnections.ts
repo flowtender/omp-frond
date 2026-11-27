@@ -29,6 +29,7 @@ function foldEntry(fromX: number, startY: number, centerX: number, bracketTop: n
 const portRails = {
   model: { entry: 0.75, exit: 0.25, box: false },
   fold: { entry: 0.75, exit: 0.5, box: false },
+  process: { entry: 0.75, exit: 0.75, box: false },
   handoff: { entry: 0.25, exit: 0.75, box: false },
   input: { entry: 0.75, exit: 0.75, box: true },
   output: { entry: 0.25, exit: 0.25, box: true },
@@ -130,15 +131,21 @@ export function useTokenFlowConnections(
         const turnDown = `q0 ${radius} ${turn * radius} ${radius} H${exitX - turn * radius} q${turn * radius} 0 ${turn * radius} ${radius}`;
         if (port === "fold") {
           const body = element.querySelector(".token-flow-fold-body")?.getBoundingClientRect();
-          const exit = element.querySelector(".token-flow-fold-exit")?.getBoundingClientRect();
-          if (!body || !exit) continue;
+          const slot = element.querySelector(".token-flow-fold-toggle-slot")?.getBoundingClientRect();
+          if (!body || !slot) continue;
           const centerX = bounds.width / 2;
           const endY = target ? target.bounds.top - bounds.top : bounds.height;
-          const intoBracket = foldEntry(fromX, startY, centerX, body.top - bounds.top);
-          // The wire runs straight behind the toggle and only shifts rails below it.
-          const bracketToToggle = `M${centerX} ${body.bottom - bounds.top} V${exit.bottom - bounds.top}`;
-          const outOfToggle = verticalConnector(centerX, exit.bottom - bounds.top, toX, endY);
-          path?.setAttribute("d", `${intoBracket} ${bracketToToggle} ${outOfToggle}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
+          const intoToggle = foldEntry(fromX, startY, centerX, slot.top - bounds.top);
+          const outOfBracket = verticalConnector(centerX, body.bottom - bounds.top, toX, endY);
+          path?.setAttribute("d", `${intoToggle} V${body.top - bounds.top} M${centerX} ${body.bottom - bounds.top} ${outOfBracket}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
+          continue;
+        }
+        if (port === "process") {
+          // The toggle sits on the wire where it arrives, whichever rail that is; only below it may the wire shift.
+          const toggleBottom = bounds.height / 2 + 14;
+          const endY = target ? target.bounds.top - bounds.top : bounds.height;
+          element.style.setProperty("--token-flow-process-x", `${fromX}px`);
+          path?.setAttribute("d", `M${fromX} ${startY} V${toggleBottom} ${verticalConnector(fromX, toggleBottom, toX, endY)}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
           continue;
         }
         if (port === "handoff") {
