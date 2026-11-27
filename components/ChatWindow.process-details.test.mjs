@@ -13,6 +13,7 @@ const { getModelDisplayName, MessageView } = await jiti.import("./MessageView.ts
 const { TranscriptBlock } = await jiti.import("./TranscriptBlock.tsx");
 const { TokenFlow } = await jiti.import("./TokenFlow.tsx");
 const { useI18n } = await jiti.import("@/hooks/useI18n");
+const { usePacedStreamingMessage } = await jiti.import("@/hooks/useStreamingSelector");
 const display = await import("../lib/message-display.ts");
 const views = await import("../lib/turn-views.ts");
 const duration = await import("../lib/turn-duration.ts");
@@ -298,11 +299,12 @@ test("renders one model row while awaiting the first assistant snapshot", () => 
   }).outputText;
   let snapshot = null;
   const StreamingReply = new Script(code).runInContext(createContext({
-    React, useLayoutEffect: React.useLayoutEffect, useStreamingSelector: () => snapshot,
-    selectStreamingMessage: () => snapshot, useI18n, getModelDisplayName, MessageView, TokenFlow,
+    React, useLayoutEffect: React.useLayoutEffect, usePacedStreamingMessage,
+    useI18n, getModelDisplayName, MessageView, TokenFlow,
   }));
   const render = (waitingForModel) => renderToStaticMarkup(React.createElement(I18nProvider, null,
     React.createElement(StreamingReply, {
+      store: { getState: () => ({ streamingMessage: snapshot }) },
       model: { provider: "test", modelId: "pending-model" }, modelNames: {}, tokenDisplay: "flow", waitingForModel,
     }),
   ));

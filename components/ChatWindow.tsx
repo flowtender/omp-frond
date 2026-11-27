@@ -38,7 +38,7 @@ import { useTokenDisplay, type TokenDisplayMode } from "@/hooks/useTokenDisplay"
 import { useTokenFlowConnections } from "@/hooks/useTokenFlowConnections";
 import type { ProviderUsageSummary } from "@/lib/provider-usage-types";
 import { formatTokenCount } from "@/lib/format-tokens";
-import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
+import { selectHasStreamingContent, selectIsStreaming, usePacedStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -1036,7 +1036,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     scrollToBottom,
   ]);
 
-  // Each streamed chunk StreamingReply commits, and the bubble coming and going.
+  // Each commit of the paced reply, and the bubble coming and going.
   const updatePromptAnchor = useCallback(() => {
     promptAnchorUpdateRef.current?.();
     if (!promptAnchorActive && !autoFollowPaused && !pendingScrollRestore && (agentRunning || bashRunning)) {
@@ -1685,7 +1685,7 @@ function GoalBar({ goal, t }: { goal: GoalStatusInfo | null; t: (key: string, pa
 // The reply being streamed: the one part of the chat a chunk re-renders.
 const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, tokenDisplay, waitingForModel, model }: {
   store: StreamingStore;
-  /** Runs after each chunk is in the DOM. */
+  /** Runs after each visible update is in the DOM. */
   onCommit: () => void;
   toolResults: Map<string, ToolResultMessage>;
   modelNames: Record<string, string>;
@@ -1696,7 +1696,7 @@ const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResul
   waitingForModel: boolean;
   model: { provider: string; modelId: string } | null;
 }) {
-  const message = useStreamingSelector(store, selectStreamingMessage);
+  const message = usePacedStreamingMessage(store);
   const { t } = useI18n();
   useLayoutEffect(onCommit, [message, onCommit, waitingForModel]);
   if (!message) {

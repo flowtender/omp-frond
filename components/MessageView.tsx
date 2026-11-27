@@ -47,7 +47,7 @@ import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
 import { mcpToolLabel, type McpToolLabel } from "@/lib/mcp-tool-display";
 import { inlineToolResult, inlineToolTarget, ranToolNames, shellToolDispatches, type ToolDispatch } from "@/lib/inline-tool-display";
 import { asyncResultCards, taskToolCards, type TaskResultCard } from "@/lib/task-tool-display";
-import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
+import { smoothStreamRate, streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import type {
   AgentMessage,
   AgentUsage,
@@ -795,10 +795,7 @@ function AssistantMessageView({
   const unansweredTruncation = truncated && !hasAssistantAnswer(message);
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const streamStartRef = useRef<StreamRateStart | null>(null);
   const rateKey = streamRateKey(message);
-  const streamRateKeyRef = useRef(rateKey);
-  streamRateKeyRef.current = rateKey;
   const [tps, setTps] = useState<number | null>(null);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
@@ -875,10 +872,13 @@ function AssistantMessageView({
         }
         return next;
       });
-      streamStartRef.current = null;
       setTps(null);
       return;
     }
+    let start: StreamRateStart | null = null;
+    let smoothedRate: number | null = null;
+    let rateAt = 0;
+    setTps(null);
     const tick = () => {
       const items = blockItemsRef.current;
       const now = Date.now();
@@ -907,13 +907,17 @@ function AssistantMessageView({
 
       const tokens = estimatedTokensRef.current;
       if (tokens === 0) return;
-      streamStartRef.current ??= streamRateStart(streamRateKeyRef.current, tokens, now);
-      const rate = streamTokensPerSecond(streamStartRef.current, tokens, now);
-      if (rate !== null) setTps(rate);
+      start ??= streamRateStart(rateKey, tokens, now);
+      const rate = streamTokensPerSecond(start, tokens, now);
+      if (rate !== null) {
+        smoothedRate = smoothStreamRate(smoothedRate, rate, now - rateAt);
+        rateAt = now;
+        setTps(Math.round(smoothedRate * 10) / 10);
+      }
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
-  }, [isStreaming]);
+  }, [isStreaming, rateKey]);
 
   const showFlow = tokenDisplay === "flow" && (isStreaming || Boolean(flowUsage));
   const modelName = message.provider ? getModelDisplayName(message.provider, message.model, modelNames) : message.model;

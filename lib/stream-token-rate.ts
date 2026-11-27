@@ -37,3 +37,11 @@ export function streamTokensPerSecond(start: StreamRateStart, tokens: number, no
   const elapsedSeconds = (now - start.at) / 1000;
   return elapsedSeconds > 0.5 ? (tokens - start.tokens) / elapsedSeconds : null;
 }
+
+export function smoothStreamRate(previous: number | null, sample: number, elapsedMs: number): number {
+  // A finalized block can have a smaller estimate than its streamed prefix.
+  const rate = Math.max(0, sample);
+  if (previous === null) return rate;
+  const weight = -Math.expm1(-elapsedMs / 750);
+  return previous + (rate - previous) * weight;
+}
