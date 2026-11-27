@@ -20,7 +20,9 @@ export type { ModelRoleAssignment, ModelRoleModelRef, ModelRoleScope };
  *
  * omp does not have "the" model: it has a model per *scope of work* — `default`
  * for normal turns, `smol` for cheap subagent work, `slow` for deep reasoning,
- * `plan` for plan mode, `commit` for changelog generation, and so on. The TUI
+ * `plan` for plan mode, `commit` for changelog generation, and so on, plus
+ * roles for non-chat model kinds (`image`, `web`, `speech`, `dictation`,
+ * `judge`). The TUI
  * exposes these through `/model` and Ctrl+P; this module is the equivalent data
  * source for the browser, so both surfaces read and write the same
  * `modelRoles` record in `~/.omp/agent/config.yml`.
@@ -28,16 +30,22 @@ export type { ModelRoleAssignment, ModelRoleModelRef, ModelRoleScope };
 
 /** Description shown under each role in the web selector. */
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  default: "Model used for ordinary turns.",
-  smol: "Cheap, fast model for subagent and background work.",
-  slow: "Deep-reasoning model for hard problems.",
-  vision: "Model used when a turn carries images.",
-  plan: "Model that drives plan mode.",
-  designer: "Model used for UI and design work.",
+  default: "Model used for ordinary turns. Also the startup model.",
+  smol: "Cheap, fast model for scout and other subagent and background work. Inherits default when unset.",
+  slow: "Deep-reasoning model, used by the reviewer agent. Inherits default when unset.",
+  vision: "Describes attached images when the active model cannot read them.",
+  plan: "Model plan mode switches to on entry and restores on exit.",
   commit: "Model that writes commit messages and changelogs.",
-  tiny: "Smallest model, used for classification and routing.",
-  task: "Model subagents spawn with by default.",
-  advisor: "Second model that reviews every turn inline.",
+  tiny: "Smallest model, used for session titles and classification. Follows smol when unset.",
+  memory: "Model behind long-term memory completions. Follows tiny, then smol, when unset.",
+  task: "Model subagents inherit from the session.",
+  advisor: "Second model that passively reviews each turn. Falls back to slow only when slow is set.",
+  widget: "Model that authors background-job widgets. Follows smol when unset.",
+  image: "Image-generation model.",
+  web: "Web-search model.",
+  speech: "Text-to-speech model.",
+  dictation: "Speech-to-text model for dictation.",
+  judge: "Model for judgment and classifier calls.",
 };
 
 export function describeModelRole(role: string): string | undefined {

@@ -134,14 +134,18 @@ omp does not have "the" model — it has a model per **scope of work**, and omp-
 
 | Role | What it runs |
 | --- | --- |
-| `default` | ordinary turns |
-| `smol` | cheap, fast subagent and background work |
-| `slow` | deep reasoning on hard problems |
+| `default` | ordinary turns and the startup model |
+| `smol` | cheap, fast work: scout and other subagents, edit repair |
+| `slow` | deep reasoning; the reviewer agent |
 | `plan` | plan mode |
 | `commit` | commit messages and changelogs |
-| `task` | the model subagents spawn with |
-| `advisor` | the second model that reviews every turn |
-| `vision`, `designer`, `tiny` | image turns, design work, classification |
+| `task` | the model subagents inherit |
+| `advisor` | the second model that reviews each turn |
+| `vision` | describing images the active model cannot read |
+| `tiny` | session titles and classification |
+| `memory` | long-term memory completions |
+| `widget` | background-job widgets |
+| `image`, `web`, `speech`, `dictation`, `judge` | non-chat model kinds: image generation, web search, speech, dictation, judgment |
 
 Two places surface them:
 

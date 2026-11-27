@@ -247,7 +247,8 @@ changes the registry cannot reload (plugins).
 
 ### Model roles are the model selector
 omp assigns a model per scope of work (`default`, `smol`, `slow`, `vision`,
-`plan`, `designer`, `commit`, `tiny`, `task`, `advisor`), stored in the
+`plan`, `commit`, `tiny`, `memory`, `task`, `advisor`, `widget`) and per
+non-chat model kind (`image`, `web`, `speech`, `dictation`, `judge`), stored in the
 `modelRoles` record in `config.yml`. `lib/model-roles.ts` reads and writes that
 record; `GET /api/models` ships the resolved table so `ChatInput` can list roles
 above the flat model list, and `set_role_model` switches the session **and
