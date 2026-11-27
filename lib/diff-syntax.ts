@@ -51,15 +51,17 @@ export function highlightDiffFile(file: SplitDiffFile, language: string): WeakMa
   return result;
 }
 
-/** Avoid loading grammars or tokenizing a large/streaming patch. */
+export const MAX_STREAMING_HIGHLIGHT_CHARS = 16_000;
+
+/** Keep live tokenization bounded while each new patch snapshot arrives. */
 export function canHighlightDiff(files: SplitDiffFile[], streaming: boolean): boolean {
-  if (streaming) return false;
+  const limit = streaming ? MAX_STREAMING_HIGHLIGHT_CHARS : 100_000;
   let size = 0;
   for (const file of files) {
     for (const row of file.rows) {
       if (row.type === "line") {
         size += row.left.text.length + row.right.text.length + 2;
-        if (size > 100_000) return false;
+        if (size > limit) return false;
       }
     }
   }

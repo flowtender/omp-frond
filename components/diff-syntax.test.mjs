@@ -53,11 +53,24 @@ test("split and stacked views retain change markers and syntax", () => {
   }
 });
 
-test("unknown languages, streaming and oversized patches stay plain", () => {
-  assert.equal(canHighlightDiff(files, true), false);
+test("streaming previews highlight source before the patch finishes", () => {
+  for (const layout of ["split", "stacked"]) {
+    const html = render(layout, { streaming: true });
+    assert.match(html, /token comment[^>]*>old text/);
+    assert.match(html, /token comment[^>]*>new text/);
+  }
+});
+
+test("unknown languages and oversized patches stay plain", () => {
+  const large = parseUnifiedPatch(`--- a/demo.ts\n+++ b/demo.ts\n@@ -0,0 +1 @@\n+const value = "${"x".repeat(16_000)}";\n`);
+  assert.equal(canHighlightDiff(large, true), false);
+  assert.equal(canHighlightDiff(large, false), true);
   assert.equal(canHighlightDiff([{ rows: [{ type: "line", left: { text: "x".repeat(100001) }, right: { text: "" } }] }], false), false);
   assert.equal(highlightDiffFile(file, "not-a-language").get(lines[0].left), undefined);
-  assert.doesNotMatch(render("split", { streaming: true }), /token comment/);
+  const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+    React.createElement(PatchDiffFiles, { files: large, layout: "stacked", streaming: true })));
+  assert.doesNotMatch(html, /token keyword/);
+  assert.match(html, /const value/);
 });
 
 test("headerless edit patches use the target path and JSON-specific class", () => {

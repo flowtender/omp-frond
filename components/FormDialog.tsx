@@ -325,6 +325,7 @@ export function FormDialog({
       <form
         ref={formRef}
         role="dialog"
+        className="chat-attention"
         aria-modal="true"
         aria-label={t("chat.agentQuestion")}
         noValidate

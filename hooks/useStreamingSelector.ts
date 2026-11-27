@@ -1,8 +1,10 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useContext, useLayoutEffect, useState } from "react";
 import type { StreamingState, StreamingStore } from "@/lib/streaming-message";
+import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { revealStreamingMessage } from "@/lib/streaming-presentation";
+import { ChatAnimationsContext } from "./useChatAnimations";
 
 /**
  * One value of the streaming store; the component re-renders only when that
@@ -28,11 +30,12 @@ export const selectHasStreamingContent = (state: StreamingState) => Boolean(stat
 
 const REVEAL_MS = 90;
 const MIN_PAINT_INTERVAL_MS = 30;
+const CODE_BLOCK_LINE = /(?:^|\n)(?:[ \t]*(?:`{3,}|~{3,})| {4}|\t)/;
 
 export function usePacedStreamingMessage(store: StreamingStore) {
+  const chatAnimations = useContext(ChatAnimationsContext) > 0;
   const [message, setMessage] = useState(() => store.getState().streamingMessage);
   useLayoutEffect(() => {
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let shown = store.getState().streamingMessage;
     let target = shown;
     let frame: number | null = null;
@@ -62,7 +65,9 @@ export function usePacedStreamingMessage(store: StreamingStore) {
       if (next === target) return;
       target = next;
       // Keep the start/end of a reply in the same commit as the transcript change.
-      if (!shown || !target || reducedMotion.matches || document.hidden) {
+      const tail = target?.content.at(-1);
+      if (!shown || !target || !chatAnimations || document.hidden
+        || (tail?.type === "text" && !CODE_BLOCK_LINE.test(splitMarkdownBlocks(tail.text).at(-1) ?? ""))) {
         flush();
       } else if (frame === null) {
         const now = performance.now();
@@ -73,14 +78,12 @@ export function usePacedStreamingMessage(store: StreamingStore) {
     };
 
     const unsubscribe = store.subscribe(update);
-    reducedMotion.addEventListener("change", flush);
     document.addEventListener("visibilitychange", flush);
     return () => {
       unsubscribe();
       if (frame !== null) cancelAnimationFrame(frame);
-      reducedMotion.removeEventListener("change", flush);
       document.removeEventListener("visibilitychange", flush);
     };
-  }, [store]);
+  }, [store, chatAnimations]);
   return message;
 }

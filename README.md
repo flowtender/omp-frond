@@ -22,6 +22,9 @@ Expand a task or subagent tool call to see its result cards, with status, durati
 
 **Background job results** notices show each job even if the originating call isn't in view. Bash jobs use the same open console as regular bash calls, with the recorded command syntax-highlighted and wrapped. Subagent results remain collapsible and use Markdown. **Raw output** preserves the original report.
 
+Live turns light up the token-flow wires, running tool headers, and composer handoff. Large arrivals ease into the transcript without replaying when you reopen a chat. The system's reduced-motion preference turns off these effects while keeping status labels and active-state highlights.
+Expanded tool cards stream incoming arguments with the same pacing as the reply, including file edits, writes, and shell commands.
+
 
 ## Quick Start
 

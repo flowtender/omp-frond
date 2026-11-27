@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, memo, useContext, useMemo, type ComponentProps, type MouseEvent } from "react";
+import { Children, createContext, memo, useContext, useMemo, useState, type ComponentProps, type MouseEvent } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
@@ -9,8 +9,62 @@ import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { ChatAnimationsContext } from "@/hooks/useChatAnimations";
 
 const MarkdownLinkContext = createContext(false);
+const StreamingProseContext = createContext(false);
+const FADE_SPREAD_MS = 90;
+const FADE_MS = 70;
+const MAX_FADING_CHARS = 192;
+const graphemes = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+
+interface ProseBatch {
+  start: number;
+  glyphs: string[];
+  length: number;
+}
+
+function FadingProse({ text }: { text: string }) {
+  const [previous, setPrevious] = useState("");
+  const [batch, setBatch] = useState<ProseBatch | null>(null);
+  if (text !== previous) {
+    const suffix = text.slice(previous.length);
+    const append = graphemes && suffix && text.startsWith(previous)
+      // A new combining mark may extend the last visible grapheme.
+      && (previous.length === 0 || graphemes.segment(text).containing(previous.length)?.index === previous.length);
+    setPrevious(text);
+    const glyphs: string[] = [];
+    if (append) {
+      const groupSize = Math.ceil(suffix.length / MAX_FADING_CHARS);
+      let index = 0;
+      for (const { segment } of graphemes.segment(suffix)) {
+        const group = Math.floor(index++ / groupSize);
+        glyphs[group] = (glyphs[group] ?? "") + segment;
+      }
+    }
+    setBatch(glyphs.length ? { start: previous.length, glyphs, length: suffix.length } : null);
+  }
+  if (!batch) return text;
+  const { start, glyphs, length } = batch;
+  return <>{text.slice(0, start)}
+    <span key={start}>{glyphs.map((glyph, index) => (
+      <span key={index} className="streaming-prose-glyph"
+        onAnimationEnd={index === glyphs.length - 1 ? () => setBatch((current) => current === batch ? null : current) : undefined}
+        style={{
+          animationDuration: `${FADE_MS}ms`,
+          animationDelay: `${index * FADE_SPREAD_MS / Math.max(1, glyphs.length - 1)}ms`,
+        }}>{glyph}</span>
+    ))}</span>
+    {text.slice(start + length)}
+  </>;
+}
+
+function ProseParagraph({ node: _node, children, ...props }: ComponentProps<"p"> & ExtraProps) {
+  const animate = useContext(StreamingProseContext);
+  return <p {...props}>{animate ? Children.map(children, (child) => (
+    typeof child === "string" ? <FadingProse text={child} /> : child
+  )) : children}</p>;
+}
 
 interface MarkdownBodyProps {
   children: string;
@@ -81,6 +135,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, url
 });
 
 export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onNavigateLink, keepLineBreaks }: MarkdownBodyProps) {
+  const animateProse = useContext(ChatAnimationsContext) > 0 && Boolean(isStreaming);
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // A streaming reply grows by a few characters per chunk; parsing all of it
   // each time made a long reply quadratic. Its finished blocks keep their
@@ -91,6 +146,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
   );
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
+    p: ProseParagraph,
     code({ className, children, ...props }) {
       const lang = className?.replace("language-", "").toLowerCase() ?? "";
       const raw = String(children);
@@ -195,8 +251,9 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
   }), [cwd, isStreaming, onOpenFile, onNavigateLink]);
 
   return (
-    <div className={["markdown-body", className].filter(Boolean).join(" ")}>
-      {blocks.map((block, index) => (
+    <StreamingProseContext.Provider value={animateProse}>
+      <div className={["markdown-body", className].filter(Boolean).join(" ")}>
+        {blocks.map((block, index) => (
         <MarkdownBlock
           key={index}
           markdown={block}
@@ -205,7 +262,8 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
           rehypePlugins={onNavigateLink ? markdownDocumentRehypePlugins : markdownRehypePlugins}
           components={components}
         />
-      ))}
-    </div>
+        ))}
+      </div>
+    </StreamingProseContext.Provider>
   );
 });

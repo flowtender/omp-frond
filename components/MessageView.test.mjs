@@ -16,6 +16,7 @@ const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib
 const { parseUnifiedPatch } = await jiti.import("@/lib/patch");
 const { buildToolResultsMap } = await jiti.import("./subagent-viewer-state.ts");
 const { readToolPreview } = await jiti.import("@/lib/read-tool-display");
+const { revealStreamingMessage } = await jiti.import("@/lib/streaming-presentation.ts");
 const { formatEvalJavaScript } = await jiti.import("@/lib/eval-code-format");
 const {
   CompactionSummaryDetails,
@@ -143,6 +144,25 @@ test("marks only the matched text block after splitting thinking and the final a
   }
 });
 
+test("text token display keeps unpaired tools without repeating the names of paired tools", () => {
+  const message = {
+    role: "assistant",
+    provider: "test",
+    model: "test",
+    content: [
+      { type: "toolCall", toolCallId: "paired", toolName: "paired_tool_name", input: {} },
+      { type: "toolCall", toolCallId: "unpaired", toolName: "unpaired_tool_name", input: {} },
+    ],
+  };
+  const html = renderMessage(message, {
+    tokenDisplay: "text",
+    transcriptPart: { kind: "call", start: 0, end: 2 },
+    pairedToolCalls: new Set(["paired"]),
+  });
+  assert.doesNotMatch(html, /\bpaired_tool_name\b/);
+  assert.match(html, /\bunpaired_tool_name\b/);
+});
+
 test("keeps streamed tool input out of collapsed markup while counting it", () => {
   const block = {
     type: "toolCall",
@@ -223,17 +243,21 @@ test("a write with another argument or an empty file keeps the remaining argumen
   }
 });
 
-test("input that is still streaming keeps its raw text", () => {
-  const rawInput = "{\"path\":\"a.ts\",\"content\":\"one\\ntwo";
-  const block = { type: "toolCall", toolCallId: "call-write-streaming", toolName: "write", input: {}, rawInput };
-  clearExpandedToolCalls();
-  setToolCallExpanded(block.toolCallId, true);
-  try {
-    const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
-    assert.equal(textOf(html).includes(getToolCallInputText(block)), true);
-    assert.ok(!html.includes("<table"));
-  } finally {
-    clearExpandedToolCalls();
+test("expanded write, edit, and shell calls show the paced argument prefix before it parses", (t) => {
+  for (const [toolName, start] of [
+    ["write", '{"path":"a.ts","content":"'],
+    ["edit", '{"path":"a.ts","edits":[{"op":"replace","newText":"'],
+    ["bash", '{"command":"printf '],
+  ]) {
+    const block = { type: "toolCall", toolCallId: `paced-${toolName}`, toolName, input: {}, rawInput: start };
+    setToolCallExpanded(block.toolCallId, true);
+    t.after(() => setToolCallExpanded(block.toolCallId, false));
+    const before = { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] };
+    const latest = { ...before, content: [{ ...block, rawInput: `${start}visible text then unseen tail` }] };
+    const shown = revealStreamingMessage(before, latest, 0.5);
+    const text = textOf(renderMessage(shown, { isStreaming: true }));
+    assert.ok(text.includes(`${start}visible text`), toolName);
+    assert.doesNotMatch(text, /unseen tail/);
   }
 });
 

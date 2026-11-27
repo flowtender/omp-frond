@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { AgentUsage } from "@/lib/types";
 import { ProviderIcon, modelIconProviders } from "./ProviderIcon";
@@ -6,7 +6,7 @@ import { CacheGlyph } from "./CacheGlyph";
 
 type TokenTotals = Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
 
-export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, tokensPerSecond, time }: {
+export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, tokensPerSecond, time, live }: {
   usage?: AgentUsage;
   provider: string;
   model: string;
@@ -14,13 +14,22 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
   estimatedOutput?: number;
   tokensPerSecond?: number | null;
   time?: string | null;
+  live?: "waiting" | "output";
 }) {
   const { t, locale } = useI18n();
+  const [inputDrawn, setInputDrawn] = useState(false);
   return (
-    <div className="token-flow" data-token-flow="" data-transcript-port="model" role="group" aria-label={`${t("settings.tokenDisplay")}: ${modelName}`}>
-      <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
+    <div className="token-flow" data-token-flow="" data-transcript-port="model" data-flow-live={live}
+      data-flow-input-drawn={live && inputDrawn ? "" : undefined} role="group" aria-label={`${t("settings.tokenDisplay")}: ${modelName}`}>
+      <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%">
+        <path data-flow-rail="input" pathLength="100" onAnimationEnd={live ? () => setInputDrawn(true) : undefined} />
+        <path data-flow-rail="output" pathLength="100" />
+        <path data-flow-arrow="" />
+        {live && <path data-flow-spark="input" pathLength="100" />}
+        {live === "output" && <path data-flow-spark="output" pathLength="100" />}
+      </svg>
       <InputCounts usage={usage} />
-      <ModelMark icon={modelIconProviders(provider, model).at(-1)} title={modelName} />
+      <ModelMark icon={modelIconProviders(provider, model).at(-1)} title={modelName} active={Boolean(live)} />
       <OutputCounts usage={usage} estimatedOutput={estimatedOutput} />
       {tokensPerSecond != null && <span className="token-flow-rate">{tokensPerSecond.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t/s</span>}
       <FlowTime time={time} />
@@ -33,7 +42,7 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
  * New input and cache writes sit above the icon and output below it; stat rows flank it,
  * outputs-side rows left and input-side rows right. The toggle (children) sits on the wire entering the bracket.
  */
-export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows, inputRows, children }: {
+export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows, inputRows, children, bottomToggle, measure }: {
   usage?: TokenTotals;
   missing: boolean;
   models: { provider: string; model: string }[];
@@ -41,16 +50,18 @@ export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows,
   hasRequests: boolean;
   outputRows: ReactNode[];
   inputRows: ReactNode[];
-  children: ReactNode;
+  children?: ReactNode;
+  bottomToggle?: ReactNode;
+  measure?: boolean;
 }) {
   const { t } = useI18n();
   // A fold spanning several models has no single icon to show.
   const icons = new Set(models.map(({ provider, model }) => modelIconProviders(provider, model).at(-1)));
   const statRows = (rows: ReactNode[]) => rows.map((row, index) => <span key={index} className="token-flow-fold-stat">{row}</span>);
   return (
-    <div className="token-flow token-flow-fold" data-transcript-port="fold" role="group" aria-label={t("chat.processDetails")}>
-      <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
-      <div className="token-flow-fold-toggle-slot">{children}</div>
+    <div className="token-flow token-flow-fold" data-transcript-port={measure ? undefined : "fold"} role="group" aria-label={t("chat.processDetails")}>
+      {!measure && <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>}
+      {!measure && <div className="token-flow-fold-toggle-slot">{children}</div>}
       <div className="token-flow-fold-body">
         <div className="token-flow-fold-side token-flow-fold-output">{statRows(outputRows)}</div>
         <div className="token-flow-fold-center">
@@ -60,18 +71,19 @@ export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows,
         </div>
         <div className="token-flow-fold-side token-flow-fold-input">{statRows(inputRows)}</div>
       </div>
+      {!measure && <div className="token-flow-fold-toggle-slot token-flow-fold-toggle-slot-bottom">{bottomToggle}</div>}
     </div>
   );
 }
 
 export function TokenFlowHandoff({ kind, label, time, children }: {
-  kind: "tools" | "user" | "compaction" | "process";
+  kind: "tools" | "user" | "compaction" | "process" | "process-end";
   label: string;
   time: string | null;
   children?: ReactNode;
 }) {
   return (
-    <div className="token-flow token-flow-handoff" data-token-handoff={kind} data-transcript-port={kind === "process" ? "process" : "handoff"} role="group" aria-label={label}>
+    <div className="token-flow token-flow-handoff" data-token-handoff={kind} data-transcript-port={kind === "process" || kind === "process-end" ? kind : "handoff"} role="group" aria-label={label}>
       <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
       <div className="token-flow-handoff-icons">{children ?? (
         <span className="token-flow-handoff-icon" title={label} aria-hidden="true">
@@ -127,7 +139,7 @@ function OutputCounts({ usage, estimatedOutput, partial }: { usage?: TokenTotals
   );
 }
 
-function ModelMark({ icon, title }: { icon?: string; title?: string }) {
+function ModelMark({ icon, title, active }: { icon?: string; title?: string; active?: boolean }) {
   return (
     <span className="token-flow-model" title={title} aria-hidden="true">
       {icon ? <ProviderIcon id={icon} size={24} /> : (
@@ -135,6 +147,9 @@ function ModelMark({ icon, title }: { icon?: string; title?: string }) {
           <path d="M8 1.5 14 5v6l-6 3.5L2 11V5zM2 5l6 3.5L14 5M8 8.5v6" />
         </svg>
       )}
+      {active && <svg className="chat-card-spark token-flow-model-spark">
+        <rect x="1" y="1" pathLength="100" />
+      </svg>}
     </span>
   );
 }

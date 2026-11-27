@@ -16,7 +16,7 @@ import type {
   UserMessage,
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
-import { normalizeToolCalls } from "@/lib/normalize";
+import { normalizeStreamingToolCalls, normalizeToolCalls } from "@/lib/normalize";
 import { TRANSCRIPT_NOTICES_KEY, withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import { stripAnsi } from "@/lib/ansi";
 import { agentStatusUrl, canApplySessionIdentity, isPromptRejectedError, sendAgentCommand, sendConfirmingCacheLoss, type RuntimeSessionBinding } from "@/lib/agent-client";
@@ -1981,7 +1981,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (!agentRunningRef.current) break;
         const msg = event.message as AgentMessage | undefined;
         if (msg?.role !== "assistant") break;
-        dispatch({ type: "update", message: normalizeToolCalls(msg) });
+        dispatch({ type: "update", message: normalizeStreamingToolCalls(msg) });
         setAgentPhase(null);
         break;
       }

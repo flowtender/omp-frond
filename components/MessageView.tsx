@@ -24,13 +24,14 @@ import { usePythonFormatSettings } from "@/hooks/usePythonFormat";
 import type { TokenDisplayMode } from "@/hooks/useTokenDisplay";
 import { TokenFlow, TokenFlowHandoff } from "./TokenFlow";
 import { TranscriptBlock } from "./TranscriptBlock";
+import { TranscriptGrowth } from "./TranscriptGrowth";
 import type { TranslationParams } from "@/lib/i18n/types";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, isHiddenAssistantBlock, splitThinkingPieces } from "@/lib/message-display";
 import { useDisplaySettings } from "@/hooks/useDisplaySettings";
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { diffGapLabel, parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap } from "@/lib/patch";
-import { canHighlightDiff, highlightDiffFile, type DiffToken } from "@/lib/diff-syntax";
+import { canHighlightDiff, highlightDiffFile, MAX_STREAMING_HIGHLIGHT_CHARS, type DiffToken } from "@/lib/diff-syntax";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isBashToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
@@ -272,6 +273,9 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
 interface Props {
   message: AgentMessage;
   isStreaming?: boolean;
+  live?: boolean;
+  toolArrival?: boolean;
+  arrivalSpark?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
   cwd?: string;
@@ -378,12 +382,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError, hideCost, tokenDisplay = "text", transcriptPart, pairedToolCalls, hideTokenCounts }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, live, arrivalSpark, toolArrival, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError, hideCost, tokenDisplay = "text", transcriptPart, pairedToolCalls, hideTokenCounts }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
+    return <UserMessageView message={message as UserMessage} live={arrivalSpark} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} hideCost={hideCost} tokenDisplay={tokenDisplay} transcriptPart={transcriptPart} pairedToolCalls={pairedToolCalls} hideTokenCounts={hideTokenCounts} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} live={live} arrivalSpark={arrivalSpark} toolArrival={toolArrival} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} hideCost={hideCost} tokenDisplay={tokenDisplay} transcriptPart={transcriptPart} pairedToolCalls={pairedToolCalls} hideTokenCounts={hideTokenCounts} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -402,6 +406,9 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
 }, (prev, next) => {
   return prev.message === next.message
     && prev.isStreaming === next.isStreaming
+    && prev.live === next.live
+    && prev.arrivalSpark === next.arrivalSpark
+    && prev.toolArrival === next.toolArrival
     && haveSameRelevantToolResults(prev.message, prev.toolResults, next.toolResults)
     && prev.modelNames === next.modelNames
     && prev.cwd === next.cwd
@@ -429,8 +436,9 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.hideTokenCounts === next.hideTokenCounts;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing }: {
+function UserMessageView({ message, live, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing }: {
   message: UserMessage;
+  live?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   entryId?: string;
@@ -539,6 +547,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             overflowY: "auto",
           }}
         >
+          <CardSpark kind="input" active={live} />
           {commandText ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
               {imageBlocksNode}
@@ -748,6 +757,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 function AssistantMessageView({
   message,
   isStreaming,
+  live,
+  arrivalSpark,
+  toolArrival,
   toolResults,
   modelNames,
   cwd,
@@ -771,6 +783,9 @@ function AssistantMessageView({
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
+  live?: boolean;
+  arrivalSpark?: boolean;
+  toolArrival?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
   cwd?: string;
@@ -942,9 +957,11 @@ function AssistantMessageView({
 
   const showFlow = !transcriptPart && tokenDisplay === "flow" && (isStreaming || Boolean(message.usage));
   const modelName = message.provider ? getModelDisplayName(message.provider, message.model, modelNames) : message.model;
+  const hasLiveOutput = live && blocks.some((block) => block.type !== "text" || block.text.trim());
   const flow = showFlow ? (
     <TokenFlow usage={isStreaming ? undefined : message.usage} provider={message.provider} model={message.model} modelName={modelName}
-      estimatedOutput={isStreaming && estimatedTokens > 0 ? Math.round(estimatedTokens) : undefined} tokensPerSecond={isStreaming ? tps : undefined} time={time} />
+      estimatedOutput={isStreaming && estimatedTokens > 0 ? Math.round(estimatedTokens) : undefined} tokensPerSecond={isStreaming ? tps : undefined}
+      time={time} live={live ? (hasLiveOutput ? "output" : "waiting") : undefined} />
   ) : null;
   const isCallPart = transcriptPart?.kind === "call";
   const toolBlocks = tokenDisplay === "flow" && !isStreaming && (!transcriptPart || isCallPart)
@@ -955,17 +972,23 @@ function AssistantMessageView({
   if (blocks.length === 0 && !isStreaming && !providerError && !truncated && !transcriptPart?.metadata) return flow ?? null;
   const usageText = !isStreaming && message.usage && (!transcriptPart || transcriptPart.metadata)
     ? formatUsage(message.usage, hideCost, tokenDisplay === "text" && !hideTokenCounts) : "";
+  const lastBlock = blockItems.at(-1);
   const renderBlock = ({ block, originalIndex }: typeof blockItems[number]) => {
-    if (block.type !== "toolCall") return <BlockView key={originalIndex} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />;
-    if (isCallPart && pairedToolCalls?.has(block.toolCallId)) {
-      return tokenDisplay === "flow" ? null : (
-        <TranscriptBlock key={originalIndex} kind="response" className="text-xs text-text-muted">
-          {block.toolName}
-        </TranscriptBlock>
-      );
-    }
-    return <TranscriptBlock key={originalIndex} data-transcript-port={isCallPart ? "input" : undefined}><BlockView block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} toolCallDurations={toolCallDurations} cwd={cwd} onOpenSubagent={onOpenSubagent} blockIndex={originalIndex} /></TranscriptBlock>;
+    if (block.type !== "toolCall") return <BlockView key={originalIndex} block={block} searchTarget={block === searchBlock} isStreaming={isStreaming}
+      outputSpark={isStreaming || arrivalSpark}
+      thinkingSpark={isStreaming && originalIndex === lastBlock?.originalIndex}
+      streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)}
+      cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />;
+    if (isCallPart && pairedToolCalls?.has(block.toolCallId)) return null;
+    return <TranscriptBlock key={originalIndex} data-transcript-port={isCallPart ? "input" : undefined}><BlockView block={block} toolResults={toolResults} toolArrival={toolArrival || live} toolCallDurations={toolCallDurations} cwd={cwd} onOpenSubagent={onOpenSubagent} blockIndex={originalIndex} /></TranscriptBlock>;
   };
+
+  const outputBlocks = (
+    <div className="flex flex-col gap-2" data-transcript-port={!live && isStreaming && blockItems.length > 0 ? "output" : undefined}>
+      {/* Keep block state when a reconciled message gets a saved entry id (#1184). */}
+      {blockItems.map((item) => hasToolHandoff && item.block.type === "toolCall" ? null : renderBlock(item))}
+    </div>
+  );
 
   return (
     <div
@@ -1018,11 +1041,12 @@ function AssistantMessageView({
         })()}
       </div>}
 
-      <div data-transcript-port={isStreaming && blockItems.length > 0 ? "output" : undefined} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {/* Not keyed by the entry id: a message of this run gets one when the file is
-            read again, and its blocks keep their state across that read (#1184). */}
-        {blockItems.map((item) => hasToolHandoff && item.block.type === "toolCall" ? null : renderBlock(item))}
-      </div>
+      {live ? (
+        <TranscriptGrowth live={lastBlock?.block.type !== "toolCall"} from={0}
+          data-transcript-port={hasLiveOutput ? "output" : undefined}>
+          {outputBlocks}
+        </TranscriptGrowth>
+      ) : outputBlocks}
 
       {providerError && (
         <TranscriptBlock kind="response"
@@ -1093,7 +1117,8 @@ function AssistantMessageView({
           <TokenFlowHandoff kind="tools" label={`${toolBlocks.length} ${t(toolBlocks.length === 1 ? "chat.toolCall" : "chat.toolCalls")}`} time={handoffTime}>
             {toolBlocks.flatMap(({ block, originalIndex }) =>
               ranToolNames(block.toolName, toolResults?.get(block.toolCallId)?.details).map((ranName, slot) => (
-                <span key={`${originalIndex}:${slot}`} className="token-flow-handoff-icon" title={ranName}>
+                <span key={`${originalIndex}:${slot}`} className="token-flow-handoff-icon" title={ranName}
+                  data-chat-tool-state={toolMotion(toolResults?.get(block.toolCallId)?.liveTiming)}>
                   <span className="sr-only">{ranName}</span>
                   <ToolBlockIcon toolName={ranName} mcpLabel={mcpToolLabel(ranName)} isError={false} />
                 </span>
@@ -1101,9 +1126,6 @@ function AssistantMessageView({
           </TokenFlowHandoff>
           <div className="flex flex-col gap-2">{toolBlocks.map(renderBlock)}</div>
         </>
-      )}
-      {writtenFiles && writtenFiles.length > 0 && (
-        <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenFile} />
       )}
 
       <div className="transcript-reply-footer" style={{
@@ -1117,6 +1139,8 @@ function AssistantMessageView({
             ].filter(Boolean).join(" \u00b7 ")}
           </div>
         )}
+        <div className="transcript-reply-actions">
+        {writtenFiles && writtenFiles.length > 0 && <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenFile} />}
         {textContent && !isStreaming && (
           <button
             onClick={copyContent}
@@ -1153,18 +1177,35 @@ function AssistantMessageView({
         {showTimestamp && time && !isStreaming && !hasToolHandoff && tokenDisplay !== "flow" && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
         )}
+        </div>
       </div>
     </div>
   );
 }
 
-function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function CardSpark({ kind, active, repeat }: { kind: "input" | "output"; active?: boolean; repeat?: boolean }) {
+  const [started, setStarted] = useState(Boolean(active));
+  const [lap, setLap] = useState(0);
+  if (active && !started) setStarted(true);
+  if (!active && !started) return null;
+  return <svg className="chat-card-spark" data-card-spark={kind} aria-hidden="true">
+    <rect key={lap} x="1" y="1" pathLength="100" onAnimationEnd={repeat ? () => setLap(lap + 1) : undefined} />
+  </svg>;
+}
+
+function BlockView({ block, searchTarget, toolResults, isStreaming, outputSpark, thinkingSpark, toolArrival, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; outputSpark?: boolean; thinkingSpark?: boolean; toolArrival?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
     if (!block.text.trim()) return null;
-    return <TranscriptBlock kind="response" data-transcript-port={isStreaming ? undefined : "output"} data-message-text data-search-target={searchTarget || undefined}><TextBlock block={block} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} /></TranscriptBlock>;
+    return <TranscriptBlock kind="response" className="chat-reply-card" data-transcript-port={isStreaming ? undefined : "output"} data-message-text data-search-target={searchTarget || undefined}>
+      <TextBlock block={block} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />
+      <CardSpark kind="output" active={outputSpark} />
+    </TranscriptBlock>;
   }
   if (block.type === "thinking") {
-    return <TranscriptBlock kind="response" data-transcript-port={isStreaming ? undefined : "output"}><ThinkingBlock block={block} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} /></TranscriptBlock>;
+    return <TranscriptBlock kind="response" className="chat-thinking-card" data-transcript-port={isStreaming ? undefined : "output"}>
+      <ThinkingBlock block={block} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />
+      <CardSpark kind="output" active={outputSpark} repeat={thinkingSpark} />
+    </TranscriptBlock>;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
@@ -1173,17 +1214,18 @@ function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDur
     const result = snapshot && liveTiming && liveTiming.endedAt === undefined && !snapshot.details && snapshot.content.length === 0
       ? undefined : snapshot;
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} liveTiming={liveTiming} cwd={cwd} onOpenSubagent={onOpenSubagent} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} liveTiming={liveTiming} toolArrival={toolArrival} cwd={cwd} onOpenSubagent={onOpenSubagent} />;
   }
   if (block.type === "image") {
     const src = imageSource(block);
     if (!src) return null;
     return (
-      <TranscriptBlock kind="response" data-transcript-port={isStreaming ? undefined : "output"} data-search-target={searchTarget || undefined}>
+      <TranscriptBlock kind="response" className="chat-reply-card" data-transcript-port={isStreaming ? undefined : "output"} data-search-target={searchTarget || undefined}>
         <ImagePreview src={src} style={{ maxWidth: "100%" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={src} alt="" loading="lazy" style={{ display: "block", maxWidth: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 6 }} />
         </ImagePreview>
+        <CardSpark kind="output" active={outputSpark} />
       </TranscriptBlock>
     );
   }
@@ -1274,7 +1316,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
   return (
     <div style={{
       display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0,
-      border: "1px solid var(--border)",
+      border: "1px solid color-mix(in srgb, var(--text) 30%, var(--bg))",
       borderRadius: 7,
       padding: "6px 10px",
       background: "var(--bg)",
@@ -1357,41 +1399,73 @@ export function formatToolDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
 }
 
-export function TranscriptToolResult({ result, call, requestTime, cwd, onOpenSubagent }: {
+export function TranscriptToolResult({ result, call, requestTime, cwd, onOpenSubagent, live }: {
   result: ToolResultMessage;
   call?: ToolCallContent;
   requestTime?: number;
   cwd?: string;
   onOpenSubagent?: (sessionId: string, label: string) => void;
+  live?: boolean;
 }) {
   const duration = recordedDurationMs(result.durationMs)
     ?? (result.timestamp && requestTime ? result.timestamp - requestTime : undefined);
   return (
     <TranscriptBlock className="transcript-message" data-transcript-port="input">
-      {call ? <ToolCallBlock block={call} result={result} cwd={cwd} onOpenSubagent={onOpenSubagent}
+      {call ? <ToolCallBlock block={call} result={result} cwd={cwd} onOpenSubagent={onOpenSubagent} arrived={live}
         duration={duration !== undefined && duration >= TOOL_DURATION_MIN_MS ? duration : undefined} />
-        : <ToolCard callId={result.toolCallId} toolName={result.toolName ?? "tool"} isError={Boolean(result.isError)}>
-          {() => <>
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap">{getMessageText(result.content)}</pre>
-            {getMessageImages(result.content).map((image, index) => {
-              const src = imageSource(image);
-              return src ? <ImagePreview key={index} src={src}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt="" loading="lazy" className="max-h-80 max-w-full" />
-              </ImagePreview> : null;
-            })}
-          </>}
-        </ToolCard>}
+        : <TranscriptGrowth toolArrival={live} data-chat-tool-state={live ? result.isError ? "failed" : "done" : undefined}>
+          <ToolCard callId={result.toolCallId} toolName={result.toolName ?? "tool"} isError={Boolean(result.isError)} spark={live}>
+            {() => <>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap">{getMessageText(result.content)}</pre>
+              {getMessageImages(result.content).map((image, index) => {
+                const src = imageSource(image);
+                return src ? <ImagePreview key={index} src={src}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" loading="lazy" className="max-h-80 max-w-full" />
+                </ImagePreview> : null;
+              })}
+            </>}
+          </ToolCard>
+        </TranscriptGrowth>}
     </TranscriptBlock>
   );
 }
 
-function ToolCallBlock({ block, result, duration, liveTiming, cwd, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; liveTiming?: ToolResultMessage["liveTiming"]; cwd?: string; onOpenSubagent?: (sessionId: string, label: string) => void }) {
+interface ToolCallBlockProps {
+  block: ToolCallContent;
+  result?: ToolResultMessage;
+  duration?: number;
+  liveTiming?: ToolResultMessage["liveTiming"];
+  cwd?: string;
+  onOpenSubagent?: (sessionId: string, label: string) => void;
+  arrived?: boolean;
+  toolArrival?: boolean;
+}
+
+function toolMotion(timing: ToolResultMessage["liveTiming"], arrived?: boolean, failed?: boolean) {
+  if (timing && timing.endedAt === undefined) return "running";
+  if (timing || arrived) return failed ? "failed" : "done";
+}
+
+function ToolCallBlock(props: ToolCallBlockProps) {
+  const { block, result, liveTiming, arrived, toolArrival } = props;
+  const failed = toolCallFailureCount(block, result) > 0;
+  return (
+    <TranscriptGrowth live={Boolean(liveTiming)} toolArrival={toolArrival || arrived}
+      data-chat-tool-state={toolMotion(liveTiming, arrived, failed)}>
+      <ToolCallBody {...props} hasFailure={failed} />
+    </TranscriptGrowth>
+  );
+}
+
+function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent, hasFailure, toolArrival, arrived }: ToolCallBlockProps & { hasFailure: boolean }) {
   const { t } = useI18n();
   const compactJson = useToolDisplayPreference("compactJson");
   const readPreviews = useToolDisplayPreference("readPreviews");
   const isStreamingInput = block.rawInput !== undefined;
+  const spark = Boolean(toolArrival || arrived || liveTiming || isStreamingInput);
   const isEditTool = isEditToolName(block.toolName);
+  const repeatSpark = isStreamingInput && (isEditTool || isApplyPatchToolName(block.toolName) || isWriteToolName(block.toolName));
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
   const patchFiles = getApplyPatchFiles(block, result);
   const patchLabel = isApplyPatchToolName(block.toolName)
@@ -1433,9 +1507,9 @@ function ToolCallBlock({ block, result, duration, liveTiming, cwd, onOpenSubagen
   const normalizedToolName = block.toolName.toLowerCase();
   const isBashTool = isBashToolName(normalizedToolName);
   const isTodoTool = normalizedToolName === "todo" || normalizedToolName.endsWith(".todo") || normalizedToolName.endsWith("_todo");
-  const todoPhases = isTodoTool ? getTodoPreviewPhases(block, result) : null;
+  const todoPhases = isTodoTool && !isStreamingInput ? getTodoPreviewPhases(block, result) : null;
 
-  if (isBashTool) {
+  if (isBashTool && !isStreamingInput) {
     const dispatches = shellToolDispatches(result?.details);
     if (dispatches.length > 0) {
       return <MountedToolCards
@@ -1449,6 +1523,7 @@ function ToolCallBlock({ block, result, duration, liveTiming, cwd, onOpenSubagen
         hasFinalTiming={isRecord(result?.details) && typeof result.details.wallTimeMs === "number"}
         duration={recordedDurationMs(result?.durationMs) ?? (isRecord(result?.details) ? recordedDurationMs(result.details.wallTimeMs) : undefined) ?? duration}
         liveTiming={liveTiming}
+        spark={spark}
       />;
     }
     return (
@@ -1457,17 +1532,17 @@ function ToolCallBlock({ block, result, duration, liveTiming, cwd, onOpenSubagen
         command={isRecord(block.input) && typeof block.input.command === "string" ? block.input.command : ""}
         output={resultText ?? ""}
         pending={!result || (liveTiming !== undefined && liveTiming.endedAt === undefined)}
+        spark={spark}
         isError={isError}
         duration={duration}
         liveTiming={liveTiming}
         local={normalizedToolName.includes("(local)")}
-        streaming={isStreamingInput}
       />
     );
   }
 
-  if (isTodoTool && todoPhases) {
-    return <ToolCard callId={block.toolCallId} toolName={block.toolName} isError={isError}>
+  if (todoPhases) {
+    return <ToolCard callId={block.toolCallId} toolName={block.toolName} isError={isError} spark={spark}>
       {(expanded) => expanded && <TodoChecklistPreview phases={todoPhases} />}
     </ToolCard>;
   }
@@ -1479,9 +1554,11 @@ function ToolCallBlock({ block, result, duration, liveTiming, cwd, onOpenSubagen
     <ToolCard
       callId={block.toolCallId}
       toolName={block.toolName}
+      spark={spark}
       mcpLabel={mcpLabel}
+      repeatSpark={repeatSpark}
       isError={isError}
-      hasFailure={toolCallFailureCount(block, result) > 0}
+      hasFailure={hasFailure}
       target={isStreamingInput
         ? t("chat.generatingToolInput")
         : (readTarget ?? patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : inputView.target ?? (inlineTarget || getStructuredToolPreview(block, todoPhases))))}
@@ -1537,7 +1614,8 @@ function ToolCallBlock({ block, result, duration, liveTiming, cwd, onOpenSubagen
             <ToolSyntax text={codemode ? codemode.code.replace(/\r/g, "").trimEnd()
               : getToolCallInputText(block, compactJson, visibleArgs)}
               language={codemode ? "javascript" : "json"}
-              streaming={isStreamingInput} />
+              streaming={isStreamingInput && ((!isEditTool && !isApplyPatchToolName(block.toolName))
+                || (block.rawInput?.length ?? 0) > MAX_STREAMING_HIGHLIGHT_CHARS)} />
           </pre>
         )
       )}
@@ -1643,6 +1721,7 @@ function JobResultCards({ callId, cards, cwd, onOpenFile }: {
     }
     return (
       <ToolCard key={id} callId={id} toolName={tool} label={card.label} target={card.target}
+        spark={card.status === "pending" || card.status === "running"}
         facts={t(TASK_STATUS_LABELS[card.status])} duration={card.durationMs} isError={failed}>
         {(expanded) => expanded && <div className="task-tool-result">
           {error && (error.length > MAX_MARKDOWN_CHARS ? <OversizedText>{error}</OversizedText> : <p className="task-tool-result-error">{error}</p>)}
@@ -1681,7 +1760,7 @@ function formatToolTime(duration: number | undefined, timeout: number | null | u
   return `${duration === undefined ? "—" : (duration / 1000).toFixed(1)}/${timeout === null ? "-" : timeout === 0 ? "∞" : `${timeout}s`}`;
 }
 
-function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, targetLanguage, facts, metadata, labelBadge, badge, timeout, duration, liveTiming, count = 0, action, children }: {
+function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, targetLanguage, facts, metadata, labelBadge, badge, timeout, duration, liveTiming, count = 0, action, children, spark, repeatSpark }: {
   callId: string;
   toolName: string;
   label?: string;
@@ -1699,19 +1778,22 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
   liveTiming?: ToolResultMessage["liveTiming"];
   count?: number;
   action?: ReactNode;
+  repeatSpark?: boolean;
+  spark?: boolean;
   children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useToolExpanded(callId, hasFailure);
   return (
-    <div style={{
+    <div className="chat-tool-card" style={{
       borderRadius: 7,
       overflow: "hidden",
       fontSize: 12,
       border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
       background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
     }}>
-      <div style={{ display: "flex", alignItems: "stretch", minWidth: 0 }}>
+      <CardSpark kind="input" active={spark} repeat={repeatSpark} />
+      <div className="chat-tool-header" style={{ display: "flex", alignItems: "stretch", minWidth: 0 }}>
         <button
           type="button"
           aria-expanded={expanded}
@@ -1986,25 +2068,26 @@ function ConsoleOutputPreview({
   duration,
   local,
   status,
-  streaming = false,
+  spark,
   liveTiming,
 }: {
   callId: string;
   command: string;
   output: string;
   pending: boolean;
+  spark?: boolean;
   isError: boolean;
   duration?: number;
   liveTiming?: ToolResultMessage["liveTiming"];
   local?: boolean;
   status?: string;
-  streaming?: boolean;
 }) {
   const [expanded, setExpanded] = useToolExpanded(callId, isError);
 
   return (
     <div className={`shell-output-preview${isError ? " is-error" : ""}`}>
-      <button type="button" className="shell-command-line" aria-expanded={expanded}
+      <CardSpark kind="input" active={spark ?? pending} />
+      <button type="button" className="shell-command-line chat-tool-header" aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
         style={{ width: "100%", border: 0, background: "none", textAlign: "left", cursor: "pointer" }}>
         <span className="shell-command-prompt" aria-hidden="true">$</span>
@@ -2012,7 +2095,7 @@ function ConsoleOutputPreview({
           flex: 1, minWidth: 0, color: "var(--text)", fontFamily: "var(--font-mono)",
           fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
         }}>
-          <ToolSyntax text={command || " "} language="bash" streaming={streaming} />
+          <ToolSyntax text={command || " "} language="bash" />
         </span>
         {local && <span className="shell-local-label">local</span>}
       </button>
@@ -2081,7 +2164,7 @@ function ShellOutput({ output, pending = false, isError, showLabel = true, langu
   );
 }
 
-function MountedToolCards({ callId, dispatches, result, command, output, isError, hasFinalTiming, duration, liveTiming, cwd }: {
+function MountedToolCards({ callId, dispatches, result, command, output, isError, hasFinalTiming, duration, liveTiming, cwd, spark }: {
   callId: string;
   dispatches: readonly ToolDispatch[];
   result?: ToolResultMessage;
@@ -2092,6 +2175,7 @@ function MountedToolCards({ callId, dispatches, result, command, output, isError
   duration?: number;
   liveTiming?: ToolResultMessage["liveTiming"];
   cwd?: string;
+  spark?: boolean;
 }) {
   const { t } = useI18n();
   const readPreviews = useToolDisplayPreference("readPreviews");
@@ -2124,6 +2208,7 @@ function MountedToolCards({ callId, dispatches, result, command, output, isError
             key={dispatchId}
             callId={dispatchId}
             toolName={tool}
+            spark={spark}
             mcpLabel={mcpToolLabel(tool, inner)}
             target={target}
             targetLanguage={inputView?.targetLanguage}

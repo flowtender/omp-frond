@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 import { isBlockingExtensionUiRequest } from "../lib/browser-notifications.ts";
-import { normalizeToolCalls } from "../lib/normalize.ts";
+import { normalizeStreamingToolCalls, normalizeToolCalls } from "../lib/normalize.ts";
 import { toClientAgentEvent } from "../lib/agent-event-wire.ts";
 import { userMessageKey } from "../lib/prompt-recovery.ts";
 import { AgentCommandError, isPromptRejectedError } from "../lib/agent-client.ts";
@@ -78,6 +78,7 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1", overrides = {} } =
     EventSource: FakeEventSource,
     isBlockingExtensionUiRequest,
     normalizeToolCalls,
+    normalizeStreamingToolCalls,
     TRANSCRIPT_NOTICES_KEY,
     withTranscriptNotices,
     userMessageKey,
@@ -205,6 +206,26 @@ function assertOutputAndDialog(h, stream) {
   assert.deepEqual(h.state.ExtensionDialog, request);
   assert.deepEqual(h.effects.filter(([kind]) => kind === "attention"), [["attention", request]]);
 }
+
+test("a live write retains partial arguments for the transcript but a finished write does not", async () => {
+  const h = harness();
+  const stream = await openRuntime(h);
+  const rawInput = '{"path":"note.txt","content":"still growing';
+  const message = { role: "assistant", content: [
+    { type: "toolCall", id: "write-1", name: "write", arguments: { path: "note.txt" }, rawInput },
+  ] };
+  stream.frame({ type: "agent_start" });
+  stream.frame({ type: "message_update", message });
+  assert.equal(h.state.stream.streamingMessage.content[0].rawInput, rawInput);
+
+  const finished = { path: "note.txt", content: "finished" };
+  stream.frame({ type: "message_end", message: {
+    ...message, content: [{ ...message.content[0], arguments: finished }],
+  } });
+  assert.deepEqual(h.state.Messages.at(-1).content[0], {
+    type: "toolCall", toolCallId: "write-1", toolName: "write", input: finished,
+  });
+});
 
 for (const running of [false, true]) {
   test(`after restart, the next send uses the ${running ? "existing" : "new"} runtime without a reload`, async () => {

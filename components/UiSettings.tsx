@@ -11,6 +11,10 @@ import {
   CHAT_CONTENT_FONT_SIZE_MIN,
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
+import {
+  CHAT_ANIMATION_DURATION_MAX_MS, CHAT_ANIMATION_DURATION_MIN_MS,
+  setChatAnimationDuration, setChatAnimations, useChatAnimationDuration, useChatAnimationsPreference,
+} from "@/hooks/useChatAnimations";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useChatScrollMode, setChatScrollMode } from "@/hooks/useChatScrollMode";
 import { useShowCostWithUsage, setShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
@@ -119,6 +123,9 @@ interface UiSettingsProps {
 export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: UiSettingsProps) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
+  const chatAnimations = useChatAnimationsPreference();
+  const animationDuration = useChatAnimationDuration();
+  const animationDurationLabel = new Intl.NumberFormat(locale, { style: "unit", unit: "second" }).format(animationDuration / 1000);
   const enterSendMode = useEnterSendMode();
   const chatScrollMode = useChatScrollMode();
   const showCostWithUsage = useShowCostWithUsage();
@@ -204,6 +211,33 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
           <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.showHeaderLanguageSwitch")}</span>
             <ConfigSwitch checked={showLanguageSwitch} label={t("settings.showHeaderLanguageSwitch")} onChange={headerLanguageSwitch.setVisible} />
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.chatAnimations")}</span>
+            <ConfigSwitch
+              checked={chatAnimations}
+              label={t("settings.chatAnimations")}
+              describedBy="settings-chat-animations-description"
+              onChange={setChatAnimations}
+            />
+          </div>
+          <p id="settings-chat-animations-description" className="settings-general-description">{t("settings.chatAnimationsDescription")}</p>
+          <div className="settings-chat-option settings-chat-range-option">
+            <div className="settings-chat-range-header">
+              <label htmlFor="settings-chat-animation-duration">{t("settings.chatAnimationDuration")}</label>
+              <output htmlFor="settings-chat-animation-duration">{animationDurationLabel}</output>
+            </div>
+            <input
+              id="settings-chat-animation-duration"
+              type="range"
+              min={CHAT_ANIMATION_DURATION_MIN_MS}
+              max={CHAT_ANIMATION_DURATION_MAX_MS}
+              step={100}
+              value={animationDuration}
+              aria-valuetext={animationDurationLabel}
+              disabled={!chatAnimations}
+              onChange={(event) => setChatAnimationDuration(event.currentTarget.valueAsNumber)}
+            />
           </div>
           <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.tokenDisplay")}>
             <span>{t("settings.tokenDisplay")}</span>

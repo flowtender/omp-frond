@@ -18,16 +18,16 @@ function render(props) {
   );
 }
 
-test("renders a button per file showing the basename and full path", () => {
+test("renders one file-count trigger and labels duplicate basenames by full path", () => {
   const html = render({
-    files: [{ filePath: "/abs/out/report.html" }, { filePath: "/abs/out/data.json" }],
+    files: [{ filePath: "/abs/out/report.html" }, { filePath: "/abs/archive/report.html" }],
     onOpenFile() {},
   });
-  assert.match(html, /<button/);
-  assert.match(html, /report\.html/);
-  assert.match(html, /data\.json/);
-  assert.match(html, /title="\/abs\/out\/report\.html"/);
-  assert.match(html, /title="\/abs\/out\/data\.json"/);
+  assert.equal((html.match(/aria-haspopup=\"dialog\"/g) ?? []).length, 1);
+  assert.match(html, /2 files written/);
+  assert.match(html, /<dialog(?![^>]*\sopen(?:\s|=|>))/);
+  assert.match(html, /aria-label="Open \/abs\/out\/report\.html"/);
+  assert.match(html, /aria-label="Open \/abs\/archive\/report\.html"/);
 });
 
 test("renders nothing when no files were written", () => {

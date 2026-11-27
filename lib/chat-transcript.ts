@@ -92,6 +92,11 @@ export function buildChatTranscript(messages: readonly AgentMessage[], options: 
   let gap: TranscriptItem[] = [];
   function flush(before?: TranscriptItem) {
     if (gap.length === 0) return;
+    if (!before) {
+      for (const item of gap) rows.push(item);
+      gap = [];
+      return;
+    }
     // Don't fold a plain request, a trailing handoff, or the hop between those two.
     if (gap.length <= 2 && gap.every((item) => item.kind === "model" || item.kind === "user-handoff")
       && (gap.length === 1 || gap[0].kind !== gap[1].kind)) {

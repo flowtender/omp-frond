@@ -1,3 +1,5 @@
+import type { AssistantMessage } from "@oh-my-pi/pi-ai";
+import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession, type AgentEvent } from "@/lib/rpc-manager";
 import { isApiRequestAllowed } from "@/lib/request-security";
@@ -11,6 +13,21 @@ function toClientEvent(event: AgentEvent): AgentEvent | null {
   if (event.type === "message_update") {
     const clientEvent = { ...event };
     delete clientEvent.assistantMessageEvent;
+    const message = event.message as AssistantMessage | undefined;
+    if (message?.role === "assistant") {
+      let content: AssistantMessage["content"] | undefined;
+      for (let index = 0; index < message.content.length; index++) {
+        const block = message.content[index];
+        if (block.type !== "toolCall") continue;
+        // The SDK's argument buffer is symbol-keyed and would vanish in SSE JSON.
+        const rawInput = getStreamingPartialJson(block);
+        if (rawInput === undefined) continue;
+        content ??= message.content.slice();
+        const projected = { ...block, rawInput };
+        content[index] = projected;
+      }
+      if (content) clientEvent.message = { ...message, content };
+    }
     return clientEvent;
   }
   if (event.type === "agent_end") return { type: "agent_end" };

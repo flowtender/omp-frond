@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
+import { getStreamingPartialJson, setStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
 
 // Run the route with isolated session and timer dependencies, without starting an SDK runtime.
 const source = await readFile(new URL("../../../worker/api/agent/[id]/events/route.ts", import.meta.url), "utf8");
@@ -35,6 +36,7 @@ function harness({ cold = false, running = false, pendingExtensionUiIds = [] } =
     startRpcSession: () => startup,
     isApiRequestAllowed: () => true,
     readLiveComposer: () => ({ source: "live" }),
+    getStreamingPartialJson,
     setInterval: (callback) => { const id = Symbol(); timers.set(id, callback); return id; },
     clearInterval: (id) => timers.delete(id),
   };
@@ -113,6 +115,25 @@ test("sends a turn start without waiting for an assistant message", async () => 
     h.state.listener({ type: "message_start", message: { role: "assistant", content: [] } });
     const frame = new TextDecoder().decode((await reader.read()).value);
     assert.equal(frame, 'data: {"type":"turn_start"}\n\n');
+  } finally {
+    await reader.cancel();
+  }
+});
+
+test("the browser receives the SDK's live argument buffer, not the duplicate delta event", async () => {
+  const h = harness({ running: true });
+  const reader = (await h.response).body.getReader();
+  try {
+    await reader.read();
+    const block = { type: "toolCall", id: "write-1", name: "write", arguments: { path: "note.txt" } };
+    const rawInput = '{"path":"note.txt","content":"still growing';
+    setStreamingPartialJson(block, rawInput);
+    const message = { role: "assistant", content: [block] };
+    h.state.listener({ type: "message_update", message, assistantMessageEvent: { type: "toolcall_delta", partial: message } });
+    const frame = JSON.parse(new TextDecoder().decode((await reader.read()).value).slice("data: ".length));
+    assert.equal(frame.message.content[0].rawInput, rawInput);
+    assert.equal(Object.hasOwn(frame, "assistantMessageEvent"), false);
+    assert.equal(Object.hasOwn(block, "rawInput"), false);
   } finally {
     await reader.cancel();
   }

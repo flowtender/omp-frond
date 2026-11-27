@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AgentUsage, AssistantContentBlock, AssistantMessage, BackgroundJob, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
@@ -19,6 +19,7 @@ import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } fro
 import { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } from "./MessageView";
 import { TranscriptViewportRow } from "./TranscriptViewportRow";
 import { FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff } from "./TokenFlow";
+import { TranscriptGrowth, useTranscriptFold } from "./TranscriptGrowth";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -31,13 +32,15 @@ import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { useSyncedDisplaySettings } from "@/hooks/useDisplaySettings";
+import { ChatAnimationsContext, useEffectiveChatAnimationDuration } from "@/hooks/useChatAnimations";
 import { useProviderUsage } from "@/hooks/useProviderUsage";
 import { useShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
 import { useTokenDisplay, type TokenDisplayMode } from "@/hooks/useTokenDisplay";
 import { useTokenFlowConnections } from "@/hooks/useTokenFlowConnections";
 import type { ProviderUsageSummary } from "@/lib/provider-usage-types";
 import { formatTokenCount } from "@/lib/format-tokens";
-import { selectHasStreamingContent, selectIsStreaming, usePacedStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
+import { selectHasStreamingContent, selectIsStreaming, useStreamingSelector } from "@/hooks/useStreamingSelector";
+import { useSequencedReply } from "@/hooks/useSequencedReply";
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -224,6 +227,12 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
     if (reveal) setManualExpanded(true);
   }, [reveal]);
   const collapsed = !expanded && !reveal;
+  const { detailsRef, showDetails, bracketRef, bracketsMoving, measureBrackets } = useTranscriptFold(collapsed, reveal, tokenDisplay === "flow");
+  const details = showDetails ? (
+    <div ref={detailsRef} data-fold-details="" inert={collapsed} style={tokenDisplay === "flow" ? undefined : { marginTop: 8 }}>
+      <div className="flow-root">{renderDetails()}</div>
+    </div>
+  ) : null;
   const sizeParts: string[] = [];
   if (messageCount > 0) sizeParts.push(`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`);
   if (requestCount > 0) sizeParts.push(`${requestCount} ${t(requestCount === 1 ? "chat.modelRequest" : "chat.modelRequests")}`);
@@ -275,44 +284,47 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
   );
   // In flow mode a run of requests is drawn on the wire: collapsed as a bracketed turn marker whose rows hold the
   // fold's stats, open as a handoff row. Either way the toggle is an icon button on the wire.
+  let body: ReactNode;
   if (tokenDisplay === "flow") {
     const summaryLabel = [t("chat.processDetails"), ...parts, failureText, cacheMissText].filter(Boolean).join(" · ");
     const iconToggle = (
       <button {...toggleProps} className="token-flow-handoff-icon token-flow-fold-toggle" aria-label={summaryLabel}>{toggleIcon}</button>
     );
-    if (collapsed) {
-      const failureRow = failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{failureText}</span>;
-      return (
-        <TokenFlowFold
-          usage={usage}
-          missing={missingUsage}
-          models={models}
-          hasRequests={requestCount > 0}
-          outputRows={[...sizeParts, ...otherParts]}
-          inputRows={[...toolParts, failureRow, cacheMissText].filter(Boolean)}
-        >
-          {iconToggle}
-        </TokenFlowFold>
-      );
-    }
-    return (
+    const foldProps = {
+      usage, missing: missingUsage, models, hasRequests: requestCount > 0,
+      outputRows: [...sizeParts, ...otherParts],
+      inputRows: [...toolParts, failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{failureText}</span>, cacheMissText].filter(Boolean),
+    };
+    body = (
+      <div className="transcript-process transcript-flow-fold-group" data-fold-moving={bracketsMoving ? "" : undefined}>
+        <div ref={bracketRef} className="transcript-fold-brackets" aria-hidden="true" />
+        {showDetails ? (
+          <>
+            {measureBrackets && <div className="transcript-fold-measure" aria-hidden="true"><TokenFlowFold {...foldProps} measure /></div>}
+            <TokenFlowHandoff kind="process" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>
+            {details}
+            <TokenFlowHandoff kind="process-end" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>
+          </>
+        ) : <TokenFlowFold {...foldProps} bottomToggle={iconToggle}>{iconToggle}</TokenFlowFold>}
+      </div>
+    );
+  } else {
+    body = (
       <div className="transcript-process">
-        <TokenFlowHandoff kind="process" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>
-        {renderDetails()}
+        {toggle}
+        {details}
+        {showDetails && <button {...toggleProps} className="transcript-fold-toggle" aria-label={toggleProps.title}>{toggleIcon}</button>}
       </div>
     );
   }
-  return (
-    <div className="transcript-process">
-      {toggle}
-      {!collapsed && <div style={{ marginTop: 8 }}>{renderDetails()}</div>}
-    </div>
-  );
+  return body;
 }
 
 export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onProviderUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, onSubagentsChange, onBackgroundJobsChange, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  const animationDuration = useEffectiveChatAnimationDuration();
+  const chatAnimations = animationDuration > 0;
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
@@ -324,13 +336,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
   const extensionDialogShownRef = useRef(false);
+  const [composerHandoff, setComposerHandoff] = useState(0);
+  useEffect(() => {
+    if (!chatAnimations) setComposerHandoff(0);
+  }, [chatAnimations]);
   const wrappedOnAgentEnd = useCallback((end: AgentEndInfo) => {
     // A run someone stopped did not finish anything.
+    if (chatAnimations && !end.aborted) setComposerHandoff((turn) => turn + 1);
     if (completionNotificationsEnabled && soundEnabledRef.current && !end.aborted) {
       playDoneSoundRef.current();
     }
     onAgentEnd?.(end);
-  }, [completionNotificationsEnabled, onAgentEnd]);
+  }, [chatAnimations, completionNotificationsEnabled, onAgentEnd]);
 
   const initialScrollPositionRef = useRef(searchTarget ? null : initialScrollPosition ?? null);
   const [pendingScrollRestore, setPendingScrollRestore] = useState<Extract<ChatScrollPosition, { atBottom: false }> | null>(() => {
@@ -381,13 +398,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   // re-render StreamingReply alone.
   const isStreaming = useStreamingSelector(streamingStore, selectIsStreaming);
   const hasStreamingContent = useStreamingSelector(streamingStore, selectHasStreamingContent);
+  const visibleReplyStartsRef = useRef(new Set<number>());
+  const [presentingReply, setPresentingReply] = useState<number | undefined>();
   const getStreamingMessage = useCallback(() => streamingStore.getState().streamingMessage, [streamingStore]);
   const sessionBusy = agentRunning || bashRunning;
   // omp's render-affecting settings (hideThinkingBlock, display.cacheMissMarker).
   // Synced here once for the whole transcript; MessageView reads the shared store directly.
   const { hideThinkingBlock, cacheMissMarker } = useSyncedDisplaySettings(newSessionCwd ?? session?.cwd ?? null);
   const displayOptions = useMemo<DisplayOptions>(() => ({ hideThinking: hideThinkingBlock }), [hideThinkingBlock]);
-  const transcript = useMemo(() => buildChatTranscript(messages, displayOptions, cacheMissMarker), [messages, displayOptions, cacheMissMarker]);
+  const transcript = useMemo(() => {
+    const retainedIndex = presentingReply === undefined ? -1 : messages.findLastIndex(
+      (message) => message.role === "assistant" && message.timestamp === presentingReply,
+    );
+    return buildChatTranscript(retainedIndex < 0 ? messages : messages.slice(0, retainedIndex), displayOptions, cacheMissMarker);
+  }, [messages, displayOptions, cacheMissMarker, presentingReply]);
   // While this session's run is under way its chime may come with the phone
   // locked, where a suspended context cannot start again (#1157).
   useEffect(() => {
@@ -1078,6 +1102,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     }
   }, [promptAnchorActive, autoFollowPaused, pendingScrollRestore, agentRunning, bashRunning, scrollToBottom]);
   useLayoutEffect(updatePromptAnchor, [isStreaming, hasStreamingContent, updatePromptAnchor]);
+  const onStreamingCommit = useCallback((message: AssistantMessage | null) => {
+    const visible = visibleReplyStartsRef.current;
+    const timestamp = message?.timestamp;
+    setPresentingReply(timestamp);
+    if (message && timestamp !== undefined && !visible.has(timestamp)
+      && message.content.some((block) => block.type === "image" || (block.type === "text" && /\S/.test(block.text)))) {
+      const oldest = visible.values().next().value;
+      if (visible.size >= 64 && oldest !== undefined) visible.delete(oldest);
+      visible.add(timestamp);
+    }
+    updatePromptAnchor();
+  }, [updatePromptAnchor]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -1160,9 +1196,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }
 
   return (
+    <ChatAnimationsContext value={animationDuration}>
     <div
       className="chat-content relative flex h-full min-w-0 flex-col overflow-hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      data-chat-animations={chatAnimations ? "" : undefined}
+      style={{ paddingBottom: "env(safe-area-inset-bottom)", "--chat-animation-duration": `${animationDuration}ms` } as CSSProperties}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -1234,7 +1272,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           // so it shows its scrollbar instead of hiding it behind the minimap (#788).
           // A stable gutter keeps the centred column from shifting when a short
           // session grows past one screen.
-          className="scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
+          className="scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable_both-edges]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
@@ -1263,6 +1301,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 const msg = messages[idx];
                 const key = itemKey(item);
                 const part = item.kind === "assistant" ? item.part : undefined;
+                const arriving = !loading && !pendingScrollRestore && idx >= lastUserIdx && !entryIds[idx];
+                const wasStreamed = msg.role === "assistant" && msg.timestamp !== undefined && visibleReplyStartsRef.current.has(msg.timestamp);
                 if (item.kind === "model" && msg.role === "assistant") {
                   if (!showTokenFlow) return tokenDisplay === "text" && foldedRequests.has(idx) && msg.usage
                     ? <div key={key} className="transcript-message text-xs text-text-dim">{formatUsage(msg.usage, true, true)}</div>
@@ -1278,7 +1318,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const request = item.call ? messages[item.call.index] as AssistantMessage : undefined;
                   const call = item.call && request?.content[item.call.blockIndex];
                   return <TranscriptToolResult key={key} result={toolResultsMap.get(msg.toolCallId) ?? msg}
-                    call={call?.type === "toolCall" ? call : undefined} requestTime={request?.timestamp} cwd={messageCwd} onOpenSubagent={onOpenSubagent} />;
+                    call={call?.type === "toolCall" ? call : undefined} requestTime={request?.timestamp} cwd={messageCwd}
+                    onOpenSubagent={onOpenSubagent} live={arriving} />;
                 }
                 const notices = !cacheMissMarker || (part && !part.metadata) ? [] : getTranscriptNotices(msg);
                 const view = (
@@ -1291,6 +1332,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     onOpenFile={onOpenFile}
                     onOpenSubagent={onOpenSubagent}
                     entryId={entryIds[idx]}
+                    arrivalSpark={arriving && (msg.role === "user" || part?.kind === "chat")}
+                    toolArrival={part?.kind === "call" && arriving && !wasStreamed}
                     searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
                     onFork={bashRunning || isNew ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
@@ -1314,13 +1357,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 );
                 const noticeLines = notices.length > 0 ? <TranscriptNoticeLines notices={notices} /> : null;
                 const port = item.kind === "input" ? "input" : undefined;
+                const canReveal = item.kind === "user" || item.kind === "compaction" || item.kind === "input"
+                  || part?.kind === "chat" || part?.kind === "status";
                 return (
                   <div key={key} data-entry-id={entryIds[idx]}
                     data-transcript-port={port}
                     data-chat-scroll-anchor={entryIds[idx] && (isMessageGroupAnchor(msg) || part?.kind === "chat") ? "" : undefined}
                     ref={item.kind === "user" && idx === lastUserIdx ? attachLatestPrompt : undefined}>
-                    {view}
-                    {noticeLines}
+                    {canReveal ? (
+                      <TranscriptGrowth from={arriving && !wasStreamed ? 0 : undefined}
+                        data-chat-arrival={arriving && !wasStreamed ? part?.kind === "status" ? "attention" : item.kind : undefined}>
+                        {view}
+                        {noticeLines}
+                      </TranscriptGrowth>
+                    ) : <>{view}{noticeLines}</>}
                   </div>
                 );
               };
@@ -1429,19 +1479,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 </>
               );
             })()}
-            {((isStreaming && (hasStreamingContent || showTokenFlow)) || waitingForModel) && (
-              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} waitingForModel={waitingForModel} model={displayModelValue} />
-            )}
+            <StreamingReply store={streamingStore} onCommit={onStreamingCommit} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} waitingForModel={waitingForModel || (showTokenFlow && isStreaming)} model={displayModelValue} />
 
             {agentRunning && !hasStreamingContent && (agentPhase || isCompacting) && (
               <div className="break-words py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t, isCompacting)}</span>
+                {phaseLabel(agentPhase, t, isCompacting)}
               </div>
             )}
 
             {bashRunning && !pendingBash && (
               <div className="py-2 text-[13px] text-text-muted">
-                 <span className="animate-[pulse_1.5s_infinite]">{t("chat.runningCommand")}</span>
+                {t("chat.runningCommand")}
               </div>
             )}
 
@@ -1600,7 +1648,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             <GoalBar goal={goalStatus} t={t} />
           </div>
         </div>
-        {chatInputElement}
+        <div className="relative">
+          {chatInputElement}
+          {chatAnimations && composerHandoff > 0 && <span key={composerHandoff} className="chat-composer-handoff" aria-hidden="true"
+            onAnimationEnd={() => setComposerHandoff((turn) => turn === composerHandoff ? 0 : turn)} />}
+        </div>
         <ExtensionStatusBar
           statuses={extensionStatuses}
           widgets={extensionWidgets}
@@ -1611,6 +1663,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       {showTokenFlow && <svg ref={composerWireRef} className="token-flow-wire z-[1]" width="100%" height="100%" aria-hidden="true"><path /></svg>}
       {isEmptyNew && <div className="min-h-0 flex-1" />}
     </div>
+    </ChatAnimationsContext>
   );
 }
 
@@ -1659,7 +1712,7 @@ function GoalBar({ goal, t }: { goal: GoalStatusInfo | null; t: (key: string, pa
 const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, tokenDisplay, waitingForModel, model }: {
   store: StreamingStore;
   /** Runs after each visible update is in the DOM. */
-  onCommit: () => void;
+  onCommit: (message: AssistantMessage | null) => void;
   toolResults: Map<string, ToolResultMessage>;
   modelNames: Record<string, string>;
   cwd?: string;
@@ -1669,15 +1722,18 @@ const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResul
   waitingForModel: boolean;
   model: { provider: string; modelId: string } | null;
 }) {
-  const message = usePacedStreamingMessage(store);
+  const { root, message } = useSequencedReply(store);
   const { t } = useI18n();
-  useLayoutEffect(onCommit, [message, onCommit, waitingForModel]);
-  if (!message) {
-    if (!waitingForModel) return null;
-    return <TokenFlow provider={model?.provider ?? ""} model={model?.modelId ?? ""}
-      modelName={model ? getModelDisplayName(model.provider, model.modelId, modelNames) : t("chat.waitingModel")} />;
-  }
-  return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} />;
+  useLayoutEffect(() => onCommit(message), [message, onCommit, waitingForModel]);
+  const waitingMessage = useMemo<AssistantMessage>(() => ({
+    role: "assistant",
+    content: [],
+    provider: model?.provider ?? "",
+    model: model?.modelId ?? t("chat.waitingModel"),
+  }), [model, t]);
+  if (!waitingForModel && (!message || (!message.content.length && tokenDisplay !== "flow"))) return null;
+  return <div ref={root} className="contents"><MessageView message={message ?? waitingMessage} toolResults={toolResults} isStreaming live
+    modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} /></div>;
 });
 
 // A one-line notice is exactly as tall as its entrance animation pins it, and
@@ -2312,6 +2368,7 @@ function ExtensionDialog({
       {collapsed ? (
         <button
           type="button"
+          className="chat-attention"
           onClick={() => setCollapsed(false)}
           aria-expanded={false}
           style={{
@@ -2351,6 +2408,7 @@ function ExtensionDialog({
       <div
         ref={dialogRef}
         role="dialog"
+        className="chat-attention"
         aria-label={request.title}
         style={{
           pointerEvents: "auto",

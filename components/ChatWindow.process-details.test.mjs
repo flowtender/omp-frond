@@ -12,7 +12,8 @@ const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } = await jiti.import("./MessageView.tsx");
 const { FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff } = await jiti.import("./TokenFlow.tsx");
 const { useI18n } = await jiti.import("@/hooks/useI18n");
-const { usePacedStreamingMessage } = await jiti.import("@/hooks/useStreamingSelector");
+const { useSequencedReply } = await jiti.import("@/hooks/useSequencedReply");
+const { TranscriptGrowth, useTranscriptFold } = await jiti.import("./TranscriptGrowth.tsx");
 const display = await import("../lib/message-display.ts");
 const { buildChatTranscript } = await import("../lib/chat-transcript.ts");
 const duration = await import("../lib/turn-duration.ts");
@@ -47,6 +48,7 @@ function renderTranscript(messages, overrides = {}) {
     React, Fragment: React.Fragment, useState: React.useState, useLayoutEffect: React.useLayoutEffect, useId: React.useId,
     ...display, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, toolCallFailureCount,
     useExpansionPreference: () => "automatic",
+    useTranscriptFold, TranscriptGrowth,
     FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff, TranscriptToolResult,
     formatTime, formatUsage, getModelDisplayName, handoffTimeOf,
     transcript: buildChatTranscript(messages, {}, Boolean(overrides.cacheMissMarker)),
@@ -55,6 +57,7 @@ function renderTranscript(messages, overrides = {}) {
     MessageView, messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
     toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
     sessionBusy: false, isStreaming: false, bashRunning: false, isNew: false, isCompacting: false, compactError: null,
+    loading: false, visibleReplyStartsRef: { current: new Set() },
     lastUserMsgRef: { current: null }, pendingSearchScroll: null, searchBlock: null, forkingEntryId: null, editEntryId: null,
     pendingScrollRestore: null,
     session: { id: "fixture" }, sessionIdRef: { current: "fixture" }, visibleCount: 100, hasEarlierMessages: false, earlierTurnCount: 0,
@@ -153,7 +156,18 @@ test("process preference overrides the automatic default", () => {
   const hidden = reply("", { content: [{ type: "thinking", thinking: "process thinking" }] });
   const messages = [user, hidden, reply("final answer")];
   assert.ok(renderTranscript(messages, { useExpansionPreference: () => "expanded" }).includes("process thinking"));
-  assert.ok(!renderTranscript([user, hidden], { useExpansionPreference: () => "collapsed" }).includes("process thinking"));
+  assert.ok(!renderTranscript(messages, { useExpansionPreference: () => "collapsed" }).includes("process thinking"));
+});
+
+test("leaves unfinished process steps visible with no fold toggles", () => {
+  const thought = reply("", { content: [{ type: "thinking", thinking: "unfinished thought" }] });
+  const options = { tokenDisplay: "flow", useExpansionPreference: () => "collapsed" };
+  const pending = renderTranscript([user, thought], options);
+  assert.match(pending, /unfinished thought/);
+  assert.doesNotMatch(pending, /token-flow-fold-toggle/);
+  const finished = renderTranscript([user, thought, reply("answer")], options);
+  assert.doesNotMatch(finished, /unfinished thought/);
+  assert.equal((finished.match(/class="token-flow-handoff-icon token-flow-fold-toggle"/g) ?? []).length, 2);
 });
 
 test("manual process choice survives an answer and later preference changes", () => {
@@ -166,6 +180,7 @@ test("manual process choice survives an answer and later preference changes", ()
     useId: () => "summary",
     useLayoutEffect: () => {},
     useExpansionPreference: () => preference,
+    useTranscriptFold: (collapsed) => ({ showDetails: !collapsed }),
     formatTurnDuration: duration.formatTurnDuration,
     cacheMissSummaryText: noticeViews.cacheMissSummaryText,
     TRANSCRIPT_NOTICE_WARNING_COLOR: noticeViews.TRANSCRIPT_NOTICE_WARNING_COLOR,
@@ -257,8 +272,9 @@ test("tool results and appended steering are input boxes, not model output", () 
     tokenDisplay: "flow", useExpansionPreference: () => "expanded",
   });
   const sequence = Array.from(html.matchAll(/data-token-flow=""|data-token-handoff="([^"]+)"|data-transcript-block="([^"]+)"/g), (match) => match[1] ?? match[2] ?? "model")
-    .filter((kind) => kind !== "process");
+    .filter((kind) => kind !== "process" && kind !== "process-end");
   assert.deepEqual(sequence, ["context", "model", "response", "response", "tools", "context", "context", "context", "model", "response", "user"]);
+  assert.match(html, /data-token-handoff="process".*data-token-handoff="tools".*data-token-handoff="process-end"/s);
   assert.match(html, /data-token-handoff="tools"[^>]*aria-label="2 tool calls".*?title="read".*?data-tool-icon="read".*?title="grep".*?data-tool-icon="grep"/s);
   const folded = renderTranscript(messages, { tokenDisplay: "flow" });
   assert.match(folded, /inspect both.*Only summarize.*Summary/s);
@@ -305,6 +321,7 @@ test("fold totals count every hidden request once, separate from visible request
   for (const label of ["New input: 36", "Output: 27", "Cache Read: 18", "Cache Write: 9"]) assert.ok(folded.includes(label), label);
   assert.match(folded, /some requests did not report token usage/);
   assert.match(folded, /data-transcript-port="fold"/);
+  assert.match(folded, /token-flow-fold-toggle-slot-bottom[^>]*><button[^>]*aria-expanded="false"/);
   assert.doesNotMatch(folded, /New input: 12|New input: 24|hidden reasoning/);
   const expanded = renderTranscript(messages, { tokenDisplay: "flow", useExpansionPreference: () => "expanded" });
   assert.doesNotMatch(expanded, /New input: 36/);
@@ -337,12 +354,13 @@ test("renders one model row while awaiting the first assistant snapshot", () => 
   }).outputText;
   let snapshot = null;
   const StreamingReply = new Script(code).runInContext(createContext({
-    React, useLayoutEffect: React.useLayoutEffect, usePacedStreamingMessage,
+    React, useMemo: React.useMemo, useLayoutEffect: React.useLayoutEffect, useSequencedReply,
     useI18n, getModelDisplayName, MessageView, TokenFlow,
   }));
   const render = (waitingForModel) => renderToStaticMarkup(React.createElement(I18nProvider, null,
     React.createElement(StreamingReply, {
       store: { getState: () => ({ streamingMessage: snapshot }) },
+      onCommit: () => {},
       model: { provider: "test", modelId: "pending-model" }, modelNames: {}, tokenDisplay: "flow", waitingForModel,
     }),
   ));
