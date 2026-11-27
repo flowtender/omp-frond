@@ -90,6 +90,10 @@ The control port is never a browser endpoint.
 Development uses Turbopack with worker-thread loaders under Bun. Production
 builds still use webpack.
 
+The desktop payload contains copies of the worker and web server sources.
+The root TypeScript check excludes those copies so it checks each source
+once, while still checking the generated Next route types.
+
 Pi-specific names and original decisions in inherited ADRs describe their source
 context. They do not override OMP's current SDK contracts or this fork's
 maintenance policy. Retain upstream attribution and intentional compatibility

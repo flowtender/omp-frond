@@ -64,6 +64,10 @@ const nextConfig: NextConfig = {
   // loopback and the RFC1918 LAN ranges so the dev server stays reachable
   // from other machines on the same LAN.
   allowedDevOrigins: [
+    ...(process.env.OMP_FROND_ALLOWED_HOSTS ?? "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase().replace(/\.$/, ""))
+      .filter((host) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(host)),
     "127.0.0.1",
     "10.*.*.*",
     // 172.16.0.0/12

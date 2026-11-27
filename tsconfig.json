@@ -46,6 +46,10 @@
   ],
   "exclude": [
     "node_modules",
+    "src-tauri/server/bin",
+    "src-tauri/server/lib",
+    "src-tauri/server/worker",
+    "src-tauri/server/next.config.ts",
     "demo"
   ]
 }
