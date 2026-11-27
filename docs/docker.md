@@ -7,10 +7,9 @@ inside the container, so every flag and environment variable from the
 Two things make omp-frond different from an ordinary web app, and both shape how
 the container has to be run:
 
-- **It is not a self-contained service.** omp-frond reads the sessions the `omp`
-  CLI already wrote, from `~/.omp/agent`. Without that directory mounted, the
-  container starts with no sessions, no configuration and no model roles, and
-  nothing it writes survives `docker rm`.
+- **The compatibility setup shares OMP data.** It mounts the host's
+  `~/.omp` so the CLI and browser can see the same transcripts and settings.
+  Use the restricted setup below when the agent must not see that host state.
 - **It can run a high-privilege agent.** Whatever the container can reach, the
   agent can change. The container boundary is the containment here — keep it
   intact rather than widening it, and only mount the projects you want the
@@ -33,6 +32,33 @@ any of these in a `.env` file next to the compose file.
 The IDs are `OMP_UID`/`OMP_GID` rather than `UID`/`GID` because `UID` is
 readonly in bash and cannot be set inline. Docker Desktop on macOS and Windows
 needs neither — see [File ownership](#file-ownership).
+
+## Restricted worker
+
+`docker-compose.restricted.yml` runs the web service and SDK worker in separate
+containers. Only the browser port is published. The authenticated worker
+channel is on an internal Docker network; the worker has no external egress
+unless the operator explicitly attaches another network.
+
+```bash
+export OMP_FROND_PASSWORD='a-long-random-password'
+export OMP_FROND_WORKER_TOKEN="$(openssl rand -hex 32)"
+export OMP_FROND_WORKSPACE=/path/to/the/chosen/workspace
+docker compose -f docker-compose.restricted.yml up --build
+```
+
+The worker runs unprivileged with a read-only image filesystem. It can write to
+the chosen workspace and its own named home volume. It receives neither the
+host's agent home nor the web service's password or provider environment. Add
+provider credentials to the worker explicitly and configure egress separately
+if the chosen provider needs it. Project trust is still required for executable
+project resources; it does not grant additional mounts or network access.
+
+The file explorer, uploads and terminal use `/workspace` inside the worker.
+Worktrees use the standard sibling directory only when both the repository and
+the destination fit inside this mount. Mount the repository's parent directory
+as the workspace if you want sibling worktrees. Requests outside the scoped
+workspace are not redirected to the web host.
 
 ## Without compose
 

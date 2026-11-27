@@ -1,6 +1,7 @@
 import { mkdir, readdir, realpath, stat } from "fs/promises";
 import { homedir } from "os";
 import path from "path";
+import { workerWorkspaceRoot } from "./worker-workspace";
 
 export interface BrowsableDirectory {
   name: string;
@@ -15,7 +16,7 @@ export function shouldShowWindowsDrivePicker(
 }
 
 export function getBrowseStartDirectory(directory?: string): string {
-  return directory || homedir();
+  return directory || workerWorkspaceRoot || homedir();
 }
 
 export function getWindowsDriveCandidates(): BrowsableDirectory[] {
@@ -39,17 +40,17 @@ export async function listWindowsDrives(): Promise<BrowsableDirectory[]> {
 }
 
 export function normalizeDirectory(directory: string): string {
-  if (directory === "~") return homedir();
+  if (directory === "~") return workerWorkspaceRoot ?? homedir();
   if (/^~[\\/]/.test(directory)) {
     const suffix = directory.slice(2).replace(/[\\/]+/g, path.sep);
-    return path.resolve(homedir(), suffix);
+    return path.resolve(workerWorkspaceRoot ?? homedir(), suffix);
   }
 
   const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(directory)
     || directory.startsWith("\\\\")
     || directory.startsWith("//");
   const pathApi = isWindowsPath ? path.win32 : path;
-  const launchCwd = process.env.OMP_FROND_LAUNCH_CWD;
+  const launchCwd = workerWorkspaceRoot ?? process.env.OMP_FROND_LAUNCH_CWD;
   const baseDirectory = launchCwd ? pathApi.resolve(launchCwd) : process.cwd();
   return pathApi.resolve(baseDirectory, directory);
 }

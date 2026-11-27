@@ -10,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { GET } = await jiti.import("./[id]/entries/[entryId]/tool-result-image/route.ts");
+const { GET } = await jiti.import("../../../worker/api/sessions/[id]/entries/[entryId]/tool-result-image/route.ts");
 const { cacheSessionPath, invalidateSessionPathCache } = await jiti.import("../../../lib/session-reader.ts");
 
 // A 1x1 PNG.

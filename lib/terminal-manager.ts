@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { homedir } from "os";
-import type { IPty } from "node-pty";
+import type { IPty, spawn as spawnNodePty } from "node-pty";
 import { samePath } from "./paths";
 
 export type TerminalEvent =
@@ -9,9 +9,10 @@ export type TerminalEvent =
   | { type: "closed" };
 
 type TerminalListener = (event: TerminalEvent) => void;
+type TerminalProcess = Pick<IPty, "write" | "resize"> & { kill(signal?: "SIGKILL"): void };
 
 interface TerminalRecord {
-  pty: IPty;
+  pty: TerminalProcess;
   cwd: string;
   listeners: Set<TerminalListener>;
   backlog: string;
@@ -71,17 +72,68 @@ function dimension(value: number, fallback: number): number {
   return Math.min(1000, Math.max(2, Number.isFinite(value) ? Math.floor(value) : fallback));
 }
 
-export function createTerminal(cwd: string, cols: number, rows: number, id: string = randomUUID()): string {
-  const existing = registry().get(id);
-  if (existing) {
-    if (!samePath(existing.cwd, cwd)) throw new Error("Terminal belongs to a different workspace");
-    return id;
+function spawnWorkspaceShell(
+  cwd: string,
+  cols: number,
+  rows: number,
+  onData: (data: string) => void,
+  onExit: (exitCode: number) => void,
+): TerminalProcess {
+  const shell = process.platform === "win32" ? process.env.ComSpec ?? "cmd.exe" : process.env.SHELL || "/bin/sh";
+  const args = process.platform === "win32" ? [] : ["-l"];
+  const env = shellEnvironment();
+  if (process.platform === "linux" && typeof Bun !== "undefined") {
+    // node-pty shells receive an early SIGHUP under Bun on Linux.
+    const decoder = new TextDecoder();
+    let streamClosed = false;
+    let finishAfterClose: (() => void) | undefined;
+    const child = Bun.spawn([shell, ...args], {
+      cwd,
+      env,
+      terminal: {
+        cols,
+        rows,
+        data(_terminal, bytes) {
+          const text = decoder.decode(bytes, { stream: true });
+          if (text) onData(text);
+        },
+        exit() {
+          streamClosed = true;
+          finishAfterClose?.();
+        },
+      },
+    });
+    const terminal = child.terminal!;
+    const processExited = (exitCode: number) => {
+      let timeout: NodeJS.Timeout | undefined;
+      const finish = () => {
+        clearTimeout(timeout);
+        finishAfterClose = undefined;
+        terminal.close();
+        const tail = decoder.decode();
+        if (tail) onData(tail);
+        onExit(exitCode);
+      };
+      if (streamClosed) finish();
+      else {
+        // Drain final output, but do not wait on a grandchild holding the PTY open.
+        finishAfterClose = finish;
+        timeout = setTimeout(finish, 200);
+      }
+    };
+    void child.exited.then(processExited, () => processExited(1));
+    return {
+      write: (data) => terminal.write(data),
+      resize: (width, height) => terminal.resize(width, height),
+      kill: (signal) => child.kill(signal ?? "SIGHUP"),
+    };
   }
-  let spawn: typeof import("node-pty").spawn;
+
+  let spawn: typeof spawnNodePty;
   try {
     // Load inside creation so native module failures reach the API's JSON error handler.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ({ spawn } = require("node-pty") as typeof import("node-pty"));
+    ({ spawn } = require("node-pty") as { spawn: typeof spawnNodePty });
   } catch (error) {
     throw new Error(
       `Cannot load the node-pty native terminal module for ${process.platform}-${process.arch}. ` +
@@ -92,19 +144,33 @@ export function createTerminal(cwd: string, cols: number, rows: number, id: stri
       { cause: error },
     );
   }
-  const shell = process.platform === "win32"
-    ? process.env.ComSpec ?? "cmd.exe"
-    : process.env.SHELL || "/bin/sh";
-  const args = process.platform === "win32" ? [] : ["-l"];
-  const pty = spawn(shell, args, {
-    name: "xterm-256color",
-    cols: dimension(cols, 80),
-    rows: dimension(rows, 24),
-    cwd: cwd || homedir(),
-    env: shellEnvironment(),
-  });
+  const pty = spawn(shell, args, { name: "xterm-256color", cols, rows, cwd, env });
+  pty.onData(onData);
+  pty.onExit(({ exitCode }) => onExit(exitCode));
+  return pty;
+}
+
+export function createTerminal(cwd: string, cols: number, rows: number, id: string = randomUUID()): string {
+  const existing = registry().get(id);
+  if (existing) {
+    if (!samePath(existing.cwd, cwd)) throw new Error("Terminal belongs to a different workspace");
+    return id;
+  }
+  const onData = (data: string) => {
+    record.backlog = (record.backlog + data).slice(-MAX_BACKLOG);
+    record.offset += data.length;
+    emit(record, { type: "output", data, offset: record.offset });
+  };
+  const onExit = (exitCode: number) => {
+    clearTimeout(record.cleanupTimer ?? undefined);
+    record.cleanupTimer = null;
+    record.exited = true;
+    record.exitCode = exitCode;
+    emit(record, { type: "exit", exitCode });
+    scheduleCleanup(id, record);
+  };
   const record: TerminalRecord = {
-    pty,
+    pty: spawnWorkspaceShell(cwd || homedir(), dimension(cols, 80), dimension(rows, 24), onData, onExit),
     cwd,
     listeners: new Set(),
     backlog: "",
@@ -116,20 +182,6 @@ export function createTerminal(cwd: string, cols: number, rows: number, id: stri
   registry().set(id, record);
   // Includes creations whose response or initial SSE connection never arrives.
   scheduleCleanup(id, record);
-
-  pty.onData((data) => {
-    record.backlog = (record.backlog + data).slice(-MAX_BACKLOG);
-    record.offset += data.length;
-    emit(record, { type: "output", data, offset: record.offset });
-  });
-  pty.onExit(({ exitCode }) => {
-    if (record.cleanupTimer) clearTimeout(record.cleanupTimer);
-    record.cleanupTimer = null;
-    record.exited = true;
-    record.exitCode = exitCode;
-    emit(record, { type: "exit", exitCode });
-    scheduleCleanup(id, record);
-  });
   return id;
 }
 

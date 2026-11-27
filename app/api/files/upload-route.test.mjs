@@ -20,9 +20,8 @@ test.after(() => {
 });
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() }, interopDefault: true });
-const { POST } = await jiti.import("./[...path]/route.ts");
+const { POST } = await jiti.import("../../../worker/api/files/[...path]/route.ts");
 const { encodeFilePathForApi } = await jiti.import("../../../lib/file-paths.ts");
-const { NextRequest } = await jiti.import("next/server");
 
 function fixture() {
   const directory = fs.mkdtempSync(path.join(base, "files-"));
@@ -36,7 +35,7 @@ async function upload(directory, strategy = "overwrite", names = ["important.txt
   const encoded = encodeFilePathForApi(directory);
   const form = new FormData();
   for (const name of names) form.append("files", new File(["replacement"], name));
-  return POST(new NextRequest(`http://localhost/api/files/${encoded}?type=upload&conflict=${strategy}`, {
+  return POST(new Request(`http://localhost/api/files/${encoded}?type=upload&conflict=${strategy}`, {
     method: "POST", headers: { host: "localhost" }, body: form,
   }), { params: Promise.resolve({ path: encoded.split("/").map(decodeURIComponent) }) });
 }

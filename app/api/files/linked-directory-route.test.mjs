@@ -23,11 +23,10 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { GET, POST } = await jiti.import("./[...path]/route.ts");
-const { GET: getFileIndex } = await jiti.import("../file-index/route.ts");
+const { GET, POST } = await jiti.import("../../../worker/api/files/[...path]/route.ts");
+const { GET: getFileIndex } = await jiti.import("../../../worker/api/file-index/route.ts");
 const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
 const { encodeFilePathForApi } = await jiti.import("../../../lib/file-paths.ts");
-const { NextRequest } = await jiti.import("next/server");
 
 function request(method, filePath, type, body, contentType = "application/json") {
   const encoded = encodeFilePathForApi(filePath);
@@ -37,7 +36,7 @@ function request(method, filePath, type, body, contentType = "application/json")
   const init = body === undefined
     ? { method, headers: { host: "localhost" } }
     : { method, headers: { host: "localhost", "content-type": contentType }, body: JSON.stringify(body) };
-  return handler(new NextRequest(url, init), context);
+  return handler(new Request(url, init), context);
 }
 
 function allowLink(linkPath, target) {
@@ -169,7 +168,7 @@ test("a `..` carried inside an encoded segment cannot climb out through a link",
   // `%2F` survives URL parsing, so the catch-all receives one decoded segment.
   const segments = [...encodeFilePathForApi(hub).split("/").map(decodeURIComponent), "linked/../beside.txt"];
   const response = await GET(
-    new NextRequest(`http://localhost/api/files/x?type=read`, { headers: { host: "localhost" } }),
+    new Request(`http://localhost/api/files/x?type=read`, { headers: { host: "localhost" } }),
     { params: Promise.resolve({ path: segments }) },
   );
   assert.equal(response.status, 403);
@@ -187,7 +186,7 @@ test("a cwd that climbs out through a link is refused by the other routes too", 
   // Query-string paths are not normalized by URL parsing, so `..` reaches the
   // existing-path check, which must refuse it rather than read it as `hub`.
   const cwd = `${hub}${path.sep}linked${path.sep}..`;
-  const response = await getFileIndex(new NextRequest(
+  const response = await getFileIndex(new Request(
     `http://localhost/api/file-index?cwd=${encodeURIComponent(cwd)}`,
     { headers: { host: "localhost" } },
   ));

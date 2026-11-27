@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, Url};
 
 const WINDOW_LABEL: &str = "main";
 const HOST: &str = "127.0.0.1";
-const NEXT_ENTRY: &str = "node_modules/next/dist/bin/next";
+const SERVER_ENTRY: &str = "bin/next-with-worker.js";
 
 /// Appends a line to the desktop log in the temp dir and mirrors it to
 /// stderr. GUI-launched apps have no terminal, so stderr alone is
@@ -151,8 +151,7 @@ fn start_server(app: &mut tauri::App) -> Result<(), String> {
     let mut command = Command::new(&bun);
     command
         .current_dir(&root)
-        .arg("--bun")
-        .arg(NEXT_ENTRY)
+        .arg(SERVER_ENTRY)
         .arg("start")
         .arg("-H")
         .arg(HOST)

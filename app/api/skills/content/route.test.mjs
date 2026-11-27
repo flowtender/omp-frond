@@ -67,7 +67,7 @@ await symlink(linkedDir, join(skillsDir, "linked"));
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed } = await jiti.import("../../../../lib/file-access.ts");
 allowFileRoot(process.cwd());
-const { GET } = await jiti.import("./route.ts");
+const { GET } = await jiti.import("../../../../worker/api/skills/content/route.ts");
 
 after(async () => {
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;

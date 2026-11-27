@@ -1,0 +1,54 @@
+name: omp-frond-restricted
+
+services:
+  web:
+    build:
+      context: .
+      args:
+        UID: ${OMP_UID:-1000}
+        GID: ${OMP_GID:-1000}
+    ports:
+      - "127.0.0.1:${OMP_FROND_PORT:-30141}:30141"
+    environment:
+      OMP_FROND_AUTHENTICATED: "1"
+      OMP_FROND_PASSWORD: ${OMP_FROND_PASSWORD:?set a browser password}
+      OMP_FROND_WORKER_HOST: worker
+      OMP_FROND_WORKER_ID: restricted
+      OMP_FROND_WORKER_PORT: "26317"
+      OMP_FROND_WORKER_TOKEN: ${OMP_FROND_WORKER_TOKEN:?set a generated 32-byte lowercase hex control token}
+    volumes:
+      - web-state:/home/omp/.omp
+    networks:
+      - default
+      - control
+
+  worker:
+    build:
+      context: .
+      target: worker
+      args:
+        UID: ${OMP_UID:-1000}
+        GID: ${OMP_GID:-1000}
+    environment:
+      OMP_FROND_WORKER_BIND_HOST: 0.0.0.0
+      OMP_FROND_WORKER_ID: restricted
+      OMP_FROND_WORKER_PORT: "26317"
+      OMP_FROND_WORKER_TOKEN: ${OMP_FROND_WORKER_TOKEN:?set a generated 32-byte lowercase hex control token}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev
+    volumes:
+      - worker-home:/home/omp
+      - ${OMP_FROND_WORKSPACE:?choose a single workspace directory}:/workspace
+    networks:
+      - control
+
+networks:
+  control:
+    internal: true
+
+volumes:
+  web-state:
+  worker-home:

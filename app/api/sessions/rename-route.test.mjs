@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
-import { PATCH } from "./[id]/route.ts";
+import { PATCH } from "../../../worker/api/sessions/[id]/route.ts";
 import { AgentSessionWrapper, renameRpcSession, startRpcSession } from "../../../lib/rpc-manager.ts";
 import { cacheSessionPath, invalidateSessionPathCache } from "../../../lib/session-reader.ts";
 

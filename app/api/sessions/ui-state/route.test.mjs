@@ -20,7 +20,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { GET, POST, dynamic } = await jiti.import("./route.ts");
+const { GET, POST } = await jiti.import("../../../../worker/api/sessions/ui-state/route.ts");
 const { resetSessionUiStateCacheForTests } = await jiti.import("../../../../lib/session-ui-state.ts");
 const { refreshDirsFromEnv } = await jiti.import("@oh-my-pi/pi-utils");
 refreshDirsFromEnv();
@@ -49,7 +49,6 @@ async function reset() {
 
 test("GET answers an empty state when nothing was saved", async () => {
   await reset();
-  assert.equal(dynamic, "force-dynamic");
   const response = await GET();
   assert.deepEqual(await okState(response), { version: 1, revision: 0, sessions: {}, projects: {} });
   await assert.rejects(stat(statePath), { code: "ENOENT" });

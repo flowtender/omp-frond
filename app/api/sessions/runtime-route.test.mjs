@@ -4,19 +4,19 @@ import test from "node:test";
 import { Settings } from "@oh-my-pi/pi-coding-agent";
 import { createJiti } from "jiti";
 
-const listRoute = await readFile(new URL("./route.ts", import.meta.url), "utf8");
-const detailRoute = await readFile(new URL("./[id]/route.ts", import.meta.url), "utf8");
-const contextRoute = await readFile(new URL("./[id]/context/route.ts", import.meta.url), "utf8");
-const stateRoute = await readFile(new URL("./[id]/state/route.ts", import.meta.url), "utf8");
+const listRoute = await readFile(new URL("../../../worker/api/sessions/route.ts", import.meta.url), "utf8");
+const detailRoute = await readFile(new URL("../../../worker/api/sessions/[id]/route.ts", import.meta.url), "utf8");
+const contextRoute = await readFile(new URL("../../../worker/api/sessions/[id]/context/route.ts", import.meta.url), "utf8");
+const stateRoute = await readFile(new URL("../../../worker/api/sessions/[id]/state/route.ts", import.meta.url), "utf8");
 const jiti = createJiti(import.meta.url, {
   alias: { "@": process.cwd() },
   interopDefault: true,
   moduleCache: false,
 });
-const { GET: getSessionDetail } = await jiti.import("./[id]/route.ts");
-const { GET: getSessionContext } = await jiti.import("./[id]/context/route.ts");
-const { GET: getSessionState } = await jiti.import("./[id]/state/route.ts");
-const { GET: getAgentState } = await jiti.import("../agent/[id]/route.ts");
+const { GET: getSessionDetail } = await jiti.import("../../../worker/api/sessions/[id]/route.ts");
+const { GET: getSessionContext } = await jiti.import("../../../worker/api/sessions/[id]/context/route.ts");
+const { GET: getSessionState } = await jiti.import("../../../worker/api/sessions/[id]/state/route.ts");
+const { GET: getAgentState } = await jiti.import("../../../worker/api/agent/[id]/route.ts");
 
 test("session listing merges live registry snapshots and honors force refresh", () => {
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);

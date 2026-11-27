@@ -4,6 +4,7 @@ import path from "path";
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
 import { isExistingPathWithinRoots, isPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
+import { workerWorkspaceRoots } from "./worker-workspace";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
 export { isWindowsAbsolutePath } from "./paths";
 
@@ -18,6 +19,7 @@ declare global {
 const ALLOWED_ROOTS_TTL_MS = 5_000;
 
 export async function getAllowedFileRoots(): Promise<Set<string>> {
+  if (workerWorkspaceRoots) return workerWorkspaceRoots;
   const now = Date.now();
   const cached = globalThis.__ompAllowedRootsCache;
   if (cached && cached.expiresAt > now) return cached.roots;

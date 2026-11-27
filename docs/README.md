@@ -59,6 +59,39 @@ Architecture decisions are retained as design history:
 - [0005: Built-in subagent disable](adr/0005-built-in-subagent-disable.md)
 - [0006: MCP and Code mode](adr/0006-mcp-and-code-mode.md)
 
+### Managed SDK workers ([#69](https://github.com/flowtender/omp-frond/issues/69))
+
+The control channel is authenticated TCP between Next and the Bun worker, not
+between the browser and the worker. Local workers bind loopback; container
+workers use a private network with no published control port. Cross-host
+deployment is out of scope. Restricted workers require explicit network and
+provider credential configuration, independent of the user's host agent home.
+
+The launcher supervises Next and the local worker as siblings: on Unix,
+`SIGHUP` to the launcher replaces only Next, while quitting stops both.
+
+For multi-worker routing, each conversation belongs to one worker, and a
+worker can host multiple conversations. A browser tab follows the worker of
+the conversation it opens; two tabs on the same conversation attach to the
+same runtime. Selecting another conversation does not move either transcript.
+The sidebar selects a worker for new conversations. Saved sessions resume only
+on their owning worker; explicit copies are tracked separately in
+[#71](https://github.com/flowtender/omp-frond/issues/71).
+
+The local worker uses the SDK's normal agent home so the OMP CLI can still
+browse its transcripts and configuration. Only one frond worker may own an
+agent home at a time. For a separately supervised local worker, run
+`bun worker/main.ts` with an absolute `PI_CODING_AGENT_DIR`,
+`OMP_FROND_WORKER_ID`, and a 32-byte lowercase hex `OMP_FROND_WORKER_TOKEN`.
+Pass the same worker ID and token and the bound `OMP_FROND_WORKER_PORT` to
+the web launcher. It leaves an externally supervised worker running on exit.
+The control port is never a browser endpoint.
+
+The model API and chat stream were exercised under Turbopack, including a
+Next-only restart with an open form. Full browser verification remains blocked
+by Turbopack rejecting a dangling selector in `app/settings.css`; production
+continues to use webpack.
+
 Pi-specific names and original decisions in inherited ADRs describe their source
 context. They do not override OMP's current SDK contracts or this fork's
 maintenance policy. Retain upstream attribution and intentional compatibility

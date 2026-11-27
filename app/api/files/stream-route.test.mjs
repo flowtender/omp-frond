@@ -4,8 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { NextRequest } from "next/server.js";
-import { GET } from "./[...path]/route.ts";
+import { GET } from "../../../worker/api/files/[...path]/route.ts";
 import { allowFileRoot } from "../../../lib/allowed-roots.ts";
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-file-stream-")));
@@ -18,7 +17,7 @@ fs.writeFileSync(path.join(root, "sample.bin"), bytes);
 
 function request(name, type, headers = {}) {
   const segments = path.join(root, name).split(path.sep).filter(Boolean);
-  return GET(new NextRequest(`http://localhost/api/files/x?type=${type}`, { headers }), {
+  return GET(new Request(`http://localhost/api/files/x?type=${type}`, { headers: { host: "localhost", ...headers } }), {
     params: Promise.resolve({ path: segments }),
   });
 }

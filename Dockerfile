@@ -1,26 +1,26 @@
-# omp-frond serves its API on Bun, not Node: the omp SDK (`@oh-my-pi/pi-*`) is
-# published as TypeScript sources that import `bun:` builtins, so both stages
-# start from the Bun release that package.json's `engines.bun` floor requires.
+# Bun hosts the pinned TypeScript OMP SDK in its own managed worker.
 ARG BUN_VERSION=1.4.4
 
 # ---------------------------------------------------------------------------
-# Build: install dependencies and produce the Next.js production build.
+# Dependencies shared by the web build and standalone worker.
 # ---------------------------------------------------------------------------
-FROM oven/bun:${BUN_VERSION}-debian AS build
+FROM oven/bun:${BUN_VERSION}-debian AS deps
 
 WORKDIR /app
 
 # Manifests first, so the dependency layer is reused until they actually change.
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+COPY bin/prepare-terminal.js ./bin/
+RUN bun --bun install --frozen-lockfile
 
+FROM deps AS build
 COPY . .
 RUN bun run build
 
 # ---------------------------------------------------------------------------
-# Runtime: the built app, its dependencies, and the CLI that launches them.
+# Common runtime with the pinned SDK. The standalone target never builds Next.
 # ---------------------------------------------------------------------------
-FROM oven/bun:${BUN_VERSION}-debian AS runtime
+FROM oven/bun:${BUN_VERSION}-debian AS worker-base
 
 # git is a runtime dependency, not a build-time one: the worktree switcher, the
 # diff view and skill updates all shell out to it (lib/worktree.ts,
@@ -36,29 +36,40 @@ RUN apt-get update \
 # Docker Desktop on macOS and Windows remaps ownership itself and needs neither.
 ARG UID=1000
 ARG GID=1000
-RUN groupadd --gid "${GID}" omp \
- && useradd --uid "${UID}" --gid "${GID}" --create-home --home-dir /home/omp omp \
+RUN test "${UID}" -gt 0 && test "${GID}" -gt 0 \
+ && (getent group "${GID}" >/dev/null || groupadd --gid "${GID}" omp) \
+ && (getent passwd "${UID}" >/dev/null || useradd --uid "${UID}" --gid "${GID}" --home-dir /home/omp omp) \
  && mkdir -p /home/omp/.omp/agent /workspace \
- && chown -R omp:omp /home/omp /workspace
+ && chown -R "${UID}:${GID}" /home/omp /workspace
 
 WORKDIR /app
 
-# node_modules ships as-is rather than being pruned: `serverExternalPackages`
-# and the webpack externals rule in next.config.ts deliberately keep every
-# `@oh-my-pi/*` import out of the bundle, so the SDK must exist on disk when
-# the API routes run.
-COPY --from=build --chown=omp:omp /app/node_modules ./node_modules
-COPY --from=build --chown=omp:omp /app/.next ./.next
-COPY --from=build --chown=omp:omp /app/public ./public
-COPY --from=build --chown=omp:omp /app/bin ./bin
-COPY --from=build --chown=omp:omp /app/next.config.ts /app/package.json ./
+# Keep the pinned SDK and its native dependencies available to the worker.
+COPY --from=deps --chown=${UID}:${GID} /app/node_modules ./node_modules
+COPY --chown=${UID}:${GID} bin ./bin
+COPY --chown=${UID}:${GID} worker ./worker
+COPY --chown=${UID}:${GID} lib ./lib
+COPY --chown=${UID}:${GID} tsconfig.json package.json ./
+
+ENV HOME=/home/omp NODE_ENV=production
+USER ${UID}:${GID}
+WORKDIR /workspace
+
+FROM worker-base AS worker
+ENV PI_CODING_AGENT_DIR=/home/omp/.omp/agent \
+    OMP_FROND_WORKER_WORKSPACE=/workspace
+ENTRYPOINT ["bun", "--no-env-file", "/app/worker/main.ts"]
+
+FROM worker-base AS runtime
+WORKDIR /app
+COPY --from=build --chown=${UID}:${GID} /app/.next ./.next
+COPY --from=build --chown=${UID}:${GID} /app/public ./public
+COPY --chown=${UID}:${GID} next.config.ts ./
 
 # OMP_FROND_HOSTNAME binds every interface because a container is only reachable
 # from outside when it does; publish the port to 127.0.0.1 on the host to keep
 # it local. OMP_FROND_NO_OPEN because there is no browser in here to open.
-ENV HOME=/home/omp \
-    NODE_ENV=production \
-    PORT=30141 \
+ENV PORT=30141 \
     OMP_FROND_HOSTNAME=0.0.0.0 \
     OMP_FROND_NO_OPEN=1
 
@@ -68,7 +79,6 @@ ENV HOME=/home/omp \
 VOLUME ["/home/omp/.omp"]
 EXPOSE 30141
 
-USER omp
 # Not /app: the launcher records its own cwd as OMP_FROND_LAUNCH_CWD so relative
 # project paths in the browser resolve against it.
 WORKDIR /workspace

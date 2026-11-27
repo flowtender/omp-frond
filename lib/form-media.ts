@@ -8,6 +8,7 @@
  */
 import { resolveReadPath } from "@oh-my-pi/pi-coding-agent/tools/path-utils";
 import { parseImageMetadata } from "@oh-my-pi/pi-utils";
+import { isWorkerWorkspacePath } from "./worker-workspace";
 
 /** An image's bytes and MIME type. */
 export interface Media {
@@ -62,7 +63,9 @@ async function readSource(src: string, cwd: string, signal?: AbortSignal): Promi
     if (Number(response.headers.get("content-length") ?? 0) > MAX_MEDIA_BYTES) throw new Error(TOO_LARGE);
     return new Uint8Array(await response.arrayBuffer());
   }
-  const file = Bun.file(resolveReadPath(src, cwd));
+  const path = resolveReadPath(src, cwd);
+  if (!isWorkerWorkspacePath(path)) throw new Error("Image is outside this worker's workspace");
+  const file = Bun.file(path);
   if (file.size > MAX_MEDIA_BYTES) throw new Error(TOO_LARGE);
   return new Uint8Array(await file.arrayBuffer());
 }
