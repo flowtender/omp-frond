@@ -7,6 +7,7 @@ import Jina from "@lobehub/icons/es/Jina";
 import compactStringify from "json-stringify-pretty-compact";
 import ReactMarkdown from "react-markdown";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
+import { parseStreamingJson } from "@oh-my-pi/pi-utils/json-parse";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
@@ -32,7 +33,7 @@ import { useDisplaySettings } from "@/hooks/useDisplaySettings";
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { diffGapLabel, parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap } from "@/lib/patch";
 import { canHighlightDiff, highlightDiffFile, MAX_STREAMING_HIGHLIGHT_CHARS, type DiffToken } from "@/lib/diff-syntax";
-import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
+import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput, previewEditInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isBashToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { isToolCallExpanded, setToolCallExpanded, toolCallExpandedByDefault, toolCallFailureCount } from "@/lib/tool-call-expansion";
@@ -123,8 +124,7 @@ const thinkingContentCache = new Map<string, Promise<string>>();
 // log dumps) freezes the browser main thread.
 const MAX_MARKDOWN_CHARS = 100_000;
 
-// Tool text can be updated frequently and can contain huge outputs. Only load
-// Prism for complete, bounded text with a known language.
+// Callers opt live text into Prism only while it is small enough to re-tokenize.
 const ToolSyntax = memo(function ToolSyntax({ text, language, streaming = false, inline = false }: {
   text: string;
   language?: string | null;
@@ -1465,12 +1465,35 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
   const isStreamingInput = block.rawInput !== undefined;
   const spark = Boolean(toolArrival || arrived || liveTiming || isStreamingInput);
   const isEditTool = isEditToolName(block.toolName);
-  const repeatSpark = isStreamingInput && (isEditTool || isApplyPatchToolName(block.toolName) || isWriteToolName(block.toolName));
+  const isPatchTool = isApplyPatchToolName(block.toolName);
+  const isWriteTool = isWriteToolName(block.toolName);
+  const isFileMutation = isEditTool || isPatchTool || isWriteTool;
+  const repeatSpark = isStreamingInput && isFileMutation;
+  const fileArgs = useMemo(() => {
+    const raw = block.rawInput;
+    if (raw === undefined || !isFileMutation) return block.input;
+    // Freeform edit tools stream their patch directly; function tools stream JSON.
+    if (!raw.trimStart().startsWith("{")) return { input: raw };
+    // Hold back a split escape until its last character arrives.
+    const escape = /\\(?:u[\da-f]{0,3})?$/i.exec(raw.slice(-5))?.[0];
+    let end = raw.length;
+    if (escape) {
+      const start = end - escape.length;
+      let before = start;
+      while (raw[before - 1] === "\\") before--;
+      if ((start - before) % 2 === 0) end = start;
+    }
+    const parsed = parseStreamingJson<unknown>(end === raw.length ? raw : raw.slice(0, end));
+    return isRecord(parsed) ? parsed : {};
+  }, [block.input, block.rawInput, isFileMutation]);
+  const patchInput = isEditTool || isPatchTool ? getApplyPatchInputText(fileArgs) : "";
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
-  const patchFiles = getApplyPatchFiles(block, result);
-  const patchLabel = isApplyPatchToolName(block.toolName)
-    ? summarizeApplyPatchInput(block)
-    : null;
+  const patchFiles = useMemo(() => isPatchTool ? getApplyPatchFiles(patchInput, result) : null, [isPatchTool, patchInput, result]);
+  const editFiles = useMemo(() => isEditTool && !result ? previewEditInput(fileArgs, patchInput) : null, [isEditTool, result, fileArgs, patchInput]);
+  const previewFiles = patchFiles ?? editFiles;
+  const patchLabel = isPatchTool ? extractApplyPatchPaths(patchInput).join(", ").slice(0, 120) : "";
+  const fileTarget = isFileMutation && (readHeaderTarget(fileArgs) || patchLabel ||
+    (editFiles?.length === 1 ? editFiles[0].newPath ?? editFiles[0].oldPath : undefined));
   // A script and the calls it made, instead of the input JSON. Streamed input is
   // still incomplete JSON and keeps the generic view.
   const codemodeCode = block.toolName === CODEMODE_TOOL_NAME && !isStreamingInput ? codemodeScript(block.input) : null;
@@ -1488,9 +1511,8 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
     : null;
   const resultImages = getMessageImages(resultContent);
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
-  const isError = (result?.isError ?? false)
-    || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
-  const inputView: ToolInputView = isStreamingInput ? { args: block.input } : describeToolInput(block.toolName, block.input, t);
+  const isError = (result?.isError ?? false) || (isPatchTool && applyPatchResultHasFailures(result?.details));
+  const inputView: ToolInputView = isStreamingInput && !isWriteTool ? { args: block.input } : describeToolInput(block.toolName, fileArgs, t);
   const args = inputView.args;
   const readPreview = !isError && !isStreamingInput && resultText !== null && resultText.length <= MAX_MARKDOWN_CHARS
     && toolNameIs(block.toolName, "read") ? readToolPreview(resultText, args.path ?? args.file_path, result?.details, readPreviews) : null;
@@ -1560,8 +1582,8 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
       isError={isError}
       hasFailure={hasFailure}
       target={isStreamingInput
-        ? t("chat.generatingToolInput")
-        : (readTarget ?? patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : inputView.target ?? (inlineTarget || getStructuredToolPreview(block, todoPhases))))}
+        ? fileTarget || t("chat.generatingToolInput")
+        : (readTarget ?? (patchLabel || (codemode ? codemodeScriptPreview(codemode.code) : inputView.target ?? (inlineTarget || getStructuredToolPreview(block, todoPhases)))))}
       targetLanguage={inputView.targetLanguage}
       facts={inlineResult}
       metadata={readPreviews && readPreview && <ReadHeaderMetadata preview={readPreview} target={readTarget} />}
@@ -1585,7 +1607,8 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
     >
       {(expanded) => <>
       {/* ── Expanded: input args (only when no richer view exists); a codemode script in place of its JSON ── */}
-      {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (isStreamingInput || codemode || Object.keys(visibleArgs).length > 0) && (
+      {expanded && !isEditTool && !patchFiles && !(isFileMutation && isStreamingInput)
+        && (isStreamingInput || codemode || Object.keys(visibleArgs).length > 0) && (
         toolFields ? (
           <div
             style={{
@@ -1614,12 +1637,12 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
             <ToolSyntax text={codemode ? codemode.code.replace(/\r/g, "").trimEnd()
               : getToolCallInputText(block, compactJson, visibleArgs)}
               language={codemode ? "javascript" : "json"}
-              streaming={isStreamingInput && ((!isEditTool && !isApplyPatchToolName(block.toolName))
-                || (block.rawInput?.length ?? 0) > MAX_STREAMING_HIGHLIGHT_CHARS)} />
+              streaming={isStreamingInput} />
           </pre>
         )
       )}
-      {expanded && inputView.fileContent !== undefined && <WrittenToolCode text={inputView.fileContent} args={block.input} />}
+      {expanded && inputView.fileContent !== undefined && <WrittenToolCode text={inputView.fileContent} args={fileArgs} streaming={isStreamingInput} />}
+      {expanded && isStreamingInput && patchInput && !previewFiles && <PatchTextView text={patchInput} />}
       {expanded && inputView.evalCode && <EvalToolCode {...inputView.evalCode} cwd={cwd} />}
 
       {/* ── Expanded: the calls a codemode script made ── */}
@@ -1630,10 +1653,10 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
       {/* ── Result images — always visible, independent of the collapsed details ── */}
       {resultImages.length > 0 && <ResultImages images={resultImages} isError={isError} />}
 
-      {/* ── Expanded: applied-patch split diff ── */}
-      {expanded && patchFiles && (
+      {/* ── Expanded: supplied patch or edit prefix ── */}
+      {expanded && previewFiles && (
         <div style={{ borderTop: "1px solid rgba(34,197,94,0.15)", background: "var(--bg)" }}>
-          <SplitFilesView files={patchFiles} streaming={isStreamingInput} />
+          <SplitFilesView files={previewFiles} streaming={isStreamingInput} />
         </div>
       )}
 
@@ -2588,10 +2611,8 @@ function PatchTextView({ text }: { text: string }) {
  * A single call may contain several file operations — each becomes its own
  * file section.
  */
-function getApplyPatchFiles(block: ToolCallContent, result?: ToolResultMessage): SplitDiffFile[] | null {
-  if (!isApplyPatchToolName(block.toolName)) return null;
-
-  const fromInput = parseApplyPatchInput(getApplyPatchInputText(block.input, block.rawInput));
+function getApplyPatchFiles(input: string, result?: ToolResultMessage): SplitDiffFile[] | null {
+  const fromInput = parseApplyPatchInput(input);
   if (fromInput) return fromInput;
 
   const details = result && !result.isError ? (result as ToolResultMessage & { details?: unknown }).details : undefined;
@@ -2601,13 +2622,6 @@ function getApplyPatchFiles(block: ToolCallContent, result?: ToolResultMessage):
   }
 
   return null;
-}
-
-/** Header label listing the files targeted by an apply_patch call. */
-function summarizeApplyPatchInput(block: ToolCallContent): string | null {
-  const paths = extractApplyPatchPaths(getApplyPatchInputText(block.input, block.rawInput));
-  if (paths.length === 0) return null;
-  return paths.join(", ").slice(0, 120);
 }
 
 function getResultDiff(result: ToolResultMessage): ResultDiff | null {
@@ -3250,9 +3264,10 @@ function describeToolInput(tool: string, args: Record<string, unknown>, t: (key:
   return view;
 }
 
-function WrittenToolCode({ text, args }: { text: string; args: Record<string, unknown> }) {
+function WrittenToolCode({ text, args, streaming }: { text: string; args: Record<string, unknown>; streaming?: boolean }) {
   if (text.length > MAX_MARKDOWN_CHARS) return <OversizedText>{text}</OversizedText>;
-  return <pre className="tool-source-code"><ToolSyntax text={text} language={toolFileLanguage(args)} /></pre>;
+  return <pre className="tool-source-code"><ToolSyntax text={text} language={toolFileLanguage(args)}
+    streaming={streaming && text.length > MAX_STREAMING_HIGHLIGHT_CHARS} /></pre>;
 }
 
 function EvalToolCode({ text, language, cwd }: NonNullable<ToolInputView["evalCode"]> & { cwd?: string }) {

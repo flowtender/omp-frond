@@ -45,7 +45,7 @@ const nextConfig: NextConfig = {
   },
   // Node modules keep the syntax they ship unless listed here, and mermaid's
   // lazy diagram chunks are full of class `static {}` blocks (#753).
-  transpilePackages: ["mermaid", "@mermaid-js/parser"],
+  transpilePackages: ["mermaid", "@mermaid-js/parser", "@oh-my-pi/pi-utils"],
   webpack: (config, { isServer, nextRuntime }) => {
     // The gfm-email loader must run in every webpack graph, server or browser.
     config.module.rules.push({

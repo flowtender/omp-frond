@@ -1,5 +1,5 @@
 import { useContext, useLayoutEffect, useRef, useState } from "react";
-import { createAnimationQueue } from "@/lib/animation-queue";
+import type { AssistantMessage } from "@/lib/types";
 import type { StreamingStore } from "@/lib/streaming-message";
 import { ChatAnimationsContext } from "./useChatAnimations";
 import { usePacedStreamingMessage } from "./useStreamingSelector";
@@ -8,66 +8,46 @@ export function useSequencedReply(store: StreamingStore) {
   const source = usePacedStreamingMessage(store);
   const animated = useContext(ChatAnimationsContext) > 0;
   const root = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(source);
-  const [queue] = useState(createAnimationQueue);
-  const pending = useRef(false);
-  const committed = useRef(shown);
-  const finalSnapshot = useRef(source);
-  const latest = useRef(source);
-  const afterCommit = useRef<(() => void) | null>(null);
-  const mounted = useRef(false);
+  const [ending, setEnding] = useState<AssistantMessage | null>(null);
 
   useLayoutEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      afterCommit.current?.();
-      afterCommit.current = null;
-    };
-  }, []);
-
-  useLayoutEffect(() => store.subscribe(() => {
-    const snapshot = store.getState().streamingMessage;
-    if (snapshot) finalSnapshot.current = snapshot;
-  }), [store]);
+    if (!animated) return;
+    let latest = store.getState().streamingMessage;
+    return store.subscribe(() => {
+      const next = store.getState().streamingMessage;
+      // Keep the authoritative last snapshot, even if React batched its delta
+      // with the event that removed the live reply.
+      if (!next && latest && !document.hidden) setEnding(latest);
+      latest = next;
+    });
+  }, [store, animated]);
 
   useLayoutEffect(() => {
-    committed.current = shown;
-    const finish = afterCommit.current;
-    afterCommit.current = null;
-    finish?.();
-  }, [shown]);
-
-  useLayoutEffect(() => {
-    latest.current = source;
-    if (!animated || document.hidden) {
-      finalSnapshot.current = source;
-      setShown(source);
+    if (!ending) return;
+    if (source || !animated || document.hidden) {
+      setEnding(null);
       return;
     }
-    if (source === shown || pending.current) return;
-    pending.current = true;
-    queue.enqueue(() => {
-      pending.current = false;
-      const next = latest.current ?? finalSnapshot.current;
-      if (!latest.current) finalSnapshot.current = null;
-      if (!mounted.current) return;
-      if (next === committed.current) {
-        if (!latest.current && next) setShown(null);
-        return;
-      }
-      const { promise, resolve } = Promise.withResolvers<void>();
-      afterCommit.current = () => {
-        const fades = root.current?.getAnimations({ subtree: true }).filter(
-          (animation) => "animationName" in animation && animation.animationName === "streaming-prose-fade",
-        );
-        if (fades?.length) void Promise.allSettled(fades.map((animation) => animation.finished)).then(() => resolve());
-        else resolve();
-      };
-      setShown(next);
-      return promise;
-    });
-  }, [source, animated, queue, shown]);
+    const fades = root.current?.getAnimations({ subtree: true }).filter(
+      (animation) => "animationName" in animation && animation.animationName === "streaming-prose-fade"
+        && animation.playState !== "finished",
+    );
+    if (!fades?.length) {
+      setEnding(null);
+      return;
+    }
+    const finish = () => setEnding((current) => current === ending ? null : current);
+    const onVisibility = () => {
+      if (document.hidden) finish();
+    };
+    let active = true;
+    void Promise.allSettled(fades.map((animation) => animation.finished)).then(() => { if (active) finish(); });
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [source, ending, animated]);
 
-  return { root, message: animated ? shown : source };
+  return { root, message: source ?? (animated ? ending : null) };
 }

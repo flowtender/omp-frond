@@ -179,7 +179,7 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   }, { isStreaming: true });
 
   assert.match(html, /write/);
-  assert.match(html, /Generating parameters/);
+  assert.match(html, /\/tmp\/file/);
   assert.doesNotMatch(html, /secret-stream-fragment/);
   assert.equal(getToolCallInputText(block), block.rawInput);
   assert.equal(getTokenEstimateText(block), block.rawInput);
@@ -243,22 +243,57 @@ test("a write with another argument or an empty file keeps the remaining argumen
   }
 });
 
-test("expanded write, edit, and shell calls show the paced argument prefix before it parses", (t) => {
-  for (const [toolName, start] of [
-    ["write", '{"path":"a.ts","content":"'],
-    ["edit", '{"path":"a.ts","edits":[{"op":"replace","newText":"'],
-    ["bash", '{"command":"printf '],
+test("expanded file tools highlight the paced source prefix instead of JSON", async (t) => {
+  const { loadPrismLanguages } = await jiti.import("@/lib/prism-languages");
+  await loadPrismLanguages();
+  const code = 'const greeting = "hello";';
+  const suffix = JSON.stringify(`${code}\n// unseen tail after the next frame`).slice(1, -1);
+  for (const [id, toolName, start] of [
+    ["write", "write", '{"path":"a.ts","content":"'],
+    ["replace", "edit", '{"path":"a.ts","old_string":"const old = 1;","new_string":"'],
+    ["patch", "edit", '{"path":"a.ts","edits":[{"op":"update","diff":"@@\\n-const old = 1;\\n+'],
+    ["hashline", "edit", '{"input":"*** Begin Patch\\n[a.ts#ABCD]\\nPUT 1.=1:\\n+'],
+    ["apply-patch", "apply_patch", '{"input":"*** Begin Patch\\n*** Update File: a.ts\\n@@\\n+'],
   ]) {
-    const block = { type: "toolCall", toolCallId: `paced-${toolName}`, toolName, input: {}, rawInput: start };
+    const block = { type: "toolCall", toolCallId: `paced-${id}`, toolName, input: {}, rawInput: start };
     setToolCallExpanded(block.toolCallId, true);
     t.after(() => setToolCallExpanded(block.toolCallId, false));
     const before = { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] };
-    const latest = { ...before, content: [{ ...block, rawInput: `${start}visible text then unseen tail` }] };
+    const latest = { ...before, content: [{ ...block, rawInput: `${start}${suffix}` }] };
     const shown = revealStreamingMessage(before, latest, 0.5);
-    const text = textOf(renderMessage(shown, { isStreaming: true }));
-    assert.ok(text.includes(`${start}visible text`), toolName);
-    assert.doesNotMatch(text, /unseen tail/);
+    const html = renderMessage(shown, { isStreaming: true });
+    const text = textOf(html);
+    assert.match(html, /token keyword[^>]*>const</, id);
+    assert.ok(text.includes(code), id);
+    assert.doesNotMatch(text, /unseen tail|"path":|"input":|"content":|"edits":|\\n|ABCD/, id);
+    if (id === "replace" || id === "patch") assert.match(text, /const old = 1;/, id);
   }
+});
+
+test("a streamed write waits for the rest of a split JSON escape but preserves literal backslashes", (t) => {
+  const id = "write-escape";
+  setToolCallExpanded(id, true);
+  t.after(() => setToolCallExpanded(id, false));
+  const render = (rawInput) => textOf(renderMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", toolCallId: id, toolName: "write", input: {}, rawInput }],
+  }, { isStreaming: true }));
+  const prefix = '{"path":"notes.txt","content":"before ';
+  assert.doesNotMatch(render(`${prefix}\\u26`), /\\u26/);
+  assert.match(render(`${prefix}\\u2603`), /before ☃/);
+  assert.match(render(`${prefix}\\\\`), /before \\/);
+});
+
+test("an expanded shell call still shows its paced argument prefix", (t) => {
+  const block = { type: "toolCall", toolCallId: "paced-bash", toolName: "bash", input: {}, rawInput: '{"command":"printf ' };
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const before = { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] };
+  const latest = { ...before, content: [{ ...block, rawInput: `${block.rawInput}visible text then unseen tail` }] };
+  const shown = revealStreamingMessage(before, latest, 0.5);
+  const text = textOf(renderMessage(shown, { isStreaming: true }));
+  assert.ok(text.includes(`${block.rawInput}visible text`));
+  assert.doesNotMatch(text, /unseen tail/);
 });
 
 test("a nested argument keeps the JSON body: a row cannot hold a subtree", () => {
@@ -1396,7 +1431,7 @@ test("an edit card draws the applied patch in two columns while there is room", 
       { toolResults: new Map([[block.toolCallId, result]]) },
     );
     assert.ok(html.includes(TWO_COLUMN_GRID), "the card reaches the patch view");
-    assert.ok(html.includes("const value = &quot;new&quot;;"));
+    assert.match(textOf(html), /const value = "new";/);
   } finally {
     clearExpandedToolCalls();
   }
@@ -1406,15 +1441,16 @@ test("the same patch in one column: no line twice, the removed line above what r
   const stacked = renderPatchFiles(parseUnifiedPatch(EDIT_PATCH), "stacked");
 
   assert.ok(!stacked.includes("grid-template-columns"), "nothing stands beside anything");
-  assert.equal(countIn(stacked, "const keep = true;"), 1);
-  assert.equal(countIn(stacked, "const value = &quot;old&quot;;"), 1);
-  assert.equal(countIn(stacked, "const value = &quot;new&quot;;"), 1);
-  assert.ok(stacked.indexOf("&quot;old&quot;;") < stacked.indexOf("&quot;new&quot;;"));
+  const text = textOf(stacked);
+  assert.equal(countIn(text, "const keep = true;"), 1);
+  assert.equal(countIn(text, 'const value = "old";'), 1);
+  assert.equal(countIn(text, 'const value = "new";'), 1);
+  assert.ok(text.indexOf('"old";') < text.indexOf('"new";'));
 
   // The two columns pay for themselves by printing every context line twice.
   const split = renderPatchFiles(parseUnifiedPatch(EDIT_PATCH), "split");
   assert.ok(split.includes(TWO_COLUMN_GRID));
-  assert.equal(countIn(split, "const keep = true;"), 2);
+  assert.equal(countIn(textOf(split), "const keep = true;"), 2);
 });
 
 test("one column names a file section by the file's own path, not by Before and After", () => {

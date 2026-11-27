@@ -3569,6 +3569,8 @@ html[data-theme="dark"] .chat-input-controls {
 @media (prefers-reduced-motion: no-preference) {
   .streaming-prose-glyph {
     animation-name: streaming-prose-fade;
+    animation-duration: var(--prose-fade-duration);
+    animation-delay: calc(var(--prose-fade-spread, 0ms) * var(--prose-fade-offset));
     animation-timing-function: linear;
     animation-fill-mode: backwards;
   }

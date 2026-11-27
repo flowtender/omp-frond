@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, createContext, memo, useContext, useMemo, useState, type ComponentProps, type MouseEvent } from "react";
+import { Children, createContext, createElement, memo, useCallback, useContext, useMemo, useState, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
@@ -12,59 +12,90 @@ import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 import { ChatAnimationsContext } from "@/hooks/useChatAnimations";
 
 const MarkdownLinkContext = createContext(false);
-const StreamingProseContext = createContext(false);
-const FADE_SPREAD_MS = 90;
-const FADE_MS = 70;
-const MAX_FADING_CHARS = 192;
+const StreamingProseContext = createContext<{ duration: number; clock: ProseClock } | null>(null);
 const graphemes = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+
+interface ProseClock {
+  frame: number | null;
+  elapsed: number;
+}
 
 interface ProseBatch {
   start: number;
+  end: number;
   glyphs: string[];
-  length: number;
 }
 
-function FadingProse({ text }: { text: string }) {
+const ProseFade = memo(function ProseFade({ batch, duration, clock, settle }: {
+  batch: ProseBatch;
+  duration: number;
+  clock: ProseClock;
+  settle: (end: number) => void;
+}) {
+  const attach = useCallback((element: HTMLSpanElement | null) => {
+    if (!element) return;
+    // All text runs committed in the same browser frame share the chunk's timing.
+    const time = document.timeline?.currentTime;
+    const frame = typeof time === "number" ? time : performance.now();
+    if (clock.frame !== frame) {
+      clock.elapsed = clock.frame === null ? 0 : frame - clock.frame;
+      clock.frame = frame;
+    }
+    element.style.setProperty("--prose-fade-spread", `${Math.min(duration, Math.max(0, clock.elapsed))}ms`);
+  }, [clock, duration]);
+  const last = batch.glyphs.length - 1;
+  return <span ref={attach} style={{ "--prose-fade-duration": `${duration}ms` } as CSSProperties}>
+    {batch.glyphs.map((glyph, index) => (
+      <span key={index} className="streaming-prose-glyph"
+        onAnimationEnd={index === last ? () => settle(batch.end) : undefined}
+        style={{ "--prose-fade-offset": last === 0 ? 0 : index / last - 1 } as CSSProperties}>{glyph}</span>
+    ))}
+  </span>;
+});
+
+function FadingProse({ text, duration, clock }: { text: string; duration: number; clock: ProseClock }) {
   const [previous, setPrevious] = useState("");
-  const [batch, setBatch] = useState<ProseBatch | null>(null);
+  const [batches, setBatches] = useState<ProseBatch[]>([]);
+  const settle = useCallback((end: number) => setBatches((current) => current.filter((batch) => batch.end > end)), []);
   if (text !== previous) {
     const suffix = text.slice(previous.length);
-    const append = graphemes && suffix && text.startsWith(previous)
+    const append = suffix && text.startsWith(previous)
       // A new combining mark may extend the last visible grapheme.
-      && (previous.length === 0 || graphemes.segment(text).containing(previous.length)?.index === previous.length);
+      && (!graphemes || previous.length === 0 || graphemes.segment(text).containing(previous.length)?.index === previous.length);
     setPrevious(text);
-    const glyphs: string[] = [];
-    if (append) {
-      const groupSize = Math.ceil(suffix.length / MAX_FADING_CHARS);
-      let index = 0;
-      for (const { segment } of graphemes.segment(suffix)) {
-        const group = Math.floor(index++ / groupSize);
-        glyphs[group] = (glyphs[group] ?? "") + segment;
-      }
-    }
-    setBatch(glyphs.length ? { start: previous.length, glyphs, length: suffix.length } : null);
+    setBatches(append ? [...batches, {
+      start: previous.length,
+      end: text.length,
+      glyphs: graphemes ? Array.from(graphemes.segment(suffix), ({ segment }) => segment) : Array.from(suffix),
+    }] : []);
   }
-  if (!batch) return text;
-  const { start, glyphs, length } = batch;
-  return <>{text.slice(0, start)}
-    <span key={start}>{glyphs.map((glyph, index) => (
-      <span key={index} className="streaming-prose-glyph"
-        onAnimationEnd={index === glyphs.length - 1 ? () => setBatch((current) => current === batch ? null : current) : undefined}
-        style={{
-          animationDuration: `${FADE_MS}ms`,
-          animationDelay: `${index * FADE_SPREAD_MS / Math.max(1, glyphs.length - 1)}ms`,
-        }}>{glyph}</span>
-    ))}</span>
-    {text.slice(start + length)}
+  if (!batches.length) return text;
+  return <>{text.slice(0, batches[0].start)}
+    {batches.map((batch) => <ProseFade key={batch.start} batch={batch} duration={duration} clock={clock} settle={settle} />)}
+    {text.slice(batches[batches.length - 1].end)}
   </>;
 }
 
-function ProseParagraph({ node: _node, children, ...props }: ComponentProps<"p"> & ExtraProps) {
-  const animate = useContext(StreamingProseContext);
-  return <p {...props}>{animate ? Children.map(children, (child) => (
-    typeof child === "string" ? <FadingProse text={child} /> : child
-  )) : children}</p>;
+function ProseChildren({ children }: { children: ReactNode }) {
+  const motion = useContext(StreamingProseContext);
+  return motion ? Children.map(children, (child) => (
+    typeof child === "string" ? <FadingProse text={child} {...motion} /> : child
+  )) : children;
 }
+
+function proseTag(tag: string) {
+  return function ProseElement({ node: _node, children, ...props }: { children?: ReactNode } & ExtraProps) {
+    return createElement(tag, props, <ProseChildren>{children}</ProseChildren>);
+  };
+}
+
+const proseTags = {
+  p: proseTag("p"), li: proseTag("li"),
+  h1: proseTag("h1"), h2: proseTag("h2"), h3: proseTag("h3"),
+  h4: proseTag("h4"), h5: proseTag("h5"), h6: proseTag("h6"),
+  em: proseTag("em"), strong: proseTag("strong"), del: proseTag("del"),
+  td: proseTag("td"), th: proseTag("th"),
+};
 
 interface MarkdownBodyProps {
   children: string;
@@ -135,7 +166,9 @@ const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, url
 });
 
 export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onNavigateLink, keepLineBreaks }: MarkdownBodyProps) {
-  const animateProse = useContext(ChatAnimationsContext) > 0 && Boolean(isStreaming);
+  const duration = useContext(ChatAnimationsContext);
+  const [clock] = useState<ProseClock>(() => ({ frame: null, elapsed: 0 }));
+  const proseMotion = useMemo(() => isStreaming && duration > 0 ? { duration, clock } : null, [isStreaming, duration, clock]);
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // A streaming reply grows by a few characters per chunk; parsing all of it
   // each time made a long reply quadratic. Its finished blocks keep their
@@ -146,7 +179,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
   );
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
-    p: ProseParagraph,
+    ...(isStreaming ? proseTags : {}),
     code({ className, children, ...props }) {
       const lang = className?.replace("language-", "").toLowerCase() ?? "";
       const raw = String(children);
@@ -168,7 +201,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
           className="markdown-inline-code"
           {...props}
         >
-          {children}
+          <ProseChildren>{children}</ProseChildren>
         </code>
       );
     },
@@ -184,7 +217,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         return (
           <MarkdownLinkContext.Provider value={true}>
             <a {...props} role="link" tabIndex={0} onClick={navigate} onKeyDown={(event) => { if (event.key === "Enter") navigate(); }}>
-              {children}
+              <ProseChildren>{children}</ProseChildren>
             </a>
           </MarkdownLinkContext.Provider>
         );
@@ -194,7 +227,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         return (
           <MarkdownLinkContext.Provider value={true}>
             <a href={href} {...props} onClick={jumpToMarkdownFragment}>
-              {children}
+              <ProseChildren>{children}</ProseChildren>
             </a>
           </MarkdownLinkContext.Provider>
         );
@@ -205,7 +238,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         return (
           <MarkdownLinkContext.Provider value={true}>
             <a href={href} {...props} target="_blank" rel="noopener noreferrer">
-              {children}
+              <ProseChildren>{children}</ProseChildren>
             </a>
           </MarkdownLinkContext.Provider>
         );
@@ -222,7 +255,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
       return (
         <MarkdownLinkContext.Provider value={true}>
           <a href={href} {...props} onClick={handleClick}>
-            {children}
+            <ProseChildren>{children}</ProseChildren>
           </a>
         </MarkdownLinkContext.Provider>
       );
@@ -251,7 +284,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
   }), [cwd, isStreaming, onOpenFile, onNavigateLink]);
 
   return (
-    <StreamingProseContext.Provider value={animateProse}>
+    <StreamingProseContext.Provider value={proseMotion}>
       <div className={["markdown-body", className].filter(Boolean).join(" ")}>
         {blocks.map((block, index) => (
         <MarkdownBlock

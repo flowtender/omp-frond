@@ -143,6 +143,67 @@ function createRowSink(): RowSink {
   };
 }
 
+function appendPatchLine(sink: RowSink, line: string) {
+  switch (line[0]) {
+    case "@": if (line.startsWith("@@")) { sink.gap(); return; } break;
+    case "+": sink.added(line.slice(1), null); return;
+    case "-": sink.removed(line.slice(1), null); return;
+    case " ": sink.context(line.slice(1), null); return;
+  }
+  if (line) sink.context(line, null);
+}
+
+function fileLines(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+/** Preview supplied changes without inventing original content or line numbers. */
+export function previewEditInput(args: Record<string, unknown>, patch: string): SplitDiffFile[] | null {
+  if (patch) {
+    const v4a = parseApplyPatchInput(patch);
+    if (v4a) return v4a;
+    const files: SplitDiffFile[] = [];
+    let sink: RowSink | null = null;
+    for (const line of fileLines(patch)) {
+      const header = /^\[(.+)#[\da-f]{4}\]$/i.exec(line);
+      if (header) {
+        sink?.finish();
+        sink = createRowSink();
+        files.push({ newPath: header[1], rows: sink.rows });
+      } else if (line.startsWith("+")) {
+        sink?.added(line.slice(1), null);
+      } else {
+        sink?.gap();
+      }
+    }
+    sink?.finish();
+    const visible = files.filter((file) => file.rows.length > 0);
+    if (visible.length) return visible;
+  }
+
+  const path = typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : undefined;
+  const sink = createRowSink();
+  for (const edit of Array.isArray(args.edits) ? args.edits : [args]) {
+    if (!isRecord(edit)) continue;
+    if (typeof edit.diff === "string") {
+      for (const line of fileLines(edit.diff)) {
+        if (edit.op === "create") sink.added(line, null);
+        else appendPatchLine(sink, line);
+      }
+    } else {
+      const oldText = edit.old_string ?? edit.oldText;
+      const newText = edit.new_string ?? edit.newText;
+      if (typeof oldText === "string") for (const line of fileLines(oldText)) sink.removed(line, null);
+      if (typeof newText === "string") for (const line of fileLines(newText)) sink.added(line, null);
+    }
+    sink.gap();
+  }
+  sink.finish();
+  return sink.rows.length ? [{ oldPath: path, newPath: path, rows: sink.rows }] : null;
+}
+
 // ── Source 1: V4A patch document (tool call input) ───────────────────────────
 
 /**
@@ -185,28 +246,12 @@ export function parseApplyPatchInput(patchText: string): SplitDiffFile[] | null 
     }
 
     if (!sink || !current) continue;
-    const body: RowSink = sink;
     if (rawLine.startsWith("*** ")) continue; // Begin/End Patch markers
-    // Each @@ starts a chunk at another place in the file. It carries no line
-    // numbers, so the gap before a later chunk has no count.
-    if (operation === "update" && rawLine.startsWith("@@")) {
-      body.gap();
-      continue;
-    }
-
     if (operation === "update") {
-      const prefix = rawLine[0];
-      const content = rawLine.slice(1);
-      if (prefix === "+") body.added(content, null);
-      else if (prefix === "-") body.removed(content, null);
-      else if (prefix === " ") body.context(content, null);
-      else if (rawLine !== "") body.context(rawLine, null); // defensive: unprefixed context
-    } else if (operation === "add") {
-      if (rawLine === "") continue;
-      sink.added(rawLine.startsWith("+") ? rawLine.slice(1) : rawLine, null);
-    } else if (operation === "delete") {
-      if (rawLine === "") continue;
-      sink.removed(rawLine.startsWith("-") ? rawLine.slice(1) : rawLine, null);
+      appendPatchLine(sink, rawLine);
+    } else if (rawLine !== "") {
+      if (operation === "add") sink.added(rawLine.startsWith("+") ? rawLine.slice(1) : rawLine, null);
+      else if (operation === "delete") sink.removed(rawLine.startsWith("-") ? rawLine.slice(1) : rawLine, null);
     }
   }
   sink?.finish();
