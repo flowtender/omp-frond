@@ -277,7 +277,6 @@ export const zhCNLocale: LocalePlugin = {
     "chat.tokenFlowIn": "入",
     "chat.tokenFlowOut": "出",
     "chat.tokenCountNotReported": "未报告",
-    "chat.cacheWriteZero": "零也可能表示服务商未报告缓存写入。",
     "session.output": "输出",
     "session.cacheRead": "缓存读取",
     "session.cacheWrite": "缓存写入",

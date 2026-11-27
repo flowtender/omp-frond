@@ -277,7 +277,6 @@ export const enLocale: LocalePlugin = {
     "chat.tokenFlowIn": "In",
     "chat.tokenFlowOut": "Out",
     "chat.tokenCountNotReported": "Not reported",
-    "chat.cacheWriteZero": "A zero can mean the provider did not report cache writes.",
     "session.output": "Output",
     "session.cacheRead": "Cache Read",
     "session.cacheWrite": "Cache Write",

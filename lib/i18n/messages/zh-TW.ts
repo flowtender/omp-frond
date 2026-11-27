@@ -263,7 +263,6 @@ export const zhTWLocale: LocalePlugin = {
     "chat.tokenFlowIn": "入",
     "chat.tokenFlowOut": "出",
     "chat.tokenCountNotReported": "未回報",
-    "chat.cacheWriteZero": "零也可能表示供應商未回報快取寫入。",
     "session.output": "輸出",
     "session.cacheRead": "快取讀取",
     "session.cacheWrite": "快取寫入",

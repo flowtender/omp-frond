@@ -17,12 +17,21 @@ function verticalConnector(fromX: number, fromY: number, toX: number, toY: numbe
   return `V${y - bend} q0 ${bend} ${direction * bend} ${bend} H${toX - direction * bend} q${direction * bend} 0 ${direction * bend} ${bend} V${toY}`;
 }
 
+/** Leave the box above, turn toward the center at once, then drop into the bracket. */
+function foldEntry(fromX: number, startY: number, centerX: number, bracketTop: number): string {
+  const delta = centerX - fromX;
+  if (Math.abs(delta) < 1) return `M${fromX} ${startY} V${bracketTop}`;
+  const turn = Math.sign(delta);
+  const bend = Math.min(radius, Math.abs(delta) / 2);
+  const cornerY = Math.max(startY + bend, Math.min(startY + 2 * radius, bracketTop - bend));
+  return `M${fromX} ${startY} V${cornerY - bend} q0 ${bend} ${turn * bend} ${bend} H${centerX - turn * bend} q${turn * bend} 0 ${turn * bend} ${bend} V${bracketTop}`;
+}
 const portRails = {
-  model: { entry: 0.25, exit: 0.75, box: false },
-  handoff: { entry: 0.75, exit: 0.25, box: false },
-  bridge: { entry: 0.5, exit: 0.5, box: false },
-  input: { entry: 0.25, exit: 0.25, box: true },
-  output: { entry: 0.75, exit: 0.75, box: true },
+  model: { entry: 0.75, exit: 0.25, box: false },
+  fold: { entry: 0.75, exit: 0.5, box: false },
+  handoff: { entry: 0.25, exit: 0.75, box: false },
+  input: { entry: 0.75, exit: 0.75, box: true },
+  output: { entry: 0.25, exit: 0.25, box: true },
 } as const;
 type Port = keyof typeof portRails;
 
@@ -62,7 +71,7 @@ export function useTokenFlowConnections(
         return;
       }
       const origin = composerWire.getBoundingClientRect();
-      const x = row.left + row.width * 0.25 - origin.left;
+      const x = row.left + row.width * portRails.handoff.exit - origin.left;
       const y = start - origin.top;
       const toY = target.top - origin.top;
       composerPath.setAttribute("d", `M${x} ${y} V${toY} ${arrow(x, toY)}`);
@@ -110,23 +119,32 @@ export function useTokenFlowConnections(
       composerPath?.removeAttribute("d");
       for (const row of rows) {
         const { element, bounds, port, source, target } = row;
-        const left = bounds.width * 0.25;
-        const right = bounds.width * 0.75;
+        const entryX = bounds.width * portRails[port].entry;
+        const exitX = bounds.width * portRails[port].exit;
+        // The wire turns toward the exit rail: left when the flow enters on the right.
+        const turn = Math.sign(exitX - entryX);
         const startY = source ? source.bounds.bottom - bounds.top : 0;
         const path = element.querySelector<SVGPathElement>(":scope > .token-flow-wire > path");
-        const fromX = source ? source.bounds.left + source.bounds.width * portRails[source.port].exit - bounds.left : bounds.width * portRails[port].entry;
-        const toX = target ? target.bounds.left + target.bounds.width * portRails[target.port].entry - bounds.left : bounds.width * portRails[port].exit;
-        if (port === "bridge") {
-          const middle = bounds.width * 0.5;
-          path?.setAttribute("d", `M${fromX} ${startY} ${verticalConnector(fromX, startY, middle, bounds.height / 2)} ${verticalConnector(middle, bounds.height / 2, toX, target ? target.bounds.top - bounds.top : bounds.height)}`);
+        const fromX = source ? source.bounds.left + source.bounds.width * portRails[source.port].exit - bounds.left : entryX;
+        const toX = target ? target.bounds.left + target.bounds.width * portRails[target.port].entry - bounds.left : exitX;
+        const turnDown = `q0 ${radius} ${turn * radius} ${radius} H${exitX - turn * radius} q${turn * radius} 0 ${turn * radius} ${radius}`;
+        if (port === "fold") {
+          const body = element.querySelector(".token-flow-fold-body")?.getBoundingClientRect();
+          if (!body) continue;
+          const centerX = bounds.width / 2;
+          const bodyTop = body.top - bounds.top;
+          const endY = target ? target.bounds.top - bounds.top : bounds.height;
+          const intoBracket = foldEntry(fromX, startY, centerX, bodyTop);
+          const outOfBracket = verticalConnector(centerX, body.bottom - bounds.top, toX, endY);
+          path?.setAttribute("d", `${intoBracket} M${centerX} ${body.bottom - bounds.top} ${outOfBracket}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
           continue;
         }
         if (port === "handoff") {
           const lineY = bounds.height / 2;
-          const input = verticalConnector(fromX, startY, right, lineY - radius);
+          const input = verticalConnector(fromX, startY, entryX, lineY - radius);
           const endY = target ? target.bounds.top - bounds.top : Math.min(bounds.height - 4, lineY + radius + 6);
-          const output = verticalConnector(left, lineY + radius, toX, endY);
-          const base = `M${fromX} ${startY} ${input} q0 ${radius} ${-radius} ${radius} H${left + radius} q${-radius} 0 ${-radius} ${radius}`;
+          const output = verticalConnector(exitX, lineY + radius, toX, endY);
+          const base = `M${fromX} ${startY} ${input} ${turnDown}`;
           const fallback = `${base} ${output}${target?.block || !target ? ` ${arrow(toX, endY)}` : ""}`;
           path?.setAttribute("d", fallback);
           if (composerPath && path && previousRow?.element === element && !target && element.dataset.tokenHandoff === "user") {
@@ -136,10 +154,10 @@ export function useTokenFlowConnections(
         }
         const endY = target ? target.bounds.top - bounds.top : bounds.height;
         const lineY = (startY + endY) / 2;
-        const input = verticalConnector(fromX, startY, left, lineY - radius);
-        const output = verticalConnector(right, lineY + radius, toX, endY);
         element.style.setProperty("--token-flow-offset", `${lineY - bounds.height / 2}px`);
-        path?.setAttribute("d", `M${fromX} ${startY} ${input} q0 ${radius} ${radius} ${radius} H${right - radius} q${radius} 0 ${radius} ${radius} ${output}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
+        const input = verticalConnector(fromX, startY, entryX, lineY - radius);
+        const output = verticalConnector(exitX, lineY + radius, toX, endY);
+        path?.setAttribute("d", `M${fromX} ${startY} ${input} ${turnDown} ${output}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
       }
       drawComposerHandoff();
     }

@@ -4,6 +4,8 @@ import type { AgentUsage } from "@/lib/types";
 import { ProviderIcon, modelIconProviders } from "./ProviderIcon";
 import { CacheGlyph } from "./CacheGlyph";
 
+type TokenTotals = Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
+
 export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, tokensPerSecond, time }: {
   usage?: AgentUsage;
   provider: string;
@@ -14,27 +16,42 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
   time?: string | null;
 }) {
   const { t, locale } = useI18n();
-  const icon = modelIconProviders(provider, model).at(-1);
   return (
     <div className="token-flow" data-token-flow="" data-transcript-port="model" role="group" aria-label={`${t("settings.tokenDisplay")}: ${modelName}`}>
       <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
-      <div className="token-flow-counts">
-        <FlowCount label={t("chat.newInputTokens")} shortLabel={t("chat.tokenFlowIn")} count={usage?.input} locale={locale} />
-        <FlowCount label={t("session.cacheRead")} cache="R" count={usage?.cacheRead} locale={locale} />
-      </div>
-      <span className="token-flow-model" title={modelName} aria-hidden="true">
-        {icon ? <ProviderIcon id={icon} size={24} /> : (
-          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
-            <path d="M8 1.5 14 5v6l-6 3.5L2 11V5zM2 5l6 3.5L14 5M8 8.5v6" />
-          </svg>
-        )}
-      </span>
-      <div className="token-flow-counts">
-        <FlowCount label={t("session.cacheWrite")} cache="W" count={usage?.cacheWrite} locale={locale} />
-        <FlowCount label={t("session.output")} shortLabel={t("chat.tokenFlowOut")} count={usage?.output ?? estimatedOutput} estimated={estimatedOutput !== undefined} locale={locale} />
-      </div>
+      <InputCounts usage={usage} />
+      <ModelMark icon={modelIconProviders(provider, model).at(-1)} title={modelName} />
+      <OutputCounts usage={usage} estimatedOutput={estimatedOutput} />
       {tokensPerSecond != null && <span className="token-flow-rate">{tokensPerSecond.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t/s</span>}
       <FlowTime time={time} />
+    </div>
+  );
+}
+
+/**
+ * A collapsed run of requests: the wire drops into a bracket around the AI icon.
+ * Output sits left of the icon and input right of it, as in a model row; the toggle is the bracket's caption.
+ */
+export function TokenFlowFold({ usage, missing, models, children }: {
+  usage?: TokenTotals;
+  missing: boolean;
+  models: { provider: string; model: string }[];
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  // A fold spanning several models has no single icon to show.
+  const icons = new Set(models.map(({ provider, model }) => modelIconProviders(provider, model).at(-1)));
+  return (
+    <div className="token-flow token-flow-fold" data-transcript-port="fold" role="group" aria-label={t("chat.processDetails")}>
+      <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
+      <div className="token-flow-fold-body">
+        <div className="token-flow-fold-flow">
+          <OutputCounts usage={usage} partial={missing} />
+          <ModelMark icon={icons.size === 1 ? [...icons][0] : undefined} />
+          <InputCounts usage={usage} partial={missing} />
+        </div>
+        <div className="token-flow-fold-caption">{children}</div>
+      </div>
     </div>
   );
 }
@@ -63,7 +80,7 @@ export function TokenFlowHandoff({ kind, label, time, children }: {
 }
 
 export function FoldTokenTotals({ usage, missing }: {
-  usage?: Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
+  usage?: TokenTotals;
   missing: boolean;
 }) {
   const { t, locale } = useI18n();
@@ -77,11 +94,50 @@ export function FoldTokenTotals({ usage, missing }: {
   );
 }
 
+/** Tokens going into the model: cache writes plus new input above the wire, cache reads below it. */
+function InputCounts({ usage, partial }: { usage?: TokenTotals; partial?: boolean }) {
+  const { t, locale } = useI18n();
+  return (
+    <div className="token-flow-counts">
+      <span className="token-flow-sum">
+        <FlowCount label={t("chat.newInputTokens")} shortLabel={t("chat.tokenFlowIn")} count={usage?.input} locale={locale} partial={partial} />
+        {Boolean(usage?.cacheWrite) && <span aria-hidden="true">+</span>}
+        <FlowCount label={t("session.cacheWrite")} cache="W" count={usage?.cacheWrite} locale={locale} partial={partial} />
+      </span>
+      <FlowCount row={2} label={t("session.cacheRead")} cache="R" count={usage?.cacheRead} locale={locale} partial={partial} />
+    </div>
+  );
+}
+
+/** Tokens coming out of the model: output below the wire. */
+function OutputCounts({ usage, estimatedOutput, partial }: { usage?: TokenTotals; estimatedOutput?: number; partial?: boolean }) {
+  const { t, locale } = useI18n();
+  return (
+    <div className="token-flow-counts">
+      <FlowCount row={2} label={t("session.output")} shortLabel={t("chat.tokenFlowOut")} count={usage?.output ?? estimatedOutput} estimated={estimatedOutput !== undefined} locale={locale} partial={partial} />
+    </div>
+  );
+}
+
+function ModelMark({ icon, title }: { icon?: string; title?: string }) {
+  return (
+    <span className="token-flow-model" title={title} aria-hidden="true">
+      {icon ? <ProviderIcon id={icon} size={24} /> : (
+        <svg width="24" height="24" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+          <path d="M8 1.5 14 5v6l-6 3.5L2 11V5zM2 5l6 3.5L14 5M8 8.5v6" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
 function FlowTime({ time }: { time?: string | null }) {
   return time ? <span className="token-flow-time">{time}</span> : null;
 }
 
-function FlowCount({ label, shortLabel, cache, count, estimated, locale, partial }: {
+function FlowCount({ row, label, shortLabel, cache, count, estimated, locale, partial }: {
+  /** Grid row above (1) or below (2) the wire; a hidden neighbour must not move this count. */
+  row?: 1 | 2;
   label: string;
   shortLabel?: string;
   cache?: "R" | "W";
@@ -91,12 +147,13 @@ function FlowCount({ label, shortLabel, cache, count, estimated, locale, partial
   partial?: boolean;
 }) {
   const { t } = useI18n();
+  if (cache && !count) return null;
   const formatted = count?.toLocaleString(locale) ?? "—";
   const title = `${label}: ${count === undefined ? t("chat.tokenCountNotReported") : formatted}`;
   const incomplete = partial && count !== undefined;
-  const description = incomplete ? t("chat.foldPartialUsage") : estimated ? t("i18n.estimatedTokens") : cache === "W" && count === 0 ? t("chat.cacheWriteZero") : undefined;
+  const description = incomplete ? t("chat.foldPartialUsage") : estimated ? t("i18n.estimatedTokens") : undefined;
   return (
-    <span className="token-flow-count" title={description ? `${title} · ${description}` : title}>
+    <span className="token-flow-count" style={row ? { gridRow: row } : undefined} title={description ? `${title} · ${description}` : title}>
       <span className="sr-only">{label}: </span>
       <span className="token-flow-label" aria-hidden="true">{cache ? <><CacheGlyph size={11} />{cache}</> : shortLabel}</span>
       <b>{incomplete ? "≥" : estimated && "≈"}{formatted}</b>

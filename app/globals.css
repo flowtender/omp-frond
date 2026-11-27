@@ -869,20 +869,27 @@ pre, code {
 
 .token-flow-counts {
   position: relative;
-  grid-column: 2;
+  grid-column: 4;
   display: grid;
   grid-template-rows: repeat(2, 1fr);
   place-items: center;
   min-width: 0;
 }
 
-.token-flow-model + .token-flow-counts { grid-column: 4; }
+.token-flow-model + .token-flow-counts { grid-column: 2; }
 
 .token-flow-count {
   display: flex;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+}
+
+.token-flow-sum {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .token-flow-label { display: inline-flex; align-items: center; gap: 1px; }
@@ -905,8 +912,8 @@ pre, code {
 
 .token-flow-rate {
   position: absolute;
-  /* The right-hand counts are centered at 62.5% plus a quarter of the model column. */
-  left: calc(56.25% + var(--token-flow-model-column) / 8);
+  /* Halfway between the model icon and the center of the left-hand counts. */
+  left: calc(43.75% - var(--token-flow-model-column) / 8);
   top: 50%;
   transform: translate(-50%, calc(-50% + var(--token-flow-offset, 0px)));
   border: 1px solid var(--token-flow-line);
@@ -934,6 +941,13 @@ pre, code {
   padding-block: 9px;
 }
 
+/* Tool handoffs are quick: keep their wires close together. */
+.token-flow-handoff[data-token-handoff="tools"] {
+  min-height: 34px;
+  padding-block: 3px;
+  margin-block: 2px;
+}
+
 .token-flow-handoff-icons {
   grid-area: 1 / 2 / 2 / 5;
   display: flex;
@@ -955,19 +969,47 @@ pre, code {
   color: var(--text);
 }
 
-/* A folded gap is not a model hop or a tool handoff. */
-.transcript-fold-bridge {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  margin-block: 8px;
-  padding-block: 6px;
+/* A collapsed fold: the wire drops into a bracket around the icon, which holds the counts and the fold's toggle. */
+.token-flow-fold {
+  display: block;
+  height: auto;
+  padding-block: 24px 12px;
 }
 
-.transcript-fold-bridge > .token-flow-wire {
-  stroke: var(--text-dim);
-  stroke-dasharray: 3 4;
-  overflow: visible;
+.token-flow-fold-body {
+  position: relative;
+  width: min(100%, 520px);
+  margin-inline: auto;
+  padding: 4px 18px;
+}
+
+.token-flow-fold-body::before,
+.token-flow-fold-body::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  border: 1.25px solid var(--token-flow-line);
+  pointer-events: none;
+}
+
+.token-flow-fold-body::before { left: 0; border-right: 0; border-radius: 7px 0 0 7px; }
+.token-flow-fold-body::after { right: 0; border-left: 0; border-radius: 0 7px 7px 0; }
+
+.token-flow-fold-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.token-flow-fold-flow .token-flow-counts { flex: 1 1 0; min-height: 38px; }
+
+.token-flow-fold-caption {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  padding-top: 2px;
 }
 
 .transcript-fold-totals {
@@ -993,10 +1035,7 @@ pre, code {
   cursor: pointer;
 }
 
-.transcript-fold-bridge > .transcript-fold-toggle {
-  background: var(--bg);
-  padding-inline: 6px;
-}
+.token-flow-fold-caption .transcript-fold-label { justify-content: center; }
 
 .transcript-fold-label {
   display: flex;

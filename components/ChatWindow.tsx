@@ -18,7 +18,7 @@ import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
 import { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } from "./MessageView";
 import { TranscriptViewportRow } from "./TranscriptViewportRow";
-import { FoldTokenTotals, TokenFlow, TokenFlowHandoff } from "./TokenFlow";
+import { FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff } from "./TokenFlow";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -199,7 +199,7 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, failureCount, compaction = false, status, durationMs, cacheMisses, tokenDisplay = "text", usage, missingUsage = false, defaultExpanded = false, reveal = false, renderDetails, t }: {
+function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, failureCount, compaction = false, status, durationMs, cacheMisses, tokenDisplay = "text", usage, missingUsage = false, models = [], defaultExpanded = false, reveal = false, renderDetails, t }: {
   messageCount: number;
   requestCount?: number;
   toolCallCount: number;
@@ -212,6 +212,7 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
   usage?: Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
   missingUsage?: boolean;
   defaultExpanded?: boolean;
+  models?: { provider: string; model: string }[];
   reveal?: boolean;
   renderDetails: () => ReactNode;
   t: (key: string, params?: Record<string, string | number>) => string;
@@ -247,27 +248,27 @@ function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, fa
     </>
   );
   const foldSummaryId = useId();
-  const bridge = tokenDisplay === "flow" && collapsed;
   const toggle = (
-    <div className={bridge ? "transcript-fold-bridge" : undefined} data-transcript-port={bridge ? "bridge" : undefined}>
-      {bridge && <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>}
-      <button
-        type="button"
-        className="transcript-fold-toggle"
-        aria-expanded={!collapsed}
-        aria-label={t("chat.processDetails")}
-        aria-describedby={foldSummaryId}
-        onClick={() => setManualExpanded(collapsed)}
-        title={collapsed ? t("chat.expandProcess") : t("chat.collapseProcess")}
-      >
-        <span style={{ flexShrink: 0, display: "inline-flex" }} aria-hidden="true">{chevron}</span>
-        <span className="transcript-fold-label" id={foldSummaryId} dir="auto">
-          <span>{summary}</span>
-          {collapsed && tokenDisplay !== "off" && requestCount > 0 && <FoldTokenTotals usage={usage} missing={missingUsage} />}
-        </span>
-      </button>
-    </div>
+    <button
+      type="button"
+      className="transcript-fold-toggle"
+      aria-expanded={!collapsed}
+      aria-label={t("chat.processDetails")}
+      aria-describedby={foldSummaryId}
+      onClick={() => setManualExpanded(collapsed)}
+      title={collapsed ? t("chat.expandProcess") : t("chat.collapseProcess")}
+    >
+      <span style={{ flexShrink: 0, display: "inline-flex" }} aria-hidden="true">{chevron}</span>
+      <span className="transcript-fold-label" id={foldSummaryId} dir="auto">
+        <span>{summary}</span>
+        {collapsed && tokenDisplay === "text" && requestCount > 0 && <FoldTokenTotals usage={usage} missing={missingUsage} />}
+      </span>
+    </button>
   );
+  // In flow mode a folded run of requests is one turn marker; its counts replace the text totals.
+  if (tokenDisplay === "flow" && collapsed && requestCount > 0) {
+    return <TokenFlowFold usage={usage} missing={missingUsage} models={models}>{toggle}</TokenFlowFold>;
+  }
   return (
     <div className="transcript-process">
       {toggle}
@@ -1346,8 +1347,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     let compaction = false;
                     let status: string | undefined;
                     const noticed: AgentMessage[] = [];
+                    const models: { provider: string; model: string }[] = [];
                     for (const item of row.items) {
                       const message = messages[item.index];
+                      if (item.kind === "model" && message.role === "assistant") models.push({ provider: message.provider, model: message.model });
                       if (item.kind === "model" || item.kind === "user-handoff") continue;
                       if (item.kind === "assistant" && item.part.kind === "status" && message.role === "assistant") {
                         if (message.stopReason === "error") status = t("chat.foldModelError");
@@ -1371,7 +1374,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                       }
                     }
                     return <ProcessDetailsGroup messageCount={messageCount} requestCount={row.requestCount} toolCallCount={toolCallCount}
-                      failureCount={failureCount} compaction={compaction} status={status} tokenDisplay={tokenDisplay} usage={row.usage} missingUsage={row.missingUsage}
+                      failureCount={failureCount} compaction={compaction} status={status} tokenDisplay={tokenDisplay} usage={row.usage} missingUsage={row.missingUsage} models={models}
                       durationMs={anchor !== undefined && finished && before ? getTurnDurationMs(messages, anchor, before.index + 1) : undefined}
                       cacheMisses={cacheMissMarker ? summarizeCacheMisses(noticed) : undefined}
                       defaultExpanded={!before} reveal={reveal} renderDetails={() => row.items.map((item) => renderItem(item))} t={t} />;

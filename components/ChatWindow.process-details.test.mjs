@@ -10,7 +10,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } = await jiti.import("./MessageView.tsx");
-const { FoldTokenTotals, TokenFlow, TokenFlowHandoff } = await jiti.import("./TokenFlow.tsx");
+const { FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff } = await jiti.import("./TokenFlow.tsx");
 const { useI18n } = await jiti.import("@/hooks/useI18n");
 const { usePacedStreamingMessage } = await jiti.import("@/hooks/useStreamingSelector");
 const display = await import("../lib/message-display.ts");
@@ -47,7 +47,7 @@ function renderTranscript(messages, overrides = {}) {
     React, Fragment: React.Fragment, useState: React.useState, useLayoutEffect: React.useLayoutEffect, useId: React.useId,
     ...display, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, toolCallFailureCount,
     useExpansionPreference: () => "automatic",
-    FoldTokenTotals, TokenFlow, TokenFlowHandoff, TranscriptToolResult,
+    FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff, TranscriptToolResult,
     formatTime, formatUsage, getModelDisplayName, handoffTimeOf,
     transcript: buildChatTranscript(messages, {}, Boolean(overrides.cacheMissMarker)),
     showTokenFlow: overrides.tokenDisplay === "flow",
@@ -175,7 +175,7 @@ test("manual process choice survives an answer and later preference changes", ()
   }).outputText).runInContext(context);
   let builds = 0;
   const props = { messageCount: 1, toolCallCount: 0, failureCount: 0, t: (key) => key, renderDetails: () => ++builds };
-  const button = (defaultExpanded) => component({ ...props, defaultExpanded }).props.children[0].props.children[1];
+  const button = (defaultExpanded) => component({ ...props, defaultExpanded }).props.children[0];
   assert.equal(button(true).props["aria-expanded"], true);
   assert.equal(builds, 1);
   button(true).props.onClick();
@@ -223,7 +223,7 @@ test("flow shows one set of counts when a reply's thinking and answer are split"
   const flow = renderTranscript(messages, { ...options, tokenDisplay: "flow" });
   assert.equal((flow.match(/New input: 374/g) ?? []).length, 1);
   assert.match(flow, /Cache Read: 16/);
-  assert.match(flow, /Cache Write: 0 · A zero can mean/);
+  assert.doesNotMatch(flow, /Cache Write/, "a zero cache write is not drawn");
   const withWrites = [{ ...messages[1], usage: { ...usage, cacheWrite: 52 } }];
   assert.ok(flow.indexOf("New input: 374") < flow.indexOf("review"));
   assert.equal((flow.match(/data-transcript-block="response"/g) ?? []).length, 2);
@@ -302,9 +302,11 @@ test("fold totals count every hidden request once, separate from visible request
   assert.match(folded, /New input: 90/);
   for (const label of ["New input: 36", "Output: 27", "Cache Read: 18", "Cache Write: 9"]) assert.ok(folded.includes(label), label);
   assert.match(folded, /some requests did not report token usage/);
+  assert.match(folded, /data-transcript-port="fold"/);
   assert.doesNotMatch(folded, /New input: 12|New input: 24|hidden reasoning/);
   const expanded = renderTranscript(messages, { tokenDisplay: "flow", useExpansionPreference: () => "expanded" });
   assert.doesNotMatch(expanded, /New input: 36/);
+  assert.doesNotMatch(expanded, /data-transcript-port="fold"/);
   assert.match(expanded, /New input: 12.*New input: Not reported.*New input: 24/s);
   assert.doesNotMatch(renderTranscript(messages, { tokenDisplay: "off" }), /New input:|transcript-fold-totals/);
 });
