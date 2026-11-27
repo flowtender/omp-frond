@@ -955,34 +955,56 @@ pre, code {
   color: var(--text);
 }
 
-/* The collapsible agent-work fold, drawn as a handoff row on the wire. */
-.token-flow-handoff-fold {
-  width: 100%;
-  padding-inline: 0;
+/* A folded gap is not a model hop or a tool handoff. */
+.transcript-fold-bridge {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  margin-block: 8px;
+  padding-block: 6px;
+}
+
+.transcript-fold-bridge > .token-flow-wire {
+  stroke: var(--text-dim);
+  stroke-dasharray: 3 4;
+  overflow: visible;
+}
+
+.transcript-fold-totals {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transcript-fold-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 24px;
+  padding-block: 2px;
   border: 0;
   background: transparent;
   color: var(--text-muted);
-  font: inherit;
-  text-align: inherit;
+  font-size: 12px;
+  text-align: start;
   cursor: pointer;
 }
 
-.token-flow-handoff-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  /* Sit on the wire instead of letting it cut through the words. */
-  padding-inline: 4px 2px;
+.transcript-fold-bridge > .transcript-fold-toggle {
   background: var(--bg);
+  padding-inline: 6px;
 }
 
-.token-flow-handoff-summary {
+.transcript-fold-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .token-flow > :is(.token-flow-counts, .token-flow-model) { grid-row: 1; }

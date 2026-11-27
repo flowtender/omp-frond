@@ -1,25 +1,24 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BackgroundJob, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
+import type { AgentMessage, AgentUsage, AssistantContentBlock, AssistantMessage, BackgroundJob, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks, type DisplayOptions } from "@/lib/message-display";
+import { isMessageGroupAnchor, type DisplayOptions } from "@/lib/message-display";
+import { buildChatTranscript, type ChatTranscriptItem } from "@/lib/chat-transcript";
 import { useExpansionPreference } from "@/lib/expansion-preference";
-import { countToolCallFailures } from "@/lib/tool-call-expansion";
+import { toolCallFailureCount } from "@/lib/tool-call-expansion";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { attachDeferredTaskResults } from "@/lib/task-tool-display";
-import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
-import { getModelDisplayName, handoffTimeOf, MessageView } from "./MessageView";
-import { TranscriptBlock } from "./TranscriptBlock";
+import { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } from "./MessageView";
 import { TranscriptViewportRow } from "./TranscriptViewportRow";
-import { TokenFlow, TokenFlowHandoff } from "./TokenFlow";
+import { FoldTokenTotals, TokenFlow, TokenFlowHandoff } from "./TokenFlow";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -186,23 +185,6 @@ function NewSessionUpdateLink({
   );
 }
 
-function hasFinalAssistantAnswer(message: AgentMessage, options: DisplayOptions): boolean {
-  if (message.role !== "assistant" || message.stopReason === "toolUse") return false;
-  return splitFinalAssistantBlocks(message as AssistantMessage, options).answerBlocks.some((block) => (
-    block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
-  ));
-}
-
-function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endIdx: number, options: DisplayOptions): number {
-  for (let candidateIdx = userIdx + 1; candidateIdx < endIdx; candidateIdx++) {
-    if (hasFinalAssistantAnswer(messages[candidateIdx], options)) return candidateIdx;
-  }
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
-    if (messages[candidateIdx]?.role === "assistant") return candidateIdx;
-  }
-  return -1;
-}
-
 function getUserInputText(message: AgentMessage): string | null {
   if (message.role !== "user") return null;
   if (typeof message.content === "string") {
@@ -217,16 +199,36 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durationMs, cacheMisses, flow = false, time = null, defaultExpanded = false, reveal = false, children, renderAnswer, t }: { messageCount: number; toolCallCount: number; failureCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; flow?: boolean; time?: string | null; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; renderAnswer?: (processVisible: boolean) => ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, failureCount, compaction = false, status, durationMs, cacheMisses, tokenDisplay = "text", usage, missingUsage = false, defaultExpanded = false, reveal = false, renderDetails, t }: {
+  messageCount: number;
+  requestCount?: number;
+  toolCallCount: number;
+  failureCount: number;
+  compaction?: boolean;
+  status?: string;
+  durationMs?: number;
+  cacheMisses?: CacheMissSummary;
+  tokenDisplay?: TokenDisplayMode;
+  usage?: Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
+  missingUsage?: boolean;
+  defaultExpanded?: boolean;
+  reveal?: boolean;
+  renderDetails: () => ReactNode;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
   const preference = useExpansionPreference("process");
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
   const expanded = manualExpanded ?? (preference === "automatic" ? defaultExpanded : preference === "expanded");
   useLayoutEffect(() => {
     if (reveal) setManualExpanded(true);
   }, [reveal]);
-  // The chevron already says this folds; the words stay in the accessible name.
-  const parts = [`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
+  const collapsed = !expanded && !reveal;
+  const parts: string[] = [];
+  if (messageCount > 0) parts.push(`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`);
+  if (requestCount > 0) parts.push(`${requestCount} ${t(requestCount === 1 ? "chat.modelRequest" : "chat.modelRequests")}`);
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
+  if (compaction) parts.push(t("i18n.conversationCompacted"));
+  if (status && collapsed) parts.push(status);
   if (durationMs !== undefined) parts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
   // Folded, the cache misses inside are added up here; open, each shows under its step.
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
@@ -244,60 +246,34 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, failureCount, durati
       {cacheMissText && ` · ${cacheMissText}`}
     </>
   );
-  const ariaLabel = [t("chat.processDetails"), ...parts, ...(failureText ? [failureText] : []), ...(cacheMissText ? [cacheMissText] : [])].join(" · ");
+  const foldSummaryId = useId();
+  const bridge = tokenDisplay === "flow" && collapsed;
   const toggle = (
-    <button
-      type="button"
-      aria-expanded={expanded || reveal}
-      aria-label={ariaLabel}
-      onClick={() => setManualExpanded(!(expanded || reveal))}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        width: "auto",
-        maxWidth: "100%",
-        minHeight: 24,
-        padding: "2px 0",
-        border: "none",
-        background: "transparent",
-        color: "var(--text-muted)",
-        cursor: "pointer",
-        fontSize: 12,
-        textAlign: "left",
-      }}
-      title={expanded || reveal ? t("chat.collapseProcess") : t("chat.expandProcess")}
-    >
-      <span style={{ flexShrink: 0, display: "inline-flex" }}>{chevron}</span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} dir="auto">
-        {summary}
-      </span>
-    </button>
+    <div className={bridge ? "transcript-fold-bridge" : undefined} data-transcript-port={bridge ? "bridge" : undefined}>
+      {bridge && <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>}
+      <button
+        type="button"
+        className="transcript-fold-toggle"
+        aria-expanded={!collapsed}
+        aria-label={t("chat.processDetails")}
+        aria-describedby={foldSummaryId}
+        onClick={() => setManualExpanded(collapsed)}
+        title={collapsed ? t("chat.expandProcess") : t("chat.collapseProcess")}
+      >
+        <span style={{ flexShrink: 0, display: "inline-flex" }} aria-hidden="true">{chevron}</span>
+        <span className="transcript-fold-label" id={foldSummaryId} dir="auto">
+          <span>{summary}</span>
+          {collapsed && tokenDisplay !== "off" && requestCount > 0 && <FoldTokenTotals usage={usage} missing={missingUsage} />}
+        </span>
+      </button>
+    </div>
   );
-  // In flow mode the fold is a handoff row on the wire: the wire reaches it from
-  // the bubble above and leaves toward the turn's first row, so its counts sit
-  // on the row instead of under a wire crossing them.
-  const process = (
-    <TranscriptBlock className="transcript-process" kind={flow || expanded || reveal ? null : "context"}>
-      {flow ? (
-        <TokenFlowHandoff
-          kind="process"
-          label={ariaLabel}
-          display={<span className="token-flow-handoff-summary" dir="auto">{summary}</span>}
-          time={time}
-          button={{ expanded: expanded || reveal, onClick: () => setManualExpanded(!(expanded || reveal)) }}
-        >
-          <span className="token-flow-handoff-icon" aria-hidden="true">{chevron}</span>
-        </TokenFlowHandoff>
-      ) : toggle}
-      {(expanded || reveal) && (
-        <div style={{ marginTop: 8 }}>
-          {children}
-        </div>
-      )}
-    </TranscriptBlock>
+  return (
+    <div className="transcript-process">
+      {toggle}
+      {!collapsed && <div style={{ marginTop: 8 }}>{renderDetails()}</div>}
+    </div>
   );
-  return renderAnswer ? <>{process}{renderAnswer(expanded || reveal)}</> : process;
 }
 
 export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onProviderUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, onSubagentsChange, onBackgroundJobsChange, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
@@ -377,6 +353,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   // Synced here once for the whole transcript; MessageView reads the shared store directly.
   const { hideThinkingBlock, cacheMissMarker } = useSyncedDisplaySettings(newSessionCwd ?? session?.cwd ?? null);
   const displayOptions = useMemo<DisplayOptions>(() => ({ hideThinking: hideThinkingBlock }), [hideThinkingBlock]);
+  const transcript = useMemo(() => buildChatTranscript(messages, displayOptions, cacheMissMarker), [messages, displayOptions, cacheMissMarker]);
   // While this session's run is under way its chime may come with the phone
   // locked, where a suspended context cannot start again (#1157).
   useEffect(() => {
@@ -791,8 +768,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     // Read the follow flag the streaming/scroll effects own, not a one-tick
     // scroll sample: a fresh commit grows the content before auto-scroll
     // catches up, so an instantaneous position probe misreads "attached".
-    setVisibleCount((current) => getNextWindowCount(current, messages.length, !autoFollowPaused));
-  }, [messages.length, autoFollowPaused]);
+    setVisibleCount((current) => getNextWindowCount(current, transcript.rows.length, !autoFollowPaused));
+  }, [transcript.rows.length, autoFollowPaused]);
 
   // After visibleCount increases (more messages prepended), restore the
   // scroll position so the viewport doesn't jump.
@@ -940,8 +917,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     attachDeferredTaskResults(map, messages);
     return map;
   }, [activeToolResults, messages]);
-  // Same idea for the copies a grouped turn passes MessageView (see getFinalAnswerViews).
-  const finalAnswerViewCache = useMemo(() => new WeakMap<AssistantMessage, FinalAnswerViews>(), []);
   const inputHistory = useMemo(() => {
     const seen = new Set<string>();
     const history: string[] = [];
@@ -960,7 +935,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const showTokenFlow = tokenDisplay === "flow" && !loading && !error && !isEmptyNew;
   const waitingForModel = showTokenFlow && agentRunning && agentPhase?.kind === "waiting_model"
     && !isCompacting && !retryInfo && !extensionDialog;
-  useTokenFlowConnections(showTokenFlow, messageContentRef, composerWireRef);
+  useTokenFlowConnections(showTokenFlow, messageContentRef, composerWireRef, true);
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -1231,10 +1206,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} className={showTokenFlow ? "transcript-flow-layout" : undefined} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
             {(() => {
-              let lastUserIdx = -1;
-              for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].role === "user") { lastUserIdx = i; break; }
-              }
+              const { rows, results, lastUserIndex: lastUserIdx, foldedRequests } = transcript;
 
               const pinMessage = (idx: number) => {
                 const id = entryIds[idx];
@@ -1244,40 +1216,40 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               };
               const attachLatestPrompt = (el: HTMLDivElement | null) => { lastUserMsgRef.current = el; };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean; flowUsage?: AssistantMessage["usage"] | null; suppressUserHandoff?: boolean } = {}): ReactNode => {
-                const msg = options.messageOverride ?? messages[idx];
-                if (isHiddenCustomMessage(msg)) return null;
-                // omp's cache-miss marker, while `display.cacheMissMarker` is on; read from the stored message, not a turn view's copy.
-                const notices = options.withNotices === false || !cacheMissMarker ? [] : getTranscriptNotices(messages[idx]);
-                const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
-                const keyPrefix = options.keyPrefix ?? "message";
-                // Not the entry id alone: a message sent or streamed in this run
-                // gets its id only when the file is read again (#1184).
-                const messageKey = messageKeys[idx];
-                let showTimestamp = false;
-                if (msg.role === "assistant") {
-                  showTimestamp = true;
-                  for (let j = idx + 1; j < messages.length; j++) {
-                    const r = messages[j].role;
-                    if (r === "user") break;
-                    if (r === "assistant") { showTimestamp = false; break; }
-                  }
-                  // Hide on the currently-streaming tail (the streaming bubble owns the live timestamp)
-                  if (showTimestamp && isStreaming && idx === messages.length - 1) {
-                    showTimestamp = false;
-                  }
+              const itemKey = (item: ChatTranscriptItem) => `${messageKeys[item.index]}-${item.kind}${item.kind === "assistant" ? `-${item.part.kind}-${item.part.start}` : ""}`;
+              const matches = (item: ChatTranscriptItem, id: string | undefined, block?: AssistantContentBlock | null) => {
+                if (!id || entryIds[item.index] !== id || item.kind === "model" || item.kind === "user-handoff") return false;
+                if (!block || item.kind !== "assistant") return true;
+                const message = messages[item.index] as AssistantMessage;
+                const index = message.content.indexOf(block);
+                return index >= item.part.start && index < item.part.end;
+              };
+              const renderItem = (item: ChatTranscriptItem, writtenFiles?: WrittenFile[], turnDurationMs?: number): ReactNode => {
+                const idx = item.index;
+                const msg = messages[idx];
+                const key = itemKey(item);
+                const part = item.kind === "assistant" ? item.part : undefined;
+                if (item.kind === "model" && msg.role === "assistant") {
+                  if (!showTokenFlow) return tokenDisplay === "text" && foldedRequests.has(idx) && msg.usage
+                    ? <div key={key} className="transcript-message text-xs text-text-dim">{formatUsage(msg.usage, true, true)}</div>
+                    : null;
+                  return <TokenFlow key={key} usage={msg.usage} provider={msg.provider} model={msg.model}
+                    modelName={getModelDisplayName(msg.provider, msg.model, modelNames)} time={formatTime(msg.timestamp)} />;
                 }
-                if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
-                let flowReturnsToUser = false;
-                if (tokenDisplay === "flow" && msg.role === "assistant" && msg.stopReason === "stop" && !options.suppressUserHandoff) {
-                  let nextIdx = idx + 1;
-                  while (messages[nextIdx]?.role === "toolResult") nextIdx++;
-                  const next = messages[nextIdx];
-                  flowReturnsToUser = next ? next.role === "user" : !sessionBusy && !isStreaming;
+                if (item.kind === "user-handoff" && msg.role === "assistant") {
+                  if (!showTokenFlow || ((sessionBusy || isStreaming) && idx === messages.length - 1)) return null;
+                  return <TokenFlowHandoff key={key} kind="user" label={t("session.user")} time={handoffTimeOf(msg)} />;
                 }
+                if (item.kind === "result" && msg.role === "toolResult") {
+                  const request = item.call ? messages[item.call.index] as AssistantMessage : undefined;
+                  const call = item.call && request?.content[item.call.blockIndex];
+                  return <TranscriptToolResult key={key} result={toolResultsMap.get(msg.toolCallId) ?? msg}
+                    call={call?.type === "toolCall" ? call : undefined} requestTime={request?.timestamp} cwd={messageCwd} onOpenSubagent={onOpenSubagent} />;
+                }
+                const notices = !cacheMissMarker || (part && !part.metadata) ? [] : getTranscriptNotices(msg);
                 const view = (
                   <MessageView
-                    key={`${keyPrefix}-view-${messageKey}`}
+                    key={`view-${key}`}
                     message={msg}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
@@ -1291,27 +1263,28 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     onEditContent={sessionBusy ? undefined : handleEditContent}
                     onCancelEdit={cancelEdit}
                     isEditing={editEntryId === entryIds[idx]}
-                    showTimestamp={showTimestamp}
+                    showTimestamp={part?.metadata}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
-                    writtenFiles={options.writtenFiles}
-                    turnDurationMs={options.turnDurationMs}
-                    onCompact={options.recoverTruncation ? handleCompact : undefined}
-                    isCompacting={options.recoverTruncation ? isCompacting : undefined}
-                    compactError={options.recoverTruncation ? compactError : undefined}
+                    writtenFiles={writtenFiles}
+                    turnDurationMs={turnDurationMs}
+                    onCompact={part?.kind === "status" && idx === messages.length - 1 && !isStreaming ? handleCompact : undefined}
+                    isCompacting={isCompacting}
+                    compactError={compactError}
                     hideCost={hideCost}
                     tokenDisplay={tokenDisplay}
-                    flowUsage={options.flowUsage}
-                    flowReturnsToUser={flowReturnsToUser}
+                    transcriptPart={part}
+                    pairedToolCalls={part?.kind === "call" ? results : undefined}
+                    hideTokenCounts={foldedRequests.has(idx)}
                   />
                 );
-                const noticeLines = notices.length > 0 ? <TranscriptNoticeLines key={`${keyPrefix}-notices-${messageKey}`} notices={notices} /> : null;
-                // One shape with or without notices, so lines arriving on a reload do not remount the view.
-                if (!isVisible) return <Fragment key={`${keyPrefix}-${messageKey}`}>{view}{noticeLines}</Fragment>;
+                const noticeLines = notices.length > 0 ? <TranscriptNoticeLines notices={notices} /> : null;
+                const port = item.kind === "input" ? "input" : undefined;
                 return (
-                  <div key={`${keyPrefix}-${messageKey}`} data-entry-id={entryIds[idx]}
-                    data-chat-scroll-anchor={options.attachRef !== false && entryIds[idx] ? "" : undefined}
-                    ref={options.attachRef !== false && idx === lastUserIdx ? attachLatestPrompt : undefined}>
+                  <div key={key} data-entry-id={entryIds[idx]}
+                    data-transcript-port={port}
+                    data-chat-scroll-anchor={entryIds[idx] && (isMessageGroupAnchor(msg) || part?.kind === "chat") ? "" : undefined}
+                    ref={item.kind === "user" && idx === lastUserIdx ? attachLatestPrompt : undefined}>
                     {view}
                     {noticeLines}
                   </div>
@@ -1319,152 +1292,91 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               };
 
               const rendered: { key: string; pinned?: boolean; render: () => ReactNode }[] = [];
-              const appendMessage = (idx: number) => {
-                const message = messages[idx];
-                if (isHiddenCustomMessage(message) || message.role === "toolResult") return;
-                rendered.push({ key: `message-${messageKeys[idx]}`, pinned: pinMessage(idx), render: () => renderMessage(idx) });
-              };
-              for (let idx = 0; idx < messages.length;) {
-                const msg = messages[idx];
-                const hasAnchor = isMessageGroupAnchor(msg);
-                // A continuation after a reply, or a partial history page, has
-                // no anchor of its own. Its process starts at this entry.
-                const userIdx = hasAnchor ? idx : idx - 1;
-                const groupStartIdx = idx;
-                let endIdx = idx + 1;
-                // Stop at the next anchor or just after the first committed
-                // reply, without rescanning the rest of a long continuation chain.
-                while (
-                  endIdx < messages.length
-                  && !isMessageGroupAnchor(messages[endIdx])
-                  && !hasFinalAssistantAnswer(messages[endIdx - 1], displayOptions)
-                ) endIdx += 1;
-
-                const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx, displayOptions);
-                const hasReply = finalAssistantIdx !== -1 && hasFinalAssistantAnswer(messages[finalAssistantIdx], displayOptions);
-
-                if (finalAssistantIdx === -1) {
-                  for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
-                    appendMessage(renderIdx);
+              let writtenStart = 0;
+              let durationAnchor: number | undefined;
+              let durationOnFold = false;
+              for (const row of rows) {
+                if (row.kind !== "fold") {
+                  if (!showTokenFlow && (row.kind === "model" || row.kind === "user-handoff")) continue;
+                  if (row.kind === "user") {
+                    writtenStart = row.index + 1;
+                    durationAnchor = entryIds[row.index] ? row.index : undefined;
+                    durationOnFold = false;
                   }
-                  idx = endIdx;
-                  continue;
-                }
-
-                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && !hasReply;
-                if (isLiveTail) {
-                  for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
-                    appendMessage(renderIdx);
-                  }
-                  idx = endIdx;
-                  continue;
-                }
-
-                if (hasAnchor) appendMessage(userIdx);
-
-                // A leading segment without its anchor has no start time, and neither has the bubble a
-                // send shows at once: it carries the browser's clock, not pi's, until the reload after
-                // the run brings the session file's entry (the only kind with an entry id).
-                const turnDurationMs = hasAnchor && entryIds[userIdx] ? getTurnDurationMs(messages, userIdx, endIdx) : undefined;
-
-                const finalViews = getFinalAnswerViews(finalAnswerViewCache, messages[finalAssistantIdx] as AssistantMessage);
-                const finalAnswerMessage = finalViews.answer;
-                const splitFlowUsage = tokenDisplay === "flow" && finalAnswerMessage?.usage
-                  && getDisplayableAssistantBlocks(finalViews.process, displayOptions).length > 0
-                  ? finalAnswerMessage.usage : undefined;
-
-                const processViews: (() => ReactNode)[] = [];
-                // processViews also holds the notice lines of steps that show nothing else.
-                let processMessageCount = 0;
-                let processToolCount = 0;
-                let processFailureCount = 0;
-                let revealProcess = false;
-
-                for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
-                  const processMessage = messages[processIdx];
-                  if (processMessage.role === "custom" || processMessage.role === "bashExecution") {
-                    // Not counted either: a turn whose only extra is a hidden message has no process details.
-                    if (isHiddenCustomMessage(processMessage)) continue;
-                    revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
-                    processMessageCount += 1;
-                    processViews.push(() => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
-                    continue;
-                  }
-                  if (processMessage.role !== "assistant") continue;
-                  const message = processIdx === finalAssistantIdx ? finalViews.process : processMessage;
-                  // The final message's notices go under its answer when it has one.
-                  const withNotices = processIdx !== finalAssistantIdx || !finalAnswerMessage;
-                  const blocks = getDisplayableAssistantBlocks(message, displayOptions);
-                  if (blocks.length === 0 && !(tokenDisplay === "flow" && message.usage)) {
-                    const notices = withNotices && cacheMissMarker ? getTranscriptNotices(processMessage) : [];
-                    if (notices.length > 0) processViews.push(() => <TranscriptNoticeLines key={`process-notices-${messageKeys[processIdx]}`} notices={notices} />);
-                    continue;
-                  }
-                  processToolCount += countToolCallBlocks(blocks);
-                  processFailureCount += countToolCallFailures(blocks, toolResultsMap);
-                  processMessageCount += 1;
-                  revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || blocks.includes(searchBlock)));
-                  processViews.push(() => renderMessage(processIdx, {
-                    attachRef: false,
-                    keyPrefix: "process",
-                    messageOverride: message,
-                    showTimestamp: false,
-                    withNotices,
-                    flowUsage: processIdx === finalAssistantIdx ? splitFlowUsage : undefined,
-                    suppressUserHandoff: processIdx === finalAssistantIdx && Boolean(finalAnswerMessage),
-                  }));
-                }
-
-                let renderAnswer: ((processVisible: boolean) => ReactNode) | undefined;
-                if (finalAnswerMessage) renderAnswer = (processVisible) => {
-                  // Each tool call is stored as its own assistant entry, so the
-                  // final answer alone carries no record of what the turn wrote.
-                  // Gather the turn's assistant blocks and derive the file list
-                  // from the write/edit calls among them.
-                  const turnContent: AssistantContentBlock[] = [];
-                  for (let i = userIdx + 1; i <= finalAssistantIdx; i++) {
-                    const m = messages[i];
-                    if (m?.role === "assistant") {
-                      for (const b of (m as AssistantMessage).content ?? []) turnContent.push(b);
-                    }
-                  }
-                  const writtenFiles = keepWrittenFiles(finalViews, extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd));
-                  return renderMessage(finalAssistantIdx, {
-                    messageOverride: finalAnswerMessage,
-                    showTimestamp: true,
-                    writtenFiles,
-                    // Without process details the turn's time goes under the answer.
-                    turnDurationMs: processViews.length === 0 ? turnDurationMs : undefined,
-                    recoverTruncation: endIdx === messages.length && !isStreaming && !hasAssistantAnswer(finalAnswerMessage),
-                    flowUsage: processVisible && splitFlowUsage ? null : undefined,
+                  const completed = row.kind === "assistant" && row.part.kind === "chat" && row.part.metadata
+                    && (messages[row.index] as AssistantMessage).stopReason !== "toolUse";
+                  const first = writtenStart;
+                  const anchor = durationOnFold ? undefined : durationAnchor;
+                  rendered.push({
+                    key: itemKey(row),
+                    pinned: pinMessage(row.index),
+                    render: () => {
+                      if (!completed) return renderItem(row);
+                      const blocks: AssistantContentBlock[] = [];
+                      for (let i = first; i <= row.index; i++) {
+                        const message = messages[i];
+                        if (message.role === "assistant") for (const block of message.content) {
+                          if (block.type === "toolCall") blocks.push(block);
+                        }
+                      }
+                      return renderItem(row, blocks.length ? extractTurnWrittenFiles(blocks, toolResultsMap, messageCwd) : undefined,
+                        anchor === undefined ? undefined : getTurnDurationMs(messages, anchor, row.index + 1));
+                    },
                   });
-                };
-
-                const processKey = `process-group-${messageKeys[groupStartIdx]}`;
-                if (processViews.length > 0) rendered.push({
-                  key: processKey,
-                  pinned: revealProcess || Boolean(splitFlowUsage && pinMessage(finalAssistantIdx)),
+                  if (completed) {
+                    writtenStart = row.index + 1;
+                    durationAnchor = undefined;
+                  }
+                  continue;
+                }
+                const reveal = Boolean(pendingSearchScroll || pendingScrollRestore) && row.items.some((item) => matches(item, pendingSearchScroll?.entryId, searchBlock)
+                  || matches(item, pendingScrollRestore?.anchorEntryId));
+                const anchor = durationAnchor;
+                const before = row.before;
+                const finished = before?.kind === "assistant" && before.part.metadata === true
+                  && (messages[before.index] as AssistantMessage).stopReason !== "toolUse";
+                durationOnFold = finished;
+                rendered.push({
+                  key: `fold-${row.after ? itemKey(row.after) : itemKey(row.items[0])}`,
+                  pinned: reveal,
                   render: () => {
-                    const views = processViews.map((render) => render());
-                    // Only notice lines, from steps that show nothing else: no fold for them.
-                    if (processMessageCount === 0) return views;
-                    const answered = collapsesProcessDetails(finalAnswerMessage);
-                    const processCacheMisses = cacheMissMarker ? summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1)) : undefined;
-                    return (
-                      <ProcessDetailsGroup messageCount={processMessageCount} toolCallCount={processToolCount} failureCount={processFailureCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} flow={tokenDisplay === "flow"} time={tokenDisplay === "flow" ? handoffTimeOf(messages[finalAssistantIdx] as AssistantMessage) : null} defaultExpanded={!answered} reveal={revealProcess} renderAnswer={splitFlowUsage ? renderAnswer : undefined} t={t}>
-                        {views}
-                      </ProcessDetailsGroup>
-                    );
+                    let messageCount = 0;
+                    let toolCallCount = 0;
+                    let failureCount = 0;
+                    let compaction = false;
+                    let status: string | undefined;
+                    const noticed: AgentMessage[] = [];
+                    for (const item of row.items) {
+                      const message = messages[item.index];
+                      if (item.kind === "model" || item.kind === "user-handoff") continue;
+                      if (item.kind === "assistant" && item.part.kind === "status" && message.role === "assistant") {
+                        if (message.stopReason === "error") status = t("chat.foldModelError");
+                        if (message.stopReason === "length") status ??= t("chat.foldOutputLimit");
+                      }
+                      messageCount++;
+                      compaction ||= item.kind === "compaction";
+                      if (item.kind === "assistant" && message.role === "assistant") {
+                        if (item.part.metadata) noticed.push(message);
+                        for (let i = item.part.start; i < item.part.end; i++) {
+                          const block = message.content[i];
+                          if (block.type !== "toolCall") continue;
+                          toolCallCount++;
+                          if (!results.has(block.toolCallId)) failureCount += toolCallFailureCount(block, toolResultsMap.get(block.toolCallId));
+                        }
+                      }
+                      if (item.kind === "result" && message.role === "toolResult") {
+                        const call = item.call && (messages[item.call.index] as AssistantMessage).content[item.call.blockIndex];
+                        const result = toolResultsMap.get(message.toolCallId) ?? message;
+                        failureCount += call?.type === "toolCall" ? toolCallFailureCount(call, result) : Number(Boolean(result.isError));
+                      }
+                    }
+                    return <ProcessDetailsGroup messageCount={messageCount} requestCount={row.requestCount} toolCallCount={toolCallCount}
+                      failureCount={failureCount} compaction={compaction} status={status} tokenDisplay={tokenDisplay} usage={row.usage} missingUsage={row.missingUsage}
+                      durationMs={anchor !== undefined && finished && before ? getTurnDurationMs(messages, anchor, before.index + 1) : undefined}
+                      cacheMisses={cacheMissMarker ? summarizeCacheMisses(noticed) : undefined}
+                      defaultExpanded={!before} reveal={reveal} renderDetails={() => row.items.map((item) => renderItem(item))} t={t} />;
                   },
                 });
-                if (renderAnswer && !splitFlowUsage) {
-                  const answer = renderAnswer;
-                  rendered.push({ key: `message-${messageKeys[finalAssistantIdx]}`, pinned: pinMessage(finalAssistantIdx), render: () => answer(false) });
-                }
-                for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-                  appendMessage(renderIdx);
-                }
-                idx = endIdx;
               }
               const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
               const hasMore = startIndex > 0 || hasEarlierMessages;

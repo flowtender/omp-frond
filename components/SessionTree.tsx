@@ -707,7 +707,7 @@ const SessionRowView = memo(function SessionRowView({
           {branch}
         </span>
       )}
-      <PromptCacheIndicator report={promptCache} className="session-tree-prompt-cache" />
+      <PromptCacheIndicator report={promptCache} className="session-tree-prompt-cache" warmOnly />
       <span className={`session-tree-meta${metaState}`} title={metaTitle}>{meta}</span>
     </>
   );

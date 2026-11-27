@@ -16,7 +16,7 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
   const { t, locale } = useI18n();
   const icon = modelIconProviders(provider, model).at(-1);
   return (
-    <div className="token-flow" data-token-flow="" role="group" aria-label={`${t("settings.tokenDisplay")}: ${modelName}`}>
+    <div className="token-flow" data-token-flow="" data-transcript-port="model" role="group" aria-label={`${t("settings.tokenDisplay")}: ${modelName}`}>
       <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
       <div className="token-flow-counts">
         <FlowCount label={t("chat.newInputTokens")} shortLabel={t("chat.tokenFlowIn")} count={usage?.input} locale={locale} />
@@ -39,16 +39,14 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
   );
 }
 
-export function TokenFlowHandoff({ kind, label, display, time, children, button }: {
-  kind: "tools" | "user" | "compaction" | "process";
+export function TokenFlowHandoff({ kind, label, time, children }: {
+  kind: "tools" | "user" | "compaction";
   label: string;
-  display?: ReactNode;
   time: string | null;
   children?: ReactNode;
-  button?: { expanded: boolean; onClick: () => void };
 }) {
-  const content = (
-    <>
+  return (
+    <div className="token-flow token-flow-handoff" data-token-handoff={kind} data-transcript-port="handoff" role="group" aria-label={label}>
       <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>
       <div className="token-flow-handoff-icons">{children ?? (
         <span className="token-flow-handoff-icon" title={label} aria-hidden="true">
@@ -58,19 +56,24 @@ export function TokenFlowHandoff({ kind, label, display, time, children, button 
             )}
           </svg>
         </span>
-      )}{display !== undefined && <span className="token-flow-handoff-label">{display}</span>}</div>
+      )}</div>
       <FlowTime time={time} />
-    </>
-  );
-  if (button) return (
-    <button type="button" className="token-flow token-flow-handoff token-flow-handoff-fold" data-token-handoff={kind} aria-expanded={button.expanded} aria-label={label} onClick={button.onClick}>
-      {content}
-    </button>
-  );
-  return (
-    <div className="token-flow token-flow-handoff" data-token-handoff={kind} role="group" aria-label={label}>
-      {content}
     </div>
+  );
+}
+
+export function FoldTokenTotals({ usage, missing }: {
+  usage?: Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
+  missing: boolean;
+}) {
+  const { t, locale } = useI18n();
+  return (
+    <span className="transcript-fold-totals">
+      <FlowCount label={t("chat.newInputTokens")} shortLabel={t("chat.tokenFlowIn")} count={usage?.input} locale={locale} partial={missing} />
+      <FlowCount label={t("session.output")} shortLabel={t("chat.tokenFlowOut")} count={usage?.output} locale={locale} partial={missing} />
+      <FlowCount label={t("session.cacheRead")} cache="R" count={usage?.cacheRead} locale={locale} partial={missing} />
+      <FlowCount label={t("session.cacheWrite")} cache="W" count={usage?.cacheWrite} locale={locale} partial={missing} />
+    </span>
   );
 }
 
@@ -78,23 +81,25 @@ function FlowTime({ time }: { time?: string | null }) {
   return time ? <span className="token-flow-time">{time}</span> : null;
 }
 
-function FlowCount({ label, shortLabel, cache, count, estimated, locale }: {
+function FlowCount({ label, shortLabel, cache, count, estimated, locale, partial }: {
   label: string;
   shortLabel?: string;
   cache?: "R" | "W";
   count?: number;
   estimated?: boolean;
   locale: string;
+  partial?: boolean;
 }) {
   const { t } = useI18n();
   const formatted = count?.toLocaleString(locale) ?? "—";
   const title = `${label}: ${count === undefined ? t("chat.tokenCountNotReported") : formatted}`;
-  const description = estimated ? t("i18n.estimatedTokens") : cache === "W" && count === 0 ? t("chat.cacheWriteZero") : undefined;
+  const incomplete = partial && count !== undefined;
+  const description = incomplete ? t("chat.foldPartialUsage") : estimated ? t("i18n.estimatedTokens") : cache === "W" && count === 0 ? t("chat.cacheWriteZero") : undefined;
   return (
     <span className="token-flow-count" title={description ? `${title} · ${description}` : title}>
       <span className="sr-only">{label}: </span>
       <span className="token-flow-label" aria-hidden="true">{cache ? <><CacheGlyph size={11} />{cache}</> : shortLabel}</span>
-      <b>{estimated && "≈"}{formatted}</b>
+      <b>{incomplete ? "≥" : estimated && "≈"}{formatted}</b>
     </span>
   );
 }

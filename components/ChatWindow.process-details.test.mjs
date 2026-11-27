@@ -9,19 +9,18 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
-const { getModelDisplayName, handoffTimeOf, MessageView } = await jiti.import("./MessageView.tsx");
-const { TranscriptBlock } = await jiti.import("./TranscriptBlock.tsx");
-const { TokenFlow, TokenFlowHandoff } = await jiti.import("./TokenFlow.tsx");
+const { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } = await jiti.import("./MessageView.tsx");
+const { FoldTokenTotals, TokenFlow, TokenFlowHandoff } = await jiti.import("./TokenFlow.tsx");
 const { useI18n } = await jiti.import("@/hooks/useI18n");
 const { usePacedStreamingMessage } = await jiti.import("@/hooks/useStreamingSelector");
 const display = await import("../lib/message-display.ts");
-const views = await import("../lib/turn-views.ts");
+const { buildChatTranscript } = await import("../lib/chat-transcript.ts");
 const duration = await import("../lib/turn-duration.ts");
 const notices = await import("../lib/transcript-notices.ts");
 const noticeViews = await jiti.import("./TranscriptNotices.tsx");
 const { extractTurnWrittenFiles } = await import("../lib/turn-written-files.ts");
 const paging = await import("../lib/chat-lazy-load.ts");
-const { countToolCallFailures } = await jiti.import("@/lib/tool-call-expansion");
+const { toolCallFailureCount } = await jiti.import("@/lib/tool-call-expansion");
 
 // Exercise the real transcript renderer without mounting the session/network hooks.
 const source = ts.createSourceFile("ChatWindow.tsx", await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -31,10 +30,9 @@ visit(source);
 const renderer = nodes.find((node) => ts.isArrowFunction(node) && ts.isBlock(node.body)
   && node.body.statements.length > 0
   && ts.isVariableStatement(node.body.statements[0])
-  && node.body.statements[0].declarationList.declarations[0].name.getText(source) === "lastUserIdx");
+  && node.body.statements[0].declarationList.declarations[0].name.getText(source).includes("lastUserIdx"));
 assert.ok(renderer);
-const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node)
-  && ["hasFinalAssistantAnswer", "findFinalAssistantIndex", "ProcessDetailsGroup"].includes(node.name?.text));
+const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === "ProcessDetailsGroup");
 const script = new Script(ts.transpileModule(
   `${functions.map((node) => node.getText(source)).join("\n")}\n(${renderer.getText(source)})`,
   { compilerOptions: { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.React } },
@@ -46,15 +44,16 @@ const work = (text) => reply(text, { stopReason: "toolUse", content: [{ type: "t
 
 function renderTranscript(messages, overrides = {}) {
   const context = createContext({
-    React, Fragment: React.Fragment, useState: React.useState, useLayoutEffect: React.useLayoutEffect,
-    ...display, ...views, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, countToolCallFailures,
+    React, Fragment: React.Fragment, useState: React.useState, useLayoutEffect: React.useLayoutEffect, useId: React.useId,
+    ...display, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, toolCallFailureCount,
     useExpansionPreference: () => "automatic",
-    TranscriptBlock,
-    TokenFlowHandoff,
-    handoffTimeOf,
+    FoldTokenTotals, TokenFlow, TokenFlowHandoff, TranscriptToolResult,
+    formatTime, formatUsage, getModelDisplayName, handoffTimeOf,
+    transcript: buildChatTranscript(messages, {}, Boolean(overrides.cacheMissMarker)),
+    showTokenFlow: overrides.tokenDisplay === "flow",
     TranscriptViewportRow: ({ render, pinned }) => !overrides.onlyPinnedRows || pinned ? render() : null,
     MessageView, messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
-    displayOptions: {}, finalAnswerViewCache: new WeakMap(), toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
+    toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
     sessionBusy: false, isStreaming: false, bashRunning: false, isNew: false, isCompacting: false, compactError: null,
     lastUserMsgRef: { current: null }, pendingSearchScroll: null, searchBlock: null, forkingEntryId: null, editEntryId: null,
     pendingScrollRestore: null,
@@ -82,8 +81,8 @@ test("preserves every completed reply across autonomous continuations", () => {
     assert.ok(html.includes("first completed reply"), JSON.stringify(continuation));
     assert.ok(html.includes("later completed reply"));
     assert.ok(html.indexOf("first completed reply") < html.indexOf("later completed reply"));
-    assert.ok(!html.includes("first process commentary"));
-    assert.ok(!html.includes("later process commentary"));
+    assert.ok(html.includes("first process commentary"));
+    assert.ok(html.includes("later process commentary"));
     assert.ok(!html.includes("hidden restart"));
   }
 });
@@ -93,7 +92,7 @@ test("keeps earlier replies visible while the unfinished tail remains expanded",
   for (const state of [{}, { sessionBusy: true, isStreaming: true }]) {
     const html = renderTranscript(messages, state);
     assert.ok(html.includes("completed checkpoint"));
-    assert.ok(!html.includes("completed process commentary"));
+    assert.ok(html.includes("completed process commentary"));
     assert.ok(html.includes("unfinished process commentary"));
   }
 });
@@ -103,14 +102,17 @@ test("preserves partial replies on error, truncation, and interruption", () => {
     const html = renderTranscript([user, reply("useful partial reply", { stopReason }), work("retry commentary"), reply("recovered reply")]);
     assert.ok(html.includes("useful partial reply"), String(stopReason));
     assert.ok(html.includes("recovered reply"));
-    assert.ok(!html.includes("retry commentary"));
+    assert.ok(html.includes("retry commentary"));
   }
 });
 
-test("keeps tool commentary folded rather than treating it as a completed reply", () => {
-  const html = renderTranscript([user, reply("tool commentary", { stopReason: "toolUse" }), work("more tool commentary"), reply("real reply")]);
-  assert.ok(!html.includes("tool commentary"));
-  assert.ok(html.includes("real reply"));
+test("chat boxes on both sides of a tool call stay visible in output order", () => {
+  const message = work("before tool");
+  message.content.push({ type: "text", text: "after tool" });
+  const html = renderTranscript([user, message, reply("real reply")]);
+  assert.ok(html.indexOf("before tool") < html.indexOf("after tool"));
+  assert.ok(html.indexOf("after tool") < html.indexOf("real reply"));
+  assert.doesNotMatch(html, /example\.txt/);
 });
 
 test("expands unanswered process details and retains an earlier reply before an empty error", () => {
@@ -124,8 +126,8 @@ test("preserves replies in a history page that starts midway through work", () =
   const html = renderTranscript([work("older process commentary"), reply("older reply"), work("newer process commentary"), reply("newer reply")]);
   assert.ok(html.includes("older reply"));
   assert.ok(html.includes("newer reply"));
-  assert.ok(!html.includes("older process commentary"));
-  assert.ok(!html.includes("newer process commentary"));
+  assert.ok(html.includes("older process commentary"));
+  assert.ok(html.includes("newer process commentary"));
 });
 
 test("does not attach one reply's written files to the next reply", () => {
@@ -137,7 +139,8 @@ test("does not attach one reply's written files to the next reply", () => {
 });
 
 test("reveals only the searched process segment without hiding either reply", () => {
-  const html = renderTranscript([user, work("matched process commentary"), reply("first reply"), work("unmatched process commentary"), reply("second reply")], {
+  const thinking = (text) => reply("", { stopReason: "toolUse", content: [{ type: "thinking", thinking: text }] });
+  const html = renderTranscript([user, thinking("matched process commentary"), reply("first reply"), thinking("unmatched process commentary"), reply("second reply")], {
     pendingSearchScroll: { entryId: "entry-1" },
   });
   assert.ok(html.includes("matched process commentary"));
@@ -147,9 +150,10 @@ test("reveals only the searched process segment without hiding either reply", ()
 });
 
 test("process preference overrides the automatic default", () => {
-  const messages = [user, work("process commentary"), reply("final answer")];
-  assert.ok(renderTranscript(messages, { useExpansionPreference: () => "expanded" }).includes("process commentary"));
-  assert.ok(!renderTranscript([user, work("unfinished")], { useExpansionPreference: () => "collapsed" }).includes("unfinished"));
+  const hidden = reply("", { content: [{ type: "thinking", thinking: "process thinking" }] });
+  const messages = [user, hidden, reply("final answer")];
+  assert.ok(renderTranscript(messages, { useExpansionPreference: () => "expanded" }).includes("process thinking"));
+  assert.ok(!renderTranscript([user, hidden], { useExpansionPreference: () => "collapsed" }).includes("process thinking"));
 });
 
 test("manual process choice survives an answer and later preference changes", () => {
@@ -158,8 +162,8 @@ test("manual process choice survives an answer and later preference changes", ()
   let preference = "automatic";
   const context = createContext({
     React,
-    TranscriptBlock,
     useState: () => [state, (value) => { state = value; }],
+    useId: () => "summary",
     useLayoutEffect: () => {},
     useExpansionPreference: () => preference,
     formatTurnDuration: duration.formatTurnDuration,
@@ -169,13 +173,17 @@ test("manual process choice survives an answer and later preference changes", ()
   const component = new Script(ts.transpileModule(`(${group.getText(source)})`, {
     compilerOptions: { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.React },
   }).outputText).runInContext(context);
-  const props = { messageCount: 1, toolCallCount: 0, failureCount: 0, t: (key) => key, children: "work" };
-  const button = (defaultExpanded) => component({ ...props, defaultExpanded }).props.children[0];
+  let builds = 0;
+  const props = { messageCount: 1, toolCallCount: 0, failureCount: 0, t: (key) => key, renderDetails: () => ++builds };
+  const button = (defaultExpanded) => component({ ...props, defaultExpanded }).props.children[0].props.children[1];
   assert.equal(button(true).props["aria-expanded"], true);
+  assert.equal(builds, 1);
   button(true).props.onClick();
+  const before = builds;
   assert.equal(button(false).props["aria-expanded"], false);
   preference = "expanded";
   assert.equal(button(false).props["aria-expanded"], false);
+  assert.equal(builds, before, "closed folds do not build their children");
   button(false).props.onClick();
   preference = "collapsed";
   assert.equal(button(false).props["aria-expanded"], true);
@@ -243,13 +251,18 @@ test("tool results and appended steering are input boxes, not model output", () 
     ],
   });
   const steering = { role: "user", content: "Only summarize.", attribution: "user" };
-  const html = renderTranscript([user, batch, steering, reply("Summary", { usage })], {
+  const result = (toolCallId) => ({ role: "toolResult", toolCallId, content: [{ type: "text", text: "Observed result" }] });
+  const messages = [user, batch, steering, result("first"), result("second"), reply("Summary", { usage })];
+  const html = renderTranscript(messages, {
     tokenDisplay: "flow", useExpansionPreference: () => "expanded",
   });
   const sequence = Array.from(html.matchAll(/data-token-flow=""|data-token-handoff="([^"]+)"|data-transcript-block="([^"]+)"/g), (match) => match[1] ?? match[2] ?? "model");
-  assert.deepEqual(sequence, ["context", "process", "model", "response", "response", "tools", "context", "context", "context", "model", "response", "user"]);
+  assert.deepEqual(sequence, ["context", "model", "response", "response", "tools", "context", "context", "context", "model", "response", "user"]);
   assert.match(html, /data-token-handoff="tools"[^>]*aria-label="2 tool calls".*?title="read".*?data-tool-icon="read".*?title="grep".*?data-tool-icon="grep"/s);
-  assert.doesNotMatch(renderTranscript([user, batch, steering, reply("Summary", { usage })]), /data-token-handoff/);
+  const folded = renderTranscript(messages, { tokenDisplay: "flow" });
+  assert.match(folded, /inspect both.*Only summarize.*Summary/s);
+  assert.doesNotMatch(folded, /Observed result|data-token-handoff="tools"/);
+  assert.doesNotMatch(renderTranscript(messages), /data-token-handoff/);
 });
 
 test("shows the request, compaction and user handoff times without a false user handoff before compaction", () => {
@@ -271,10 +284,29 @@ test("shows the request, compaction and user handoff times without a false user 
     const html = renderTranscript(messages, options);
     const rows = Array.from(html.matchAll(/data-token-(?:flow=""|handoff="([^"]+)")[\s\S]*?class="token-flow-time">([^<]+)/g),
       ([, kind, time]) => [kind ?? "model", time]);
-    assert.deepEqual(rows, [["model", localTime(0)], ["compaction", localTime(2)], ["process", localTime(4)], ["model", localTime(3)], ["user", localTime(4)]]);
+    assert.deepEqual(rows, preference === "expanded"
+      ? [["model", localTime(0)], ["compaction", localTime(2)], ["model", localTime(3)], ["user", localTime(4)]]
+      : [["model", localTime(0)], ["user", localTime(4)]]);
     assert.ok(html.indexOf("After compaction") < html.indexOf('data-token-handoff="user"'));
     assert.doesNotMatch(renderTranscript(messages, { ...options, sessionBusy: true }), /data-token-handoff="user"/);
   }
+});
+
+test("fold totals count every hidden request once, separate from visible requests and unknown usage", () => {
+  const usage = (input, output, cacheRead, cacheWrite) => ({ input, output, cacheRead, cacheWrite, cost: { total: 0 } });
+  const messages = [user, reply("I’ll check.", { usage: usage(90, 80, 70, 60) }),
+    reply("", { stopReason: "toolUse", usage: usage(12, 9, 6, 3), content: [{ type: "thinking", thinking: "hidden reasoning" }] }),
+    reply("", { stopReason: "toolUse", content: [] }),
+    reply("Found it", { usage: usage(24, 18, 12, 6) })];
+  const folded = renderTranscript(messages, { tokenDisplay: "flow" });
+  assert.match(folded, /New input: 90/);
+  for (const label of ["New input: 36", "Output: 27", "Cache Read: 18", "Cache Write: 9"]) assert.ok(folded.includes(label), label);
+  assert.match(folded, /some requests did not report token usage/);
+  assert.doesNotMatch(folded, /New input: 12|New input: 24|hidden reasoning/);
+  const expanded = renderTranscript(messages, { tokenDisplay: "flow", useExpansionPreference: () => "expanded" });
+  assert.doesNotMatch(expanded, /New input: 36/);
+  assert.match(expanded, /New input: 12.*New input: Not reported.*New input: 24/s);
+  assert.doesNotMatch(renderTranscript(messages, { tokenDisplay: "off" }), /New input:|transcript-fold-totals/);
 });
 
 test("mounts the entire split reply for a search hit outside the viewport", () => {

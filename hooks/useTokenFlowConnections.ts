@@ -17,11 +17,21 @@ function verticalConnector(fromX: number, fromY: number, toX: number, toY: numbe
   return `V${y - bend} q0 ${bend} ${direction * bend} ${bend} H${toX - direction * bend} q${direction * bend} 0 ${direction * bend} ${bend} V${toY}`;
 }
 
+const portRails = {
+  model: { entry: 0.25, exit: 0.75, box: false },
+  handoff: { entry: 0.75, exit: 0.25, box: false },
+  bridge: { entry: 0.5, exit: 0.5, box: false },
+  input: { entry: 0.25, exit: 0.25, box: true },
+  output: { entry: 0.75, exit: 0.75, box: true },
+} as const;
+type Port = keyof typeof portRails;
+
 /** Connect model and handoff rows to the adjacent transcript units. */
 export function useTokenFlowConnections(
   enabled: boolean,
   contentRef: RefObject<HTMLDivElement | null>,
   composerWireRef?: RefObject<SVGSVGElement | null>,
+  explicitPorts = false,
 ) {
   useLayoutEffect(() => {
     const content = contentRef.current;
@@ -61,68 +71,75 @@ export function useTokenFlowConnections(
     function layout() {
       layoutFrame = 0;
       if (!content) return;
-      type Edge = { bounds: DOMRect; block: boolean };
-      type Row = { element: HTMLElement; bounds: DOMRect; handoff: boolean; source?: DOMRect; target?: Edge };
+      type Edge = { bounds: DOMRect; port: Port; block: boolean };
+      type Row = Edge & { element: HTMLElement; source?: Edge; target?: Edge };
       const rows: Row[] = [];
-      // The landmark a following row wires in from: the process fold header sits
-      // between a bubble and the turn's first row, so a row may feed another row.
-      let last: DOMRect | undefined;
+      let previous: Edge | undefined;
       let previousRow: Row | undefined;
-      for (const element of content.querySelectorAll<HTMLElement>(landmarks)) {
+      const selector = explicitPorts ? "[data-transcript-port], [data-transcript-gap]" : landmarks;
+      for (const element of content.querySelectorAll<HTMLElement>(selector)) {
         if (element.closest(".transcript-flow-layout") !== content) continue;
         if (element.hasAttribute("data-transcript-gap")) {
-          last = previousRow = undefined;
+          previous = previousRow = undefined;
           continue;
         }
-        const bounds = element.getBoundingClientRect();
+        const port = explicitPorts ? element.dataset.transcriptPort as Port
+          : element.hasAttribute("data-token-handoff") ? "handoff"
+          : element.hasAttribute("data-token-flow") ? "model"
+          : element.dataset.transcriptBlock === "response" ? "output" : "input";
+        // Transcript views declare the semantic port; the inner box supplies its geometry.
+        const block = portRails[port].box;
+        const box = explicitPorts && block && !element.hasAttribute("data-transcript-block")
+          ? element.querySelector("[data-transcript-block]") ?? element : element;
+        const bounds = box.getBoundingClientRect();
         if (bounds.height <= 0) continue;
-        const handoff = element.hasAttribute("data-token-handoff");
-        const block = !handoff && !element.hasAttribute("data-token-flow");
-        if (previousRow) previousRow.target = { bounds, block };
+        const edge: Edge = { bounds, port, block };
+        if (previousRow && !(previousRow.port === "handoff" && port === "output")) previousRow.target = edge;
         if (block) {
-          last = bounds;
           previousRow = undefined;
+          previous = edge;
         } else {
-          const row = { element, bounds, handoff, source: last };
+          const row: Row = { ...edge, element, source: previous?.block ? previous : undefined };
           rows.push(row);
-          previousRow = row;
-          last = bounds;
+          previous = previousRow = row;
         }
       }
 
       composerHandoff = undefined;
       composerConnected = false;
       composerPath?.removeAttribute("d");
-      for (const { element, bounds, handoff, source, target } of rows) {
+      for (const row of rows) {
+        const { element, bounds, port, source, target } = row;
         const left = bounds.width * 0.25;
         const right = bounds.width * 0.75;
-        const startY = source ? source.bottom - bounds.top : 0;
-        const path = element.querySelector<SVGPathElement>("path");
-        if (handoff) {
+        const startY = source ? source.bounds.bottom - bounds.top : 0;
+        const path = element.querySelector<SVGPathElement>(":scope > .token-flow-wire > path");
+        const fromX = source ? source.bounds.left + source.bounds.width * portRails[source.port].exit - bounds.left : bounds.width * portRails[port].entry;
+        const toX = target ? target.bounds.left + target.bounds.width * portRails[target.port].entry - bounds.left : bounds.width * portRails[port].exit;
+        if (port === "bridge") {
+          const middle = bounds.width * 0.5;
+          path?.setAttribute("d", `M${fromX} ${startY} ${verticalConnector(fromX, startY, middle, bounds.height / 2)} ${verticalConnector(middle, bounds.height / 2, toX, target ? target.bounds.top - bounds.top : bounds.height)}`);
+          continue;
+        }
+        if (port === "handoff") {
           const lineY = bounds.height / 2;
-          const fromX = source ? source.left + source.width * 0.75 - bounds.left : right;
           const input = verticalConnector(fromX, startY, right, lineY - radius);
-          const toX = target ? target.bounds.left + target.bounds.width * 0.25 - bounds.left : left;
           const endY = target ? target.bounds.top - bounds.top : Math.min(bounds.height - 4, lineY + radius + 6);
           const output = verticalConnector(left, lineY + radius, toX, endY);
           const base = `M${fromX} ${startY} ${input} q0 ${radius} ${-radius} ${radius} H${left + radius} q${-radius} 0 ${-radius} ${radius}`;
-          const fallback = `${base} ${output} ${arrow(toX, endY)}`;
+          const fallback = `${base} ${output}${target?.block || !target ? ` ${arrow(toX, endY)}` : ""}`;
           path?.setAttribute("d", fallback);
-          // A trailing user handoff hands to the composer even when a streaming
-          // model row now follows it; a real next bubble (a block) takes over.
-          if (composerPath && path && previousRow?.element === element && (!target || !target.block) && element.dataset.tokenHandoff === "user") {
+          if (composerPath && path && previousRow?.element === element && !target && element.dataset.tokenHandoff === "user") {
             composerHandoff = { row: element, path, base, fallback };
           }
           continue;
         }
         const endY = target ? target.bounds.top - bounds.top : bounds.height;
         const lineY = (startY + endY) / 2;
-        const inputX = source ? source.left + source.width * 0.25 - bounds.left : left;
-        const outputX = target ? target.bounds.left + target.bounds.width * 0.75 - bounds.left : right;
-        const input = verticalConnector(inputX, startY, left, lineY - radius);
-        const output = verticalConnector(right, lineY + radius, outputX, endY);
+        const input = verticalConnector(fromX, startY, left, lineY - radius);
+        const output = verticalConnector(right, lineY + radius, toX, endY);
         element.style.setProperty("--token-flow-offset", `${lineY - bounds.height / 2}px`);
-        path?.setAttribute("d", `M${inputX} ${startY} ${input} q0 ${radius} ${radius} ${radius} H${right - radius} q${radius} 0 ${radius} ${radius} ${output}${target?.block ? ` ${arrow(outputX, endY)}` : ""}`);
+        path?.setAttribute("d", `M${fromX} ${startY} ${input} q0 ${radius} ${radius} ${radius} H${right - radius} q${radius} 0 ${radius} ${radius} ${output}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
       }
       drawComposerHandoff();
     }
@@ -143,7 +160,7 @@ export function useTokenFlowConnections(
       scroller.addEventListener("scroll", onScroll, { passive: true });
     }
     const mutation = new MutationObserver(schedule);
-    mutation.observe(content, { childList: true, subtree: true, attributeFilter: ["data-transcript-block", "data-transcript-gap"] });
+    mutation.observe(content, { childList: true, subtree: true, attributeFilter: ["data-transcript-port", "data-transcript-block", "data-transcript-gap"] });
     content.addEventListener("load", schedule, true);
     layout();
     return () => {
@@ -154,5 +171,5 @@ export function useTokenFlowConnections(
       scroller?.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(scrollFrame);
     };
-  }, [enabled, contentRef, composerWireRef]);
+  }, [enabled, contentRef, composerWireRef, explicitPorts]);
 }

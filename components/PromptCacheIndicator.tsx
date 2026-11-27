@@ -50,9 +50,14 @@ function coldReasonText(reason: PromptCacheColdReason | undefined, t: (key: stri
 
 /**
  * The prompt-cache marker for one session, drawn per the Appearance settings.
- * Renders nothing when the settings hide this report.
+ * Renders nothing when the settings hide this report or it is cold and `warmOnly` is set.
  */
-export function PromptCacheIndicator({ report, size = 12, className }: { report: PromptCacheReport | null | undefined; size?: number; className?: string }) {
+export function PromptCacheIndicator({ report, size = 12, className, warmOnly = false }: {
+  report: PromptCacheReport | null | undefined;
+  size?: number;
+  className?: string;
+  warmOnly?: boolean;
+}) {
   const { locale, t } = useI18n();
   const settings = usePromptCacheIndicatorSettings();
   const info = visiblePromptCacheInfo(settings, report);
@@ -71,7 +76,7 @@ export function PromptCacheIndicator({ report, size = 12, className }: { report:
     setNow(Date.now());
   }, [report, settings.inferredTimeoutMinutes]);
 
-  if (!info || !view) return null;
+  if (!view || (warmOnly && view.state === "cold")) return null;
   const marked = settings.distinguishInferred && view.inferred;
   const state = view.state === "warm"
     ? view.expiresAt === undefined
