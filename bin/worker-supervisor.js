@@ -10,11 +10,21 @@ const { createInterface } = require("node:readline");
 
 const WORKER_STOP_MS = 7_000;
 
-function stopWorker(child) {
-  if (!child || child.killed || child.exitCode !== null || child.signalCode !== null || !child.pid) return;
-  child.kill();
+function isAlive(child) {
+  return Boolean(child?.pid) && child.exitCode === null && child.signalCode === null;
+}
+
+// Next's graceful close waits for open SSE streams, so a polite signal alone can hang forever.
+function terminate(child, signal = "SIGTERM") {
+  if (!isAlive(child)) return;
+  child.kill(signal);
   const deadline = setTimeout(() => child.kill("SIGKILL"), WORKER_STOP_MS);
   child.once("exit", () => clearTimeout(deadline));
+}
+
+function stopWorker(child) {
+  if (child?.killed) return;
+  terminate(child);
 }
 
 async function startWorker(bunPath, cwd, env) {
@@ -87,14 +97,19 @@ async function superviseWeb({ bunPath, cwd, env, nextArgs, onWebOutput }) {
   let stopSignal;
   let restart = false;
   const stop = (signal) => {
+    if (stopSignal) {
+      if (isAlive(web)) web.kill("SIGKILL");
+      if (isAlive(worker)) worker.kill("SIGKILL");
+      return;
+    }
     stopSignal = signal;
-    web?.kill(signal);
+    if (web) terminate(web, signal);
     stopWorker(worker);
   };
   const restartWeb = () => {
     if (stopSignal || !web) return;
     restart = true;
-    web.kill();
+    terminate(web);
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
