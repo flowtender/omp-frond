@@ -521,12 +521,11 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <TranscriptBlock style={{ display: "flex", alignSelf: "stretch", justifyContent: "flex-end" }}>
+      <TranscriptBlock data-transcript-port="input" style={{ display: "flex", alignSelf: "stretch", justifyContent: "flex-end" }}>
         <div
-          data-transcript-port="input"
+          className="transcript-user-bubble"
           style={{
             maxWidth: "85%",
-            minWidth: 0,
             background: isEditing ? "color-mix(in srgb, var(--accent) 14%, var(--user-bg))" : "var(--user-bg)",
             border: isEditing ? "1px solid color-mix(in srgb, var(--accent) 62%, var(--user-bg))" : "1px solid rgba(59,130,246,0.2)",
             boxShadow: isEditing ? "0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent)" : undefined,

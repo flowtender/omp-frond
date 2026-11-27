@@ -2,6 +2,7 @@
 
 import { Children, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
+import { useMobileCloseRequest } from "@/hooks/useMobileCloseRequest";
 import { CheckIcon } from "./SidebarIcons";
 
 /**
@@ -616,6 +617,7 @@ export function SidebarMenu({
   }, []);
 
   const visible = open && portalTarget !== null && (sheet || anchor !== null);
+  useMobileCloseRequest(visible && sheet && overDialog, () => onCloseRef.current("cancel"));
   const custom = hasCustomMenuBody(children);
   const anchorKey = anchor ? JSON.stringify(anchor) : "";
 

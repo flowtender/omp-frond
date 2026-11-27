@@ -840,6 +840,9 @@ pre, code {
 .transcript-message { margin-bottom: 16px; }
 .transcript-process { margin-bottom: 14px; }
 .transcript-flow-layout :is(.transcript-message, .transcript-process) { margin-bottom: 8px; }
+.transcript-user-bubble { min-width: 0; }
+/* Keep even a short bubble's rounded corner clear of the 75% rail. */
+.transcript-flow-layout .transcript-user-bubble { min-width: calc(25% + 12px); }
 
 .token-flow {
   --token-flow-line: color-mix(in srgb, var(--accent) 58%, var(--text-muted));

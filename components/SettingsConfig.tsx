@@ -14,6 +14,7 @@ import { PlugGlyph } from "./PlugGlyph";
 import { refreshOmpTheme, useTheme } from "@/hooks/useTheme";
 import { refreshDisplaySettings } from "@/hooks/useDisplaySettings";
 import { useI18n } from "@/hooks/useI18n";
+import { useMobileCloseRequest } from "@/hooks/useMobileCloseRequest";
 import type { RuntimeSessionBinding } from "@/lib/agent-client";
 import { useSessionReload } from "@/hooks/useSessionReload";
 import type { ProjectTrustStatus } from "@/lib/api-types";
@@ -406,6 +407,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
     restoreTextEntry: !window.matchMedia?.("(pointer: coarse)").matches,
   }), []);
   useEffect(() => listenForPanelEscape(document, close), [close]);
+  useMobileCloseRequest(true, close);
 
   const selectSection = (next: SettingsSection) => {
     setQuery("");

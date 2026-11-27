@@ -381,13 +381,21 @@
   .backdrop { padding: 8px; }
   .window { grid-template-columns: 82px minmax(0, 1fr); border-radius: 10px; }
   .brand { padding: 14px 6px 9px; text-align: center; }
-  .eyebrow, .context, .searchWrap, .navLabel, .closeButton span:first-child { display: none; }
+  .eyebrow, .context, .searchWrap, .navLabel { display: none; }
   .title { font-size: 12px; }
   .nav { padding-inline: 6px; }
   .navButton { height: 45px; flex-direction: column; justify-content: center; gap: 3px; padding: 0 3px; }
   .navButton span { display: block; width: 100%; overflow: hidden; font-size: 8px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-  .closeButton { display: grid; place-items: center; }
-  .closeButton span:last-child { display: inline; }
+  .closeRail { padding-inline: 6px; }
+  .closeButton {
+    min-height: 44px;
+    height: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 10px;
+  }
   .scrollContent { padding: 24px 16px 40px; }
   .settingRow { grid-template-columns: 1fr; gap: 10px; }
   .settingControl, .multiSelect { justify-content: flex-start; }
