@@ -21,8 +21,8 @@ process.env.PI_CODING_AGENT_DIR = agentDir;
 const { refreshDirsFromEnv } = await jiti.import("@oh-my-pi/pi-utils");
 refreshDirsFromEnv();
 const { invalidateSessionListCache } = await jiti.import("@/lib/session-reader.ts");
-const { GET, PUT } = await jiti.import("./route.ts");
-const { DELETE } = await jiti.import("../route.ts");
+const { GET, PUT } = await jiti.import("../../../../../worker/api/sessions/[id]/draft/route.ts");
+const { DELETE } = await jiti.import("../../../../../worker/api/sessions/[id]/route.ts");
 
 test.after(async () => {
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;

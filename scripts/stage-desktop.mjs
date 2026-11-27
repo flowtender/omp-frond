@@ -8,7 +8,7 @@
 // Layout produced (src-tauri/server is gitignored):
 //   server/.next            production build, distDir via OMP_FROND_DIST_DIR
 //   server/node_modules     bun install --production --frozen-lockfile
-//   server/bin public next.config.ts package.json bun.lock
+//   server/bin worker lib public next.config.ts tsconfig.json package.json bun.lock
 //   server/bun-<triple>     Bun runtime(s) for this platform only
 //
 // The tauri.conf.json resources map points at ./server/*; the Bun binaries
@@ -41,8 +41,8 @@ if (skipBuild) {
 }
 
 // 2. static payload
-for (const entry of ["bin", "public", "next.config.ts", "package.json", "bun.lock"]) {
-  cpSync(join(root, entry), join(server, entry), { recursive: true });
+for (const entry of ["bin", "worker", "lib", "public", "next.config.ts", "tsconfig.json", "package.json", "bun.lock"]) {
+  cpSync(join(root, entry), join(server, entry), { recursive: true, filter: (path) => !path.endsWith(".test.mjs") });
 }
 
 // 3. production build straight into the staging dir (the dev `.next/` is

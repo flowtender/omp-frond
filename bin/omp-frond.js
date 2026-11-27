@@ -39,6 +39,8 @@ const {
   reserveLoopbackPort,
   // eslint-disable-next-line @typescript-eslint/no-require-imports
 } = require("./tls-forwarder");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { superviseWeb } = require("./worker-supervisor");
 const {
   getWebAuthStatus,
   resolveWebAuthFile,
@@ -212,32 +214,11 @@ async function startServer() {
     childEnv.OMP_FROND_TLS_KEY = tlsPaths.key;
   }
 
-  // `--bun` forces Bun's own runtime for next's CLI entry (it would otherwise
-  // hand shebang'd scripts to node). The omp SDK ships TypeScript sources and
-  // `bun:` builtins, so the API routes only resolve under Bun.
   const nextHost = forwarder ? UPSTREAM_HOST : hostname;
-  const child = spawn(bunPath, ["--bun", nextBin, "start", "-p", String(nextPort), "-H", nextHost], {
-    cwd: pkgDir,
-    stdio: ["inherit", "pipe", "inherit"],
-    env: {
-      ...childEnv,
-      OMP_FROND_HOSTNAME: hostname,
-      OMP_FROND_AUTH_FILE: webAuthFile,
-      // Preserve the directory from which `omp-frond` was launched so relative
-      // project paths in the browser resolve against the user's shell cwd.
-      OMP_FROND_LAUNCH_CWD: process.cwd(),
-    },
-  });
-
-  child.on("error", (error) => {
-    console.error(`Failed to launch omp-frond through Bun (${bunPath}): ${error.message}`);
-    process.exit(1);
-  });
-
   let browserOpened = false;
   const url = tlsCredentials ? `https://${hostname}:${port}` : `http://${hostname}:${port}`;
 
-  child.stdout.on("data", (chunk) => {
+  const onWebOutput = (chunk) => {
     const text = chunk.toString();
     process.stdout.write(text);
     if (!browserOpened && text.includes("Ready")) {
@@ -259,9 +240,25 @@ async function startServer() {
 
       opener.unref();
     }
-  });
+  };
 
-  child.on("exit", (code) => process.exit(code ?? 0));
+  try {
+    process.exitCode = await superviseWeb({
+      bunPath,
+      cwd: pkgDir,
+      nextArgs: ["--bun", nextBin, "start", "-p", String(nextPort), "-H", nextHost],
+      onWebOutput,
+      env: {
+        ...childEnv,
+        OMP_FROND_HOSTNAME: hostname,
+        OMP_FROND_AUTH_FILE: webAuthFile,
+        // Relative project paths start at the directory `omp-frond` was launched from.
+        OMP_FROND_LAUNCH_CWD: process.cwd(),
+      },
+    });
+  } finally {
+    forwarder?.close();
+  }
 }
 
 configurePasswordAccess().then(startServer).catch((error) => {

@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { NextRequest } from "next/server.js";
 import { createJiti } from "jiti";
 import { refractor } from "refractor/all";
 import { FILE_LANGUAGES } from "../../../lib/file-language.ts";
@@ -17,7 +16,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { GET } = await jiti.import("./[...path]/route.ts");
+const { GET } = await jiti.import("../../../worker/api/files/[...path]/route.ts");
 const { allowFileRoot } = await jiti.import("../../../lib/allowed-roots.ts");
 allowFileRoot(root);
 
@@ -29,7 +28,7 @@ async function languageOf(name) {
   fs.writeFileSync(filePath, "x\n");
   const segments = filePath.replace(/\\/g, "/").split("/").filter(Boolean);
   const response = await GET(
-    new NextRequest("http://localhost/api/files/x?type=read"),
+    new Request("http://localhost/api/files/x?type=read", { headers: { host: "localhost" } }),
     { params: Promise.resolve({ path: segments }) },
   );
   assert.equal(response.status, 200, name);

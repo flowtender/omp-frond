@@ -41,7 +41,7 @@ test("status reads of a session's state leave out its system prompt (#1302)", { 
 
   const { agentStatusUrl } = await jiti.import("../../../lib/agent-client.ts");
   const { startRpcSession } = await jiti.import("../../../lib/rpc-manager.ts");
-  const { GET } = await jiti.import("./[id]/route.ts");
+  const { GET } = await jiti.import("../../../worker/api/agent/[id]/route.ts");
   const started = await startRpcSession("__new__agent-state", "", cwd, {});
   session = started.session;
   const realSessionId = started.realSessionId;

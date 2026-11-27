@@ -16,18 +16,6 @@ try {
 // swaps it for an equivalent built at runtime; both bundlers must run it.
 const gfmAutolinkEmailLoader = join(configDir, "lib/gfm-autolink-email-loader.cjs");
 
-/**
- * The omp SDK is published as TypeScript sources and imports `bun:` builtins,
- * so webpack must never try to parse it: every `@oh-my-pi/*` request stays a
- * runtime import that Bun resolves itself.
- *
- * `serverExternalPackages` alone is not enough — it leaves the SDK's own
- * transitive entry points (`@oh-my-pi/pi-ai`, `@oh-my-pi/pi-catalog/...`)
- * inside the bundle — so the rule below is applied unconditionally to the
- * whole scope.
- */
-const OMP_SDK_REQUEST = /^@oh-my-pi\//;
-
 const nextConfig: NextConfig = {
   // Desktop builds (scripts/stage-desktop.mjs) redirect the production build
   // into src-tauri/server/.next so packaging never touches the dev `.next/`.
@@ -52,17 +40,6 @@ const nextConfig: NextConfig = {
   // Node modules keep the syntax they ship unless listed here, and mermaid's
   // lazy diagram chunks are full of class `static {}` blocks (#753).
   transpilePackages: ["mermaid", "@mermaid-js/parser"],
-  serverExternalPackages: [
-    "node-pty",
-    "undici",
-    "web-push",
-    "@oh-my-pi/pi-coding-agent",
-    "@oh-my-pi/pi-agent-core",
-    "@oh-my-pi/pi-ai",
-    "@oh-my-pi/pi-catalog",
-    "@oh-my-pi/pi-tui",
-    "@oh-my-pi/pi-utils",
-  ],
   webpack: (config, { isServer, nextRuntime }) => {
     // The gfm-email loader must run in every webpack graph, server or browser.
     config.module.rules.push({
@@ -74,32 +51,7 @@ const nextConfig: NextConfig = {
       // NEXT_RUNTIME. Webpack still traces it for the browser fallback unless
       // the server-only module is explicitly excluded.
       config.resolve.alias["@/lib/http-dispatcher"] = false;
-      // Next 16.3's `client-development-fallback` graph re-traces server
-      // modules for the browser, where `serverExternalPackages` does not apply
-      // and node_modules get no TS loader — the SDK's `export type *` sources
-      // then die in the raw parser ("Module parse failed"). The browser never
-      // executes the SDK, so keep it out of every client-side compile as an
-      // external that resolves to `undefined` if anything ever requires it.
-      const clientExternals = Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean);
-      config.externals = [
-        ({ request }: { request?: string }, callback: (error?: unknown, result?: string) => void) => {
-          if (request && OMP_SDK_REQUEST.test(request)) return callback(undefined, "var void 0");
-          return callback();
-        },
-        ...clientExternals,
-      ];
-      return config;
     }
-    const externals = Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean);
-    config.externals = [
-      ({ request }: { request?: string }, callback: (error?: unknown, result?: string) => void) => {
-        // `import`, not `commonjs`: the SDK's package exports declare only an
-        // `import` condition, so a `require()` of it cannot resolve at all.
-        if (request && OMP_SDK_REQUEST.test(request)) return callback(undefined, `import ${request}`);
-        return callback();
-      },
-      ...externals,
-    ];
     return config;
   },
   // Next 16 blocks cross-origin access to dev resources by default. Allow the

@@ -47,13 +47,11 @@ without splitting Unicode characters. Failed input is not retried because its
 delivery may be ambiguous. Reconnect attaches to the same process with a fresh
 writer; restart explicitly replaces the process.
 
-`bin/prepare-terminal.js` repairs node-pty 1.1.0's macOS spawn-helper executable
-bits during installation, including omp-frond packages installed from npm.
-
-`omp-frond` pins node-pty to `1.2.0-beta.15`, which includes Linux x64 and ARM64
-prebuilt binaries. Native module loading is deferred until terminal creation,
-so missing or incompatible binaries produce a JSON error with repair instructions.
-Empty or non-JSON API errors show the HTTP status and direct users to the server log.
+On Linux, the Bun worker uses Bun's native PTY rather than `node-pty`'s Node
+TTY stream. On macOS and Windows, the worker still uses `node-pty`
+`1.2.0-beta.15`, loaded when a terminal is created. `bin/prepare-terminal.js`
+repairs the macOS spawn-helper executable bits during installation. Empty or
+non-JSON API errors show the HTTP status and direct users to the server log.
 
 If a native binary cannot load, run
 `npm rebuild node-pty --build-from-source --ignore-scripts=false --foreground-scripts` from the
@@ -64,5 +62,5 @@ Restart omp-frond after repair.
 
 ## Verification
 
-Run `bun test` for native PTY, lease, output cursor, input queue, and storage checks.
-This fork has no `test:terminal` script or browser check; `package.json` defines no such command.
+Run `bun run test lib/terminal-manager.test.mjs` for PTY lifecycle, leases, and
+SSE output cursors.

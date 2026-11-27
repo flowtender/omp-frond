@@ -10,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { POST: sessionStatsRoute } = await jiti.import("./stats/route.ts");
+const { POST: sessionStatsRoute } = await jiti.import("../../../worker/api/sessions/stats/route.ts");
 const { refreshDirsFromEnv } = await jiti.import("@oh-my-pi/pi-utils");
 const { invalidateSessionListCache, invalidateSessionPathCache } = await jiti.import("../../../lib/session-reader.ts");
 

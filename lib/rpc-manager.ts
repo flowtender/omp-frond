@@ -75,6 +75,7 @@ import type {
 import { createHeadlessExtensionUiHost, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 import { findLiveCacheMiss } from "./cache-miss-markers";
 import { TRANSCRIPT_NOTICES_KEY } from "./transcript-notices";
+import { isWorkerWorkspacePath } from "./worker-workspace";
 
 // ============================================================================
 // Types
@@ -2710,10 +2711,6 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
   if (!globalThis.__ompSessions) {
     // A previous module generation under the pi-web name may already own the map.
     globalThis.__ompSessions = globalThis.__piSessions ?? new Map();
-    const cleanup = () => globalThis.__ompSessions?.forEach((s) => s.destroy());
-    process.once("exit", cleanup);
-    process.once("SIGINT", cleanup);
-    process.once("SIGTERM", cleanup);
   }
   for (const session of globalThis.__ompSessions.values()) {
     if (Object.getPrototypeOf(session) === AgentSessionWrapper.prototype) continue;
@@ -2993,6 +2990,10 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
   return sessions;
 }
 
+export async function shutdownWorkerSessions(): Promise<void> {
+  await Promise.allSettled(Array.from(getRegistry().values(), (session) => session.shutdown()));
+}
+
 export function hasBusyRpcSessionForCwd(cwd: string): boolean {
   const targetCwd = normalizeRpcCwd(cwd);
   if (getStartingSessionCwds().has(targetCwd)) return true;
@@ -3145,9 +3146,11 @@ export async function startRpcSession(
       ? await SessionManager.open(sessionFile, undefined)
       : (() => {
         if (!cwd) throw new Error("cwd is required for a new session");
+        if (!isWorkerWorkspacePath(cwd)) throw new Error("Session is outside this worker's workspace");
         return SessionManager.create(cwd, undefined);
       })();
     const sessionCwd = sessionManager.getCwd();
+    if (sessionFile && !isWorkerWorkspacePath(sessionCwd)) throw new Error("Session is outside this worker's workspace");
     const sessionEntries = sessionManager.getEntries() as unknown as SessionEntry[];
     // The newest selection in the file wins over a request, so a replacement of a
     // closing wrapper comes up with the tool policy the session already carries.

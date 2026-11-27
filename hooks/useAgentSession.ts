@@ -20,6 +20,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { TRANSCRIPT_NOTICES_KEY, withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import { stripAnsi } from "@/lib/ansi";
 import { agentStatusUrl, canApplySessionIdentity, isPromptRejectedError, sendAgentCommand, sendConfirmingCacheLoss, type RuntimeSessionBinding } from "@/lib/agent-client";
+import { WORKER_UNAVAILABLE_CODE, WORKER_UNAVAILABLE_MESSAGE } from "@/worker/protocol";
 import { rememberSessionContinuation, clearSessionContinuation } from "@/lib/workspace-memory";
 import { getDraft, holdStoredDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
@@ -829,7 +830,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         return null;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const failure = res.status === 503 ? await res.json().catch(() => null) : null;
+        throw new Error(failure?.code === WORKER_UNAVAILABLE_CODE ? WORKER_UNAVAILABLE_MESSAGE : `HTTP ${res.status}`);
+      }
       const d = await res.json() as SessionData;
       if (!ownsHistory()) return null;
       recoveryReadRef.current = { requestId, data: d };
@@ -1710,7 +1714,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const requestedRuntimeId = runtimeIdRef.current;
       const res = await fetch(agentStatusUrl(requestedRuntimeId ?? sid));
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (res.status === 503) {
+          const failure = await res.json().catch(() => null);
+          if (failure?.code === WORKER_UNAVAILABLE_CODE && promptRunIdRef.current === runId
+            && !followRuntimeState(undefined, sid, requestedRuntimeId)) {
+            setError(WORKER_UNAVAILABLE_MESSAGE);
+          }
+        }
+        return;
+      }
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       // A slow response can straddle a run boundary (previous run finished
       // and the user already started the next one while this request was in
@@ -1718,6 +1731,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (promptRunIdRef.current !== runId) return;
       const state = data.state;
       if (followRuntimeState(state, sid, requestedRuntimeId)) return;
+      setError((current) => current === WORKER_UNAVAILABLE_MESSAGE ? null : current);
       sid = sessionIdRef.current ?? sid;
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state

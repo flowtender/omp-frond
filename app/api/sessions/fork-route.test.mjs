@@ -6,14 +6,14 @@ import { join } from "node:path";
 import test from "node:test";
 import { createJiti } from "jiti";
 
-const routeSource = await readFile(new URL("./[id]/fork/route.ts", import.meta.url), "utf8");
+const routeSource = await readFile(new URL("../../../worker/api/sessions/[id]/fork/route.ts", import.meta.url), "utf8");
 const jiti = createJiti(import.meta.url, {
   alias: { "@": process.cwd() },
   interopDefault: true,
   moduleCache: false,
 });
-const { POST: forkSession } = await jiti.import("./[id]/fork/route.ts");
-const { GET: getSessionList } = await jiti.import("./route.ts");
+const { POST: forkSession } = await jiti.import("../../../worker/api/sessions/[id]/fork/route.ts");
+const { GET: getSessionList } = await jiti.import("../../../worker/api/sessions/route.ts");
 const {
   getSessionListVersion,
   invalidateSessionListCache,

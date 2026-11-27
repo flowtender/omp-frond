@@ -18,7 +18,7 @@ const jiti = createJiti(import.meta.url, {
 // is loaded from a copy whose launcher import is rewritten to a recorder. Under
 // `bun test` jiti cannot alias "@/lib/open-in-file-manager" (tsconfig paths
 // resolve it first; see components/SessionSidebar.tabs.test.mjs).
-const routeSource = await readFile(new URL("./route.ts", import.meta.url), "utf8");
+const routeSource = await readFile(new URL("../../../worker/api/open-in-explorer/route.ts", import.meta.url), "utf8");
 const recordingRouteSource = routeSource.replace(
   'from "@/lib/open-in-file-manager";',
   'from "./__fixtures__/open-in-file-manager-recorder.mjs";',
@@ -40,7 +40,7 @@ test.after(() => rm(agentDir, { recursive: true, force: true }));
 function open(cwd, host = "localhost:30141") {
   return POST(new Request("http://localhost/api/open-in-explorer", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Host: host },
+    headers: { "Content-Type": "application/json", "x-omp-frond-browser-host": host },
     body: JSON.stringify({ cwd }),
   }));
 }

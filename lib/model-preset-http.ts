@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { resolve } from "path";
 import type { ModelPresetsResponse } from "./api-types";
 import { requireAllowedCwd } from "./file-access";
@@ -9,17 +8,17 @@ import { hasJsonContentType, isApiRequestAllowed } from "./request-security";
 
 /** Request plumbing shared by `/api/model-presets` and its `activate` route. */
 
-export function modelPresetErrorResponse(error: unknown): NextResponse {
-  if (error instanceof PromptCacheLossError) return NextResponse.json(promptCacheLossBody(error), { status: 409 });
+export function modelPresetErrorResponse(error: unknown): Response {
+  if (error instanceof PromptCacheLossError) return Response.json(promptCacheLossBody(error), { status: 409 });
   const message = error instanceof Error ? error.message : String(error);
   const status = error instanceof ModelPresetError ? error.status : message === "Access denied" ? 403 : 500;
-  return NextResponse.json({ error: message }, { status });
+  return Response.json({ error: message }, { status });
 }
 
-export function rejectUntrustedJsonWrite(req: Request): NextResponse | undefined {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+export function rejectUntrustedJsonWrite(req: Request): Response | undefined {
+  if (!isApiRequestAllowed(req)) return Response.json({ error: "Untrusted API request" }, { status: 403 });
   if (!hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+    return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
   }
   return undefined;
 }

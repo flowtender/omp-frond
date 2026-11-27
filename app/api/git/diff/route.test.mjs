@@ -25,9 +25,8 @@ test.after(() => {
 const jiti = createJiti(import.meta.url, {
   alias: { "@": process.cwd() }, interopDefault: true, moduleCache: false,
 });
-const { GET } = await jiti.import("./route.ts");
+const { GET } = await jiti.import("../../../../worker/api/git/diff/route.ts");
 const { allowFileRoot } = await jiti.import("../../../../lib/file-access.ts");
-const { NextRequest } = await jiti.import("next/server");
 
 function git(cwd, ...args) {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
@@ -44,7 +43,7 @@ function request(cwd, filePath) {
   const url = new URL("http://localhost/api/git/diff");
   url.searchParams.set("cwd", cwd);
   url.searchParams.set("path", filePath);
-  return GET(new NextRequest(url));
+  return GET(new Request(url));
 }
 
 function directoryLink(target, link) {

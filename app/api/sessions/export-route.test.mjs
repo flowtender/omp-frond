@@ -10,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { GET: getExport } = await jiti.import("./[id]/export/route.ts");
+const { GET: getExport } = await jiti.import("../../../worker/api/sessions/[id]/export/route.ts");
 
 function exportFixture(t) {
   const stateKeys = [

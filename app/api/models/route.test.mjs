@@ -47,7 +47,7 @@ await initRepo("repo");
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
-const { GET } = await jiti.import("./route.ts");
+const { GET } = await jiti.import("../../../worker/api/models/route.ts");
 // The repo of the removed worktree below is a project some session named, which is what
 // makes it an allowed root; the fallback never adds one of its own.
 allowFileRoot(repo);

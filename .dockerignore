@@ -9,6 +9,7 @@
 
 node_modules
 .next
+.next-*
 out
 build
 coverage
@@ -32,3 +33,4 @@ yarn-error.log*
 Dockerfile
 .dockerignore
 docker-compose.yml
+docker-compose.restricted.yml

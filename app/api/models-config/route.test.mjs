@@ -7,8 +7,10 @@ import { createJiti } from "jiti";
 import { refreshDirsFromEnv } from "@oh-my-pi/pi-utils";
 
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+const originalOffline = process.env.PI_OFFLINE;
 const testAgentDir = await mkdtemp(join(tmpdir(), "pi-web-models-config-route-"));
 process.env.PI_CODING_AGENT_DIR = testAgentDir;
+process.env.PI_OFFLINE = "1";
 refreshDirsFromEnv();
 
 const jiti = createJiti(import.meta.url, {
@@ -16,7 +18,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { GET, PUT } = await jiti.import("./route.ts");
+const { GET, PUT } = await jiti.import("../../../worker/api/models-config/route.ts");
 const modelsPath = join(testAgentDir, "models.json");
 // The fork route keeps `models.yml` as its canonical write target and the fork
 // SDK caches model discovery in a SQLite db beside the config; the registry
@@ -27,6 +29,8 @@ const modelsStorePath = join(testAgentDir, "models-store.db");
 after(async () => {
   if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
   else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+  if (originalOffline === undefined) delete process.env.PI_OFFLINE;
+  else process.env.PI_OFFLINE = originalOffline;
   refreshDirsFromEnv();
   await rm(testAgentDir, { recursive: true, force: true });
 });

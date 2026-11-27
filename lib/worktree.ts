@@ -3,8 +3,10 @@ import { existsSync, mkdirSync, readFileSync, realpathSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
+import { isPathWithinRoots } from "./path-security";
 import { projectGitEnvironment } from "./child-environment";
 import { samePath, toNativePath } from "./paths";
+import { isWorkerWorkspacePath, workerWorkspaceRoots } from "./worker-workspace";
 
 const execFileAsync = promisify(execFile);
 
@@ -280,8 +282,15 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
   if (!dirName) throw new Error(`Invalid branch name: ${branch}`);
 
   const repoRoot = await getRepoRoot(cwd);
+  if (!isWorkerWorkspacePath(repoRoot)) throw new Error("Project root is outside this worker's workspace");
   const baseDir = `${resolve(repoRoot)}-worktrees`;
   const worktreePath = join(baseDir, dirName);
+  if (workerWorkspaceRoots && (
+    !isPathWithinRoots(baseDir, workerWorkspaceRoots)
+    || !isWorkerWorkspacePath(existsSync(baseDir) ? baseDir : dirname(baseDir))
+  )) {
+    throw new Error("Worktree destination is outside this worker's workspace");
+  }
   if (existsSync(worktreePath)) {
     throw new Error(`Directory already exists: ${worktreePath}`);
   }
@@ -327,12 +336,16 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
 }
 
 export async function removeWorktree(cwd: string, worktreePath: string, force = false): Promise<void> {
+  if (workerWorkspaceRoots && !isWorkerWorkspacePath(await getRepoRoot(cwd))) {
+    throw new Error("Project root is outside this worker's workspace");
+  }
   const worktrees = await listWorktrees(cwd);
   // Git reports worktrees by their real path; the caller's may run through a link
   // (macOS's /var and /tmp are links to /private/...).
   const target = findWorktreeByPath(worktrees, realPathOrSelf(worktreePath));
   if (!target) throw new Error(`Not a worktree of this repository: ${worktreePath}`);
   if (target.isMain) throw new Error("Cannot remove the main worktree");
+  if (!isWorkerWorkspacePath(target.path)) throw new Error("Worktree is outside this worker's workspace");
 
   try {
     await git(cwd, ["worktree", "remove", ...(force ? ["--force"] : []), target.path]);

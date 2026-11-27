@@ -13,7 +13,7 @@ process.env.PI_CODING_AGENT_DIR = agentDir;
 refreshDirsFromEnv();
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
-const { PATCH } = await jiti.import("./route.ts");
+const { PATCH } = await jiti.import("../../../worker/api/skills/route.ts");
 
 after(async () => {
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;

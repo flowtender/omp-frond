@@ -77,7 +77,7 @@ async function scratchAgentDir(t) {
   process.env.PI_CODING_AGENT_DIR = dir;
   refreshDirsFromEnv();
   globalThis.__ompSessions = new Map();
-  deleteSessionsRoute = (await jiti.import("./delete/route.ts")).POST;
+  deleteSessionsRoute = (await jiti.import("../../../worker/api/sessions/delete/route.ts")).POST;
   invalidateSessionListCache();
   resetSessionUiStateCacheForTests();
   const ids = [];
@@ -196,7 +196,7 @@ test("what stays is re-pointed at its nearest ancestor left, or loses a parent n
 for (const operation of ["single", "bulk"]) {
   async function removeParent(id) {
     if (operation === "bulk") return post({ ids: [id] });
-    const { DELETE } = await jiti.import("./[id]/route.ts");
+    const { DELETE } = await jiti.import("../../../worker/api/sessions/[id]/route.ts");
     return DELETE(new Request(`http://localhost/api/sessions/${id}`, {
       method: "DELETE", headers: { host: "localhost" },
     }), { params: Promise.resolve({ id }) });

@@ -10,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { POST } = await jiti.import("./route.ts");
+const { POST } = await jiti.import("../../../../worker/api/cwd/validate/route.ts");
 const { projectIdentityKey } = await jiti.import("../../../../lib/project-identity.ts");
 
 test("validated cwd responses include server-resolved project identity", async (t) => {

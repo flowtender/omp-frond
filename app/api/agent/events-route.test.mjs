@@ -4,7 +4,7 @@ import test from "node:test";
 import ts from "typescript";
 
 // Run the route with isolated session and timer dependencies, without starting an SDK runtime.
-const source = await readFile(new URL("./[id]/events/route.ts", import.meta.url), "utf8");
+const source = await readFile(new URL("../../../worker/api/agent/[id]/events/route.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("route.ts", source, ts.ScriptTarget.Latest, true);
 const body = ast.statements.filter((node) => !ts.isImportDeclaration(node))
   .map((node) => node.getText(ast).replace(/^export /, "")).join("\n");
