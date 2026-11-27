@@ -47,8 +47,8 @@
   ],
   "scripts": {
     "postinstall": "node bin/prepare-terminal.js",
-    "dev": "bun bin/next-with-worker.js dev --webpack -H 127.0.0.1 -p 30141",
-    "dev:lan": "bun bin/next-with-worker.js dev --webpack -H 0.0.0.0 -p 30141",
+    "dev": "bun bin/next-with-worker.js dev --turbopack -H 127.0.0.1 -p 30141",
+    "dev:lan": "bun bin/next-with-worker.js dev --turbopack -H 0.0.0.0 -p 30141",
     "build": "bun --bun next build --webpack",
     "start": "bun bin/next-with-worker.js start -H 127.0.0.1 -p 30141",
     "start:lan": "bun bin/next-with-worker.js start -H 0.0.0.0 -p 30141",

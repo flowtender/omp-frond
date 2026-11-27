@@ -81,7 +81,8 @@ export function useTokenFlowConnections(
     function layout() {
       layoutFrame = 0;
       if (!content) return;
-      type Edge = { bounds: DOMRect; port: Port; block: boolean };
+      // `rail` is the full-width row the rails are measured on; `bounds` is the box the wire touches vertically.
+      type Edge = { bounds: DOMRect; rail: DOMRect; port: Port; block: boolean };
       type Row = Edge & { element: HTMLElement; source?: Edge; target?: Edge };
       const rows: Row[] = [];
       let previous: Edge | undefined;
@@ -103,7 +104,7 @@ export function useTokenFlowConnections(
           ? element.querySelector("[data-transcript-block]") ?? element : element;
         const bounds = box.getBoundingClientRect();
         if (bounds.height <= 0) continue;
-        const edge: Edge = { bounds, port, block };
+        const edge: Edge = { bounds, rail: element.getBoundingClientRect(), port, block };
         if (previousRow && !(previousRow.port === "handoff" && port === "output")) previousRow.target = edge;
         if (block) {
           previousRow = undefined;
@@ -126,8 +127,8 @@ export function useTokenFlowConnections(
         const turn = Math.sign(exitX - entryX);
         const startY = source ? source.bounds.bottom - bounds.top : 0;
         const path = element.querySelector<SVGPathElement>(":scope > .token-flow-wire > path");
-        const fromX = source ? source.bounds.left + source.bounds.width * portRails[source.port].exit - bounds.left : entryX;
-        const toX = target ? target.bounds.left + target.bounds.width * portRails[target.port].entry - bounds.left : exitX;
+        const fromX = source ? source.rail.left + source.rail.width * portRails[source.port].exit - bounds.left : entryX;
+        const toX = target ? target.rail.left + target.rail.width * portRails[target.port].entry - bounds.left : exitX;
         const turnDown = `q0 ${radius} ${turn * radius} ${radius} H${exitX - turn * radius} q${turn * radius} 0 ${turn * radius} ${radius}`;
         if (port === "fold") {
           const body = element.querySelector(".token-flow-fold-body")?.getBoundingClientRect();

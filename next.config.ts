@@ -21,7 +21,13 @@ const nextConfig: NextConfig = {
   // into src-tauri/server/.next so packaging never touches the dev `.next/`.
   distDir: process.env.OMP_FROND_DIST_DIR || ".next",
   outputFileTracingRoot: configDir,
+  devIndicators: false,
+  logging: {
+    incomingRequests: { ignore: [/^\/api\/agent\/running(?:\?|$)/] },
+  },
   experimental: {
+    // Bun's --bun flag leaks into the child-process loader pool's NODE_OPTIONS.
+    ...(process.versions.bun ? { turbopackPluginRuntimeStrategy: "workerThreads" } : {}),
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever
     // a proxy is present, capped at 10 MB by default. The upload route accepts
     // up to 100 MB per request, so raise the buffer above that or large uploads

@@ -1852,26 +1852,6 @@
   margin-top: 14px;
 }
 
-
-.project-trust-mcp-intro,
-.project-trust-mcp-line,
-
-.project-trust-mcp-status,
-
-
-
-
-/* Repository text is shown with its hidden characters escaped
-   (lib/mcp-server-display.ts) and with ordinary white space collapsing: a run
-   of spaces or a newline must not push the rest of a value out of view. */
-
-
-
-
-
-
-
-
 /* iOS standalone: env() can report 0, so keep a device-sized fallback on the
    status-bar edge and cap dialog surfaces to the resulting safe box. */
 @supports (-webkit-touch-callout: none) {
@@ -1909,12 +1889,32 @@
   font-weight: 600;
 }
 
+.project-trust-mcp-intro,
+.project-trust-mcp-line,
+.project-trust-mcp-status {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 .project-trust-mcp-status,
 .project-trust-mcp-failed {
   margin-top: 12px;
 }
 
+.project-trust-mcp-status {
+  color: var(--text-dim);
+}
+
+.project-trust-mcp-line.is-warning {
+  color: #d97706;
+}
+
+.project-trust-mcp-line.is-dim {
+  color: var(--text-dim);
+  font-size: 11px;
+}
 
 /* Repository text is shown with its hidden characters escaped
    (lib/mcp-server-display.ts) and with ordinary white space collapsing: a run

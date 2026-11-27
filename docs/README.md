@@ -87,10 +87,8 @@ Pass the same worker ID and token and the bound `OMP_FROND_WORKER_PORT` to
 the web launcher. It leaves an externally supervised worker running on exit.
 The control port is never a browser endpoint.
 
-The model API and chat stream were exercised under Turbopack, including a
-Next-only restart with an open form. Full browser verification remains blocked
-by Turbopack rejecting a dangling selector in `app/settings.css`; production
-continues to use webpack.
+Development uses Turbopack with worker-thread loaders under Bun. Production
+builds still use webpack.
 
 Pi-specific names and original decisions in inherited ADRs describe their source
 context. They do not override OMP's current SDK contracts or this fork's

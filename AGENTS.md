@@ -23,7 +23,7 @@ agent dir; it starts unlocked and never touches the real config:
 ```bash
 AGENT_DIR=$(mktemp -d /tmp/omp-frond-verify.XXXXXX)/agent && mkdir "$AGENT_DIR"
 NODE_ENV=development PI_CODING_AGENT_DIR="$AGENT_DIR" OMP_FROND_DIST_DIR=.next-verify \
-  bun --bun next dev --webpack -H 127.0.0.1 -p 30142
+  bun bin/next-with-worker.js dev --turbopack -H 127.0.0.1 -p 30142
 ```
 
 - `PI_CODING_AGENT_DIR` moves both omp's agent dir and the password store
