@@ -10,7 +10,6 @@ import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
-import { PlugGlyph } from "./PlugGlyph";
 import { getFileIcon } from "./FileIcons";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
@@ -1759,7 +1758,7 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
   );
 }
 type ToolIconKind = "read" | "write" | "glob" | "grep" | "edit" | "bash" | "todo" | "eval" | "task" | "browser" | "image"
-  | "lsp" | "retain" | "recall" | "reflect" | "memory_edit" | "mcp" | "gitnexus-impact" | "changes" | "runtests" | "typecheck" | "gitshow" | "upstream" | "generic";
+  | "lsp" | "retain" | "recall" | "reflect" | "memory_edit" | "mcp" | "gitnexus-impact" | "changes" | "runtests" | "typecheck" | "gitshow" | "upstream" | "wait" | "ask" | "github" | "generic";
 
 const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   read: "var(--accent)",
@@ -1785,6 +1784,9 @@ const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   typecheck: "var(--accent)",
   gitshow: "var(--accent-hover)",
   upstream: "var(--accent-hover)",
+  wait: "var(--warning)",
+  ask: "var(--accent)",
+  github: "var(--text-muted)",
   generic: "var(--text-dim)",
 };
 
@@ -1810,6 +1812,9 @@ function getToolIconKind(toolName: string, mcpLabel?: McpToolLabel | null): Tool
     case "recall":
     case "reflect":
     case "memory_edit":
+    case "wait":
+    case "ask":
+    case "github":
       return normalized;
     // this project's own tools in .omp/tools; "impact" is the same blast-radius idea as GitNexus's
     case "impact":
@@ -1842,183 +1847,25 @@ function ToolBlockIcon({ toolName, mcpLabel, isError }: {
 }) {
   const kind = getToolIconKind(toolName, mcpLabel);
   const color = isError ? "var(--danger)" : TOOL_ICON_COLORS[kind];
+  // the glyph is an alpha mask over currentColor, so it follows the theme like inline strokes did
+  const mask = `url(/tool-icons/${kind}.svg) center / contain no-repeat`;
 
   return (
     <span
       aria-hidden="true"
       data-tool-icon={kind}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
+        display: "inline-block",
         width: 14,
         height: 14,
         flexShrink: 0,
+        backgroundColor: "currentColor",
+        mask,
+        WebkitMask: mask,
         color,
       }}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round">
-        <ToolIconGlyph kind={kind} />
-      </svg>
-    </span>
+    />
   );
-}
-
-function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
-  switch (kind) {
-    case "read":
-      return (
-        <>
-          <path d="M1 7c1.6-3 3.8-4.5 6-4.5s4.4 1.5 6 4.5c-1.6 3-3.8 4.5-6 4.5S2.6 10 1 7Z" />
-          <circle cx="7" cy="7" r="1.9" fill="currentColor" stroke="none" />
-        </>
-      );
-    case "write":
-      return (
-        <>
-          <path d="m1.5 12 .5-2.2 7.2-7.2 1.7 1.7-7.2 7.2-2.2.5Z" />
-          <path d="M8.5 7.5h2.6l1.4 1.4v3.6h-4Z" />
-        </>
-      );
-    case "glob":
-      return (
-        <>
-          <path d="M9 2v7M6 3.75l6 3.5M6 7.25l6-3.5" />
-          <path d="M1.5 12.5V8.7h2.3l.9.9h2.8v2.9Z" />
-        </>
-      );
-    case "grep":
-      return (
-        <>
-          <circle cx="5.9" cy="5.9" r="3.25" />
-          <path d="m8.35 8.35 3.25 3.25" />
-          <path d="M4.6 5.2h2.5M4.6 6.8h1.7" />
-        </>
-      );
-    case "edit":
-      return (
-        <>
-          <path d="m1.5 12 .5-2.2 7.2-7.2 1.7 1.7-7.2 7.2-2.2.5Z" />
-          <path d="M8 12.5h4.5" />
-        </>
-      );
-    case "bash":
-      return (
-        <>
-          <rect x="1.5" y="2.1" width="11" height="9.8" rx="1.3" />
-          <path d="m4 5.2 1.8 1.8L4 8.8M7.2 8.8h2.3" />
-        </>
-      );
-    case "todo":
-      return (
-        <>
-          <path d="M5.5 3.25h7M5.5 7h7M5.5 10.75h7" />
-          <path d="m1.5 3.1 1 1 1.7-1.9M1.5 6.85l1 1 1.7-1.9M1.5 10.6l1 1 1.7-1.9" />
-        </>
-      );
-    case "eval":
-      return (
-        <>
-          <path d="m5 2.5-3 4.5 3 4.5M9 2.5l3 4.5-3 4.5M7.8 2 6.2 12" />
-        </>
-      );
-    case "task":
-      return (
-        <>
-          <circle cx="3.1" cy="3.2" r="1.25" />
-          <circle cx="10.9" cy="3.2" r="1.25" />
-          <circle cx="10.9" cy="10.8" r="1.25" />
-          <path d="M4.35 3.2h2.1a2.9 2.9 0 0 1 2.9 2.9v3.45" />
-          <path d="M9.35 3.2h-1.1" />
-        </>
-      );
-    case "browser":
-      return (
-        <>
-          <circle cx="7" cy="7" r="5.2" />
-          <path d="M1.9 7h10.2M7 1.8c1.45 1.4 2.2 3.15 2.2 5.2S8.45 10.8 7 12.2C5.55 10.8 4.8 9.05 4.8 7S5.55 3.2 7 1.8Z" />
-        </>
-      );
-    case "image":
-      return (
-        <>
-          <rect x="1.75" y="2.25" width="10.5" height="9.5" rx="1.15" />
-          <circle cx="4.8" cy="5.1" r="1" />
-          <path d="m2.6 10 2.6-2.7 1.8 1.8 1.45-1.45 2.95 2.95" />
-        </>
-      );
-    case "lsp":
-      return (
-        <>
-          <path d="m3.8 3.7-2.9 3.3 2.9 3.3m6.4-6.6 2.9 3.3-2.9 3.3" />
-          <circle cx="7" cy="7" r="1.5" />
-        </>
-      );
-    case "retain":
-    case "recall":
-    case "reflect":
-    case "memory_edit":
-      return (
-        <>
-          <path d="M2.15 2h4.4v10L4.35 10l-2.2 2V2Z" />
-          {kind === "retain" && <path d="M10.65 4.8v4.4m-2.2-2.2h4.4" />}
-          {kind === "recall" && <><circle cx="10.15" cy="6.45" r="1.65" /><path d="m11.35 7.65 1.5 1.5" /></>}
-          {kind === "reflect" && <path d="M10.65 4.25c.25 1.7.95 2.45 2.45 2.75-1.5.3-2.2 1.05-2.45 2.75-.25-1.7-.95-2.45-2.45-2.75 1.5-.3 2.2-1.05 2.45-2.75Z" />}
-          {kind === "memory_edit" && <path d="m8.45 8.05 3.1-3.1 1.25 1.25-3.1 3.1-1.65.4.4-1.65Z" />}
-        </>
-      );
-    case "mcp":
-      return <svg width="14" height="14" viewBox="0 0 24 24" strokeWidth="2"><PlugGlyph /></svg>;
-    case "gitnexus-impact":
-      return (
-        <>
-          <circle cx="4" cy="7" r="1.6" />
-          <path d="M7 4.5a3.5 3.5 0 0 1 0 5m2.5-6.5a7 7 0 0 1 0 8" />
-        </>
-      );
-    case "changes":
-      return (
-        <>
-          <rect x="1.75" y="1.75" width="10.5" height="10.5" rx="2.4" />
-          <path d="M7 4.2v3.2M5.4 5.8h3.2M5.4 9.6h3.2" />
-        </>
-      );
-    case "runtests":
-      return (
-        <>
-          <path d="M5.5 1.75h3M6 1.75v3.4L2.6 11a1 1 0 0 0 .9 1.5h7a1 1 0 0 0 .9-1.5L8 5.15v-3.4" />
-          <circle cx="6.2" cy="9.4" r=".7" fill="currentColor" stroke="none" />
-          <circle cx="8.3" cy="10.4" r=".5" fill="currentColor" stroke="none" />
-        </>
-      );
-    case "typecheck":
-      return (
-        <>
-          <path d="M1.5 3h6M4.5 3v7.5" />
-          <path d="m8 9.6 1.6 1.6 3-3.4" />
-        </>
-      );
-    case "gitshow":
-      return (
-        <>
-          <circle cx="7" cy="7" r="2.3" />
-          <path d="M1.5 7h3.2M9.3 7h3.2" />
-        </>
-      );
-    case "upstream":
-      return (
-        <>
-          <path d="M3 1.75h8M7 12.25v-8M3.6 7.4 7 4l3.4 3.4" />
-        </>
-      );
-    case "generic":
-      return (
-        <>
-          <path d="M7 1.75 12 4.4v5.2L7 12.25 2 9.6V4.4Z" />
-          <circle cx="7" cy="7" r="1.2" />
-        </>
-      );
-  }
 }
 
 type TodoPreviewStatus = "pending" | "in_progress" | "completed" | "abandoned" | "blocked";

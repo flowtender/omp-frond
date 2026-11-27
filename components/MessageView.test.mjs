@@ -802,6 +802,9 @@ test("shows an operation icon beside every standard tool label", () => {
     ["typecheck", "typecheck", "var(--accent)"],
     ["gitshow", "gitshow", "var(--accent-hover)"],
     ["upstream", "upstream", "var(--accent-hover)"],
+    ["wait", "wait", "var(--warning)"],
+    ["ask", "ask", "var(--accent)"],
+    ["github", "github", "var(--text-muted)"],
     ["unknown_tool", "generic", "var(--text-dim)"],
   ];
 
