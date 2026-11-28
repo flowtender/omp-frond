@@ -848,6 +848,14 @@ pre, code {
 .chat-reply-card, .chat-thinking-card, .transcript-user-bubble, .chat-tool-card, .shell-output-preview {
   position: relative;
 }
+/* Split diffs need twice the chat column: grow to double, centred on it, never past the transcript scroller. */
+[data-chat-transcript-scroll] { container-type: inline-size; }
+.chat-tool-card-wide {
+  --wide-diff-width: min(200%, calc(100cqw - 48px));
+  width: var(--wide-diff-width);
+  max-width: none;
+  margin-left: calc((100% - var(--wide-diff-width)) / 2);
+}
 .chat-card-spark {
   display: none;
   position: absolute;

@@ -68,6 +68,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.toolDisplay": "工具显示",
     "settings.toolDisplay.compactJson": "紧凑显示 JSON 参数",
     "settings.toolDisplay.readPreviews": "紧凑显示 Read 标题和 Markdown 预览",
+    "settings.toolDisplay.wideDiff": "双栏宽幅 diff 视图（左右并排，仅桌面端）",
     "settings.toolDisplayDescription": "只改变显示方式。命令、已保存的结果和终端输出保持不变。",
     "settings.pythonFormat": "格式化 Python eval 单元",
     "settings.pythonFormatter": "Python 格式化工具",

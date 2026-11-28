@@ -54,6 +54,7 @@ export const zhTWLocale: LocalePlugin = {
     "settings.toolDisplay": "工具顯示",
     "settings.toolDisplay.compactJson": "精簡顯示 JSON 參數",
     "settings.toolDisplay.readPreviews": "精簡顯示 Read 標題與 Markdown 預覽",
+    "settings.toolDisplay.wideDiff": "雙欄寬幅 diff 檢視（左右並排，僅桌面版）",
     "settings.toolDisplayDescription": "只會改變顯示方式。指令、已儲存的結果與終端機輸出都不受影響。",
     "settings.pythonFormat": "格式化 Python eval 單元",
     "settings.pythonFormatter": "Python 格式化工具",

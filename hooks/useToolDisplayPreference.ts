@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-export type ToolDisplayPreference = "compactJson" | "readPreviews";
+export type ToolDisplayPreference = "compactJson" | "readPreviews" | "wideDiff";
 
 const eventName = "omp-tool-display-changed";
 const storageKey = (kind: ToolDisplayPreference) => `omp-tool-display-${kind}`;

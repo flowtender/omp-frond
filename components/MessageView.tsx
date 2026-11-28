@@ -34,7 +34,7 @@ import { useDisplaySettings } from "@/hooks/useDisplaySettings";
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { diffGapLabel, parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap } from "@/lib/patch";
 import { canHighlightDiff, highlightDiffFile, MAX_STREAMING_HIGHLIGHT_CHARS, type DiffToken } from "@/lib/diff-syntax";
-import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput, previewEditInput } from "@/lib/apply-patch";
+import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput, parseNumberedDiff, previewEditInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isBashToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { isToolCallExpanded, setToolCallExpanded, toolCallExpandedByDefault, toolCallFailureCount } from "@/lib/tool-call-expansion";
@@ -1492,6 +1492,8 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
   const patchFiles = useMemo(() => isPatchTool ? getApplyPatchFiles(patchInput, result) : null, [isPatchTool, patchInput, result]);
   const editFiles = useMemo(() => isEditTool && !result ? previewEditInput(fileArgs, patchInput) : null, [isEditTool, result, fileArgs, patchInput]);
   const previewFiles = patchFiles ?? editFiles;
+  const showsSplitDiff = useWideDiffLayout() && Boolean(previewFiles
+    || (resultDiff && resultDiff.text.length <= MAX_MARKDOWN_CHARS && (parseUnifiedPatch(resultDiff.text) ?? parseNumberedDiff(resultDiff.text))));
   const patchLabel = isPatchTool ? extractApplyPatchPaths(patchInput).join(", ").slice(0, 120) : "";
   const fileTarget = isFileMutation && (readHeaderTarget(fileArgs) || patchLabel ||
     (editFiles?.length === 1 ? editFiles[0].newPath ?? editFiles[0].oldPath : undefined));
@@ -1580,6 +1582,7 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
       spark={spark}
       mcpLabel={mcpLabel}
       repeatSpark={repeatSpark}
+      wide={showsSplitDiff}
       isError={isError}
       hasFailure={hasFailure}
       target={isStreamingInput
@@ -1784,7 +1787,7 @@ function formatToolTime(duration: number | undefined, timeout: number | null | u
   return `${duration === undefined ? "—" : (duration / 1000).toFixed(1)}/${timeout === null ? "-" : timeout === 0 ? "∞" : `${timeout}s`}`;
 }
 
-function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, targetLanguage, facts, metadata, labelBadge, badge, timeout, duration, liveTiming, count = 0, action, children, spark, repeatSpark }: {
+function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isError, target, targetLanguage, facts, metadata, labelBadge, badge, timeout, duration, liveTiming, count = 0, action, children, spark, repeatSpark, wide = false }: {
   callId: string;
   toolName: string;
   label?: string;
@@ -1803,13 +1806,15 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
   count?: number;
   action?: ReactNode;
   repeatSpark?: boolean;
+  /** Two diff columns need twice the chat column; the card widens while expanded. */
+  wide?: boolean;
   spark?: boolean;
   children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useToolExpanded(callId, hasFailure);
   return (
-    <div className="chat-tool-card" style={{
+    <div className={wide && expanded ? "chat-tool-card chat-tool-card-wide" : "chat-tool-card"} style={{
       borderRadius: 7,
       overflow: "hidden",
       fontSize: 12,
@@ -2315,7 +2320,7 @@ function PairedDiffResult({ diff, targetPath, streaming }: {
 }
 
 function SplitPatchView({ text, targetPath, streaming }: { text: string; targetPath?: string; streaming?: boolean }) {
-  const files = useMemo(() => parseUnifiedPatch(text), [text]);
+  const files = useMemo(() => parseUnifiedPatch(text) ?? parseNumberedDiff(text), [text]);
   if (!files) return <PatchTextView text={text} />;
   return <SplitFilesView files={files} targetPath={targetPath} streaming={streaming} />;
 }
@@ -2323,13 +2328,21 @@ function SplitPatchView({ text, targetPath, streaming }: { text: string; targetP
 /** Two code columns side by side, or one column of patch lines. */
 export type PatchDiffLayout = "split" | "stacked";
 
+/** Two columns only on a desktop that has the double-wide setting on. */
+function useWideDiffLayout(): boolean {
+  const wideDiff = useToolDisplayPreference("wideDiff");
+  const mobile = useIsMobile();
+  return wideDiff && !mobile;
+}
+
 /**
- * The patch as the viewport can show it. Two columns need two code columns side
- * by side, which a phone does not have: there the same rows read as one column
+ * The patch as the viewport and the "double-wide diff" setting allow. Two columns
+ * need two code columns side by side, which a phone does not have and which the
+ * user may not want at card width: otherwise the same rows read as one column
  * — a removed line above the line that replaces it, each with its own number.
  */
 function SplitFilesView({ files, targetPath, streaming }: { files: SplitDiffFile[]; targetPath?: string; streaming?: boolean }) {
-  const layout: PatchDiffLayout = useIsMobile() ? "stacked" : "split";
+  const layout: PatchDiffLayout = useWideDiffLayout() ? "split" : "stacked";
   return <PatchDiffFiles files={files} layout={layout} targetPath={targetPath} streaming={streaming} />;
 }
 

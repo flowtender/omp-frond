@@ -471,6 +471,7 @@ export function UiSettings({ sessionId, runtimeId, openingId, onRuntimeIdentity,
         <div className="settings-chat-options">
           <ToolDisplaySetting kind="compactJson" />
           <ToolDisplaySetting kind="readPreviews" />
+          <ToolDisplaySetting kind="wideDiff" />
           <PythonFormatSetting installed={installedPythonFormatters} />
         </div>
         <p className="settings-general-description">{t("settings.toolDisplayDescription")}</p>

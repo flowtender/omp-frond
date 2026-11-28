@@ -1422,7 +1422,7 @@ function countIn(haystack, needle) {
   return haystack.split(needle).length - 1;
 }
 
-test("an edit card draws the applied patch in two columns while there is room", () => {
+test("an edit card draws the applied patch in one column unless double-wide diffs are enabled", () => {
   const block = { type: "toolCall", toolCallId: "call-edit-columns", toolName: "edit", input: { path: "src/demo.ts" } };
   const result = {
     role: "toolResult",
@@ -1437,7 +1437,7 @@ test("an edit card draws the applied patch in two columns while there is room", 
       { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] },
       { toolResults: new Map([[block.toolCallId, result]]) },
     );
-    assert.ok(html.includes(TWO_COLUMN_GRID), "the card reaches the patch view");
+    assert.ok(!html.includes(TWO_COLUMN_GRID), "the card reaches the patch view in one column");
     assert.match(textOf(html), /const value = "new";/);
   } finally {
     clearExpandedToolCalls();
@@ -1479,12 +1479,12 @@ test("one column names a file section by the file's own path, not by Before and 
   assert.ok(!html.includes(">Before<") && !html.includes(">After<"), "two labels over one column read as two columns");
 });
 
-test("the layout is the viewport's choice, taken once for both the patch input and the patch result", () => {
+test("the layout follows the double-wide setting and the viewport, taken once for both the patch input and the patch result", () => {
   const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
 
   // Both the applied-patch card and a result's patch render through SplitFilesView,
-  // so a phone never gets one of each.
-  assert.match(source, /const layout: PatchDiffLayout = useIsMobile\(\) \? "stacked" : "split";/);
+  // so the streaming card and the finished one never differ.
+  assert.match(source, /const layout: PatchDiffLayout = useWideDiffLayout\(\) \? "split" : "stacked";/);
   assert.equal(countIn(source, "<SplitFilesView"), 2);
 });
 

@@ -302,3 +302,27 @@ export function applyPatchPreviewToFiles(preview: unknown): SplitDiffFile[] | nu
   const parsed = files.filter((file) => file.rows.length > 0);
   return parsed.length > 0 ? parsed : null;
 }
+
+// ── Source 3: a built-in edit result's `details.diff` ────────────────────────
+
+/**
+ * Convert omp's own numbered diff (` 1|kept`, `-2|old`, `+2|new`, a blank line
+ * between hunks) into one split diff file.
+ */
+export function parseNumberedDiff(text: string): SplitDiffFile[] | null {
+  const sink = createRowSink();
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^([+\- ])\s*(\d+)\|(.*)$/);
+    if (!match) {
+      if (line === "") sink.gap();
+      continue;
+    }
+    const [, marker, num, content] = match;
+    const lineNo = Number(num);
+    if (marker === "+") sink.added(content, lineNo);
+    else if (marker === "-") sink.removed(content, lineNo);
+    else sink.context(content, lineNo);
+  }
+  sink.finish();
+  return sink.rows.length > 0 ? [{ rows: sink.rows }] : null;
+}

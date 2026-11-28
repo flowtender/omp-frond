@@ -68,6 +68,7 @@ export const enLocale: LocalePlugin = {
     "settings.toolDisplay": "Tool display",
     "settings.toolDisplay.compactJson": "Compact JSON arguments",
     "settings.toolDisplay.readPreviews": "Compact Read headers and Markdown previews",
+    "settings.toolDisplay.wideDiff": "Double-wide diff view (side by side, desktop only)",
     "settings.toolDisplayDescription": "Changes the display only. Commands, saved results, and terminal output are unchanged.",
     "settings.pythonFormat": "Format Python eval cells",
     "settings.pythonFormatter": "Python formatter",
