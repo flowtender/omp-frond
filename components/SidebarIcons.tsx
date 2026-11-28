@@ -251,3 +251,17 @@ export function SpinnerIcon({ className, ...props }: SidebarIconProps) {
     </SidebarIcon>
   );
 }
+
+export function ProjectPermissionsIcon(props: SidebarIconProps) {
+  return <SidebarIcon {...props}>
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+    <path d="M12 8v4m0 4h.01" />
+  </SidebarIcon>;
+}
+
+export function GenerateTitleIcon(props: SidebarIconProps) {
+  return <SidebarIcon {...props}>
+    <path d="m15 4 5 5L7 22l-5-5Z" />
+    <path d="m14 5 5 5M6 4V2M5 3H3M19 19v3m-1.5-1.5h3" />
+  </SidebarIcon>;
+}

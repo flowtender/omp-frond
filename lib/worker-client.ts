@@ -20,7 +20,7 @@ export class WorkerUnavailableError extends Error {
 // Connect directly so HTTP proxy settings cannot forward the worker credential.
 const agent = new Agent({ keepAlive: true });
 
-const REQUEST_HEADERS = ["content-type", "content-length", "range", "last-event-id"] as const;
+const REQUEST_HEADERS = ["content-type", "content-length", "range", "last-event-id", "x-omp-project-opening"] as const;
 const PRIVATE_RESPONSE_HEADERS = [
   WORKER_ID_HEADER, "connection", "keep-alive", "transfer-encoding", "upgrade", "set-cookie",
 ] as const;

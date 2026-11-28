@@ -128,15 +128,13 @@ export interface ProjectTrustStatus {
   requiresTrust: boolean;
   trusted: boolean;
   /**
-   * The nearest decision `trust.json` records for this folder or an ancestor,
-   * null when there is none. Read for a folder that requires no trust too, so
-   * a fresh folder (no decision anywhere) can be told from one inside a
-   * trusted or untrusted tree.
+   * The permanent decision for the canonical project root, or null when
+   * no one selected an always option.
    */
   decision: boolean | null;
-  /** The folder that decision is recorded for, as `trust.json` keys it (its real path). */
+  /** The canonical project root that owns the permanent decision. */
   decisionPath?: string;
-  /** The decision is recorded for an ancestor, so every folder below it shares it. */
+  /** The decision is recorded for the root rather than this exact cwd. */
   inherited: boolean;
   /**
    * Set only for a folder that requires no trust when `trust.json` could not
@@ -144,6 +142,14 @@ export interface ProjectTrustStatus {
    * requires trust reports the failure as an error instead.
    */
   decisionError?: string;
+}
+
+export type ProjectTrustChoice = "trust-chat" | "distrust-chat" | "always-trust" | "always-distrust";
+
+export interface ProjectExecutableResource {
+  kind: "tool" | "extension" | "hook" | "mcp";
+  /** Path to the source relative to this checkout's root. */
+  path: string;
 }
 
 /**
@@ -223,6 +229,7 @@ export type McpConfigFileProblemReason =
   | "too-large"
   /** A project file that declares more servers than omp-frond lists (`MCP_PROJECT_MAX_SERVERS`, 200). */
   | "too-many-servers"
+  | "unsupported-preview"
   | "unreadable";
 
 export interface McpConfigFileProblem {
@@ -308,13 +315,13 @@ export interface McpServerInfo {
   commandFields: McpConfigFieldRef[];
   /** Values that read the host's environment variables on every connection; a `!command` is in `commandFields` instead. */
   variableReferences: McpVariableReference[];
-  /** The field that references a web password variable; omp-frond refuses to connect this entry. */
+  /** The field that references the frontend password variable. */
   webPasswordField?: McpConfigFieldRef;
   /** Some of `command`, `args` or `url` was masked. */
   masked: boolean;
   /** A global entry the project file defines too; the project's replaces it while the project is trusted. */
   shadowedByProject?: boolean;
-  /** The project entry that replaces a global entry of its name while the project is trusted; the counterpart of `shadowedByProject`. */
+  /** A project entry that may replace a same-named user entry after trust. */
   replacesGlobal?: boolean;
   /**
    * A project entry without `command`, `url` or `type`: it changes only
@@ -794,23 +801,26 @@ export interface McpSignInFlowInfo extends McpServerRef {
   joined?: true;
 }
 
-/** What a project's `.pi/mcp.json` declares, as `GET /api/project-trust` lists it. */
+/** Inert previews of executable project MCP sources found before trust. */
 export interface ProjectMcpListing {
-  /** The project file; absent only when listing failed (`mcpError`). */
+  /** The primary project `.omp/mcp.json` preview. */
   mcpFile?: McpConfigFileInfo;
-  /** Its entries in file order, described like `McpResponse.servers`. */
+  /** All MCP sources considered for the preview, including unread or unsupported files. */
+  mcpFiles?: McpConfigFileInfo[];
+  /** Entries ordered by source file and by their order within the file. */
   mcpServers: McpServerInfo[];
   /** Listing failed unexpectedly. */
   mcpError?: string;
 }
 
 /**
- * GET /api/project-trust: the trust status, plus what the project's
- * `.pi/mcp.json` declares, for the trust dialog to list before anyone trusts
- * the folder. Read from the file only, as `/api/mcp` reads it; nothing is
- * resolved or run.
+ * GET /api/project-trust: the browser's trust status and file-only MCP
+ * previews for the trust dialog. Nothing is resolved or run.
  */
-export interface ProjectTrustResponse extends ProjectTrustStatus, ProjectMcpListing {}
+export interface ProjectTrustResponse extends ProjectTrustStatus, ProjectMcpListing {
+  projectRoot: string;
+  resources: ProjectExecutableResource[];
+}
 
 /**
  * GET /api/project-trust when `trust.json` cannot be read (500): the listing

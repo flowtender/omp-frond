@@ -63,6 +63,7 @@ export interface SessionIdentity {
 
 export interface RuntimeSessionBinding {
   current: string | null;
+  openingId?: string;
   onIdentity?: (identity: SessionIdentity, request: SessionIdentity) => boolean | void;
 }
 
@@ -92,7 +93,7 @@ export async function sendAgentCommand<T = unknown>(
   const request = { sessionId, runtimeId };
   const res = await fetch(`/api/agent/${encodeURIComponent(runtimeId ?? sessionId)}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(runtime?.openingId ? { "X-OMP-Project-Opening": runtime.openingId } : {}) },
     body: JSON.stringify(command),
   });
   const body = (await res.json().catch(() => ({}))) as {
@@ -106,6 +107,9 @@ export async function sendAgentCommand<T = unknown>(
     runtimeId?: string;
   };
   if (!res.ok || body.error) {
+    if (res.status === 428 && runtime?.openingId && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("omp-project-approval-required", { detail: runtime.openingId }));
+    }
     // Retry only when the server guarantees that the expired handle executed nothing.
     if (runtimeId && runtime?.current === runtimeId && res.status === 404
       && body.code === "runtime_expired" && body.accepted === false && body.sessionId) {

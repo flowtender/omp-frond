@@ -1,23 +1,25 @@
 import { generateSessionTitle } from "@/lib/session-title";
 import { getRpcSession, startRpcSession, getFinalRpcSessionId } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
+import { RpcProjectTrustError } from "@/lib/project-trust";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  let releasePolicyLease: (() => void) | undefined;
 
   try {
+    const openingId = req.headers.get("X-OMP-Project-Opening") ?? undefined;
     let session = getRpcSession(id);
-    if (!session?.isAlive()) {
-      const canonicalId = id.startsWith("runtime:") ? getFinalRpcSessionId(id) : id;
-      const filePath = canonicalId ? await resolveSessionPath(canonicalId) : undefined;
-      if (!canonicalId || !filePath) {
-        return Response.json({ error: "Session not found" }, { status: 404 });
-      }
-      ({ session } = await startRpcSession(canonicalId, filePath, undefined));
+    const canonicalId = session?.isAlive() ? session.sessionId : id.startsWith("runtime:") ? getFinalRpcSessionId(id) : id;
+    const filePath = session?.isAlive() ? session.sessionFile : canonicalId ? await resolveSessionPath(canonicalId) : undefined;
+    if (!canonicalId || (!session?.isAlive() && !filePath)) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
     }
+    ({ session } = await startRpcSession(canonicalId, filePath ?? "", session?.cwd, { openingId }));
+    releasePolicyLease = session.acquireProjectPolicyLease();
 
     // globalThis keeps wrappers alive across dev hot reloads; older instances
     // may predate waitUntilReady(), but those have already completed startup.
@@ -41,9 +43,12 @@ export async function POST(
     invalidateSessionListCache();
     return Response.json({ title: result.title, sessionId: session.sessionId, runtimeId: session.runtimeId });
   } catch (error) {
+    if (error instanceof RpcProjectTrustError) return Response.json({ error: error.message }, { status: error.status });
     return Response.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 },
     );
+  } finally {
+    releasePolicyLease?.();
   }
 }

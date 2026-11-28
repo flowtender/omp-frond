@@ -472,6 +472,7 @@ export function PluginsConfig({
   cwd,
   sessionId,
   runtimeId,
+  openingId,
   onRuntimeIdentity,
   onClose,
   onReloaded,
@@ -481,6 +482,7 @@ export function PluginsConfig({
   cwd: string;
   sessionId: string | null;
   runtimeId?: string;
+  openingId?: string;
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"];
   onClose: () => void;
   onReloaded?: (runtimeId: string | null) => void;
@@ -680,7 +682,7 @@ export function PluginsConfig({
     }
   }, [cwd, installScope, installSource, t]);
 
-  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
+  const sessionReload = useSessionReload({ sessionId, runtimeId, openingId, onRuntimeIdentity, onReloaded });
   const reloadSession = useCallback(async () => {
     if (!sessionId) return;
     setBusyKey("reload");

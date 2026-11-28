@@ -2,6 +2,7 @@ import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, getFinalRpcSessionId, setRpcSessionTools } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { PromptCacheLossError, promptCacheLossBody } from "@/lib/prompt-cache";
+import { RpcProjectTrustError } from "@/lib/project-trust";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -18,27 +19,25 @@ export async function POST(
   const { id } = await params;
   let commandType: string | undefined;
   let promptAccepted = false;
+  let releasePolicyLease: (() => void) | undefined;
 
   try {
     const body = await req.json() as { type: string; [key: string]: unknown };
     commandType = typeof body.type === "string" ? body.type : undefined;
 
-    // Fast path: already-running session
+    const openingId = req.headers.get("X-OMP-Project-Opening") ?? undefined;
     const existing = getRpcSession(id);
-    if (body.type === "set_tools") {
-      const active = existing?.isAlive() ? existing : undefined;
-      if (active || !id.startsWith("runtime:")) {
-        const sessionFile = active ? active.sessionFile : await resolveSessionPath(id);
-        if (!active && !sessionFile) return Response.json({ error: "Session not found" }, { status: 404 });
-        const { session, sessionId } = await setRpcSessionTools(active?.sessionId ?? id, sessionFile ?? undefined, body.toolNames);
-        return Response.json({ success: true, data: null, sessionId, runtimeId: session.runtimeId });
-      }
-    }
     if (existing?.isAlive()) {
-      const result = await existing.send(body);
+      const { session } = await startRpcSession(id, existing.sessionFile, existing.cwd, { openingId });
+      releasePolicyLease = session.acquireProjectPolicyLease();
+      if (body.type === "set_tools") {
+        const changed = await setRpcSessionTools(session.sessionId, session.sessionFile || undefined, body.toolNames, openingId);
+        return Response.json({ success: true, data: null, sessionId: changed.sessionId, runtimeId: changed.session.runtimeId });
+      }
+      const result = await session.send(body);
       promptAccepted = body.type === "prompt";
-      existing.syncSessionIdentity();
-      return Response.json({ success: true, data: result, sessionId: existing.sessionId, runtimeId: existing.runtimeId });
+      session.syncSessionIdentity();
+      return Response.json({ success: true, data: result, sessionId: session.sessionId, runtimeId: session.runtimeId });
     }
 
     if (id.startsWith("runtime:")) {
@@ -58,7 +57,12 @@ export async function POST(
       }, { status: 404 });
     }
 
-    const { session } = await startRpcSession(id, filePath, undefined);
+    if (body.type === "set_tools") {
+      const changed = await setRpcSessionTools(id, filePath, body.toolNames, openingId);
+      return Response.json({ success: true, data: null, sessionId: changed.sessionId, runtimeId: changed.session.runtimeId });
+    }
+    const { session } = await startRpcSession(id, filePath, undefined, { openingId });
+    releasePolicyLease = session.acquireProjectPolicyLease();
     const result = await session.send(body);
     promptAccepted = body.type === "prompt";
 
@@ -66,12 +70,15 @@ export async function POST(
     return Response.json({ success: true, data: result, sessionId: session.sessionId, runtimeId: session.runtimeId });
   } catch (error) {
     if (error instanceof PromptCacheLossError) return Response.json(promptCacheLossBody(error), { status: 409 });
+    if (error instanceof RpcProjectTrustError) return Response.json({ error: error.message, accepted: false }, { status: error.status });
     return Response.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),
     }, { status: 500 });
+  } finally {
+    releasePolicyLease?.();
   }
 }
 

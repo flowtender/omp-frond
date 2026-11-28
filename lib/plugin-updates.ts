@@ -4,6 +4,7 @@ import { join } from "path";
 import { promisify } from "util";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 import { gt, maxSatisfying, rcompare, valid, validRange } from "semver";
+import { resolveAgentDir } from "@/bin/web-auth-store";
 import type { PluginScope, PluginUpdateResult } from "@/lib/api-types";
 import { sanitizeProjectCommandEnvironment } from "./child-environment";
 import { listConfiguredPackages, type ConfiguredPluginPackage } from "./plugin-package-settings";
@@ -167,7 +168,7 @@ export async function checkPluginUpdates(
   let packages = options.packages;
   const npmCommand = options.npmCommand;
   if (!packages) {
-    const projectTrust = getProjectTrustStatus(cwd, getAgentDir());
+    const projectTrust = await getProjectTrustStatus(cwd, resolveAgentDir());
     // omp has no package manager and no `npmCommand` setting, so the configured
     // list comes from the settings files and npm is invoked as plain `npm`.
     packages = listConfiguredPackages(cwd, getAgentDir(), projectTrust.trusted);

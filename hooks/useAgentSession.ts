@@ -263,6 +263,7 @@ export interface NewSessionChoices {
 
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
+  openingId?: string;
   newSessionCwd: string | null;
   /** Reserved hint from the sidebar's running poll; the event stream keeps authority. */
   sessionRunning?: boolean;
@@ -600,6 +601,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventStreamGraceActiveRef = useRef(false);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const runtimeIdRef: RuntimeSessionBinding = useRef(session?.runtimeId ?? null);
+  runtimeIdRef.openingId = opts.openingId;
   const historyRequestRef = useRef(0);
   const contextRequestRef = useRef(0);
   const mountedRef = useRef(false);
@@ -1028,7 +1030,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (selectedModel) setPendingModel(selectedModel);
       const res = await fetch("/api/agent/new", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(runtimeIdRef.openingId ? { "X-OMP-Project-Opening": runtimeIdRef.openingId } : {}) },
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
@@ -1039,6 +1041,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }),
       });
       if (!res.ok) {
+        if (res.status === 428 && runtimeIdRef.openingId) {
+          window.dispatchEvent(new CustomEvent("omp-project-approval-required", { detail: runtimeIdRef.openingId }));
+        }
         // The server's reason (a project folder that no longer exists, a model Chat only
         // cannot load) beats a bare status.
         const body = await res.json().catch(() => null) as { error?: unknown } | null;
@@ -1199,7 +1204,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
     if (!mountedRef.current) return Promise.reject(new Error("Session is no longer active"));
     closeEvents();
-    const es = new EventSource(`/api/agent/${encodeURIComponent(runtimeIdRef.current ?? sid)}/events`);
+    const openingQuery = runtimeIdRef.openingId ? `?openingId=${encodeURIComponent(runtimeIdRef.openingId)}` : "";
+    const es = new EventSource(`/api/agent/${encodeURIComponent(runtimeIdRef.current ?? sid)}/events${openingQuery}`);
     eventSourceRef.current = es;
     eventSourceSessionIdRef.current = sid;
     eventSourceRuntimeIdRef.current = runtimeIdRef.current;

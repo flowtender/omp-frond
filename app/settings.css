@@ -1816,6 +1816,14 @@
   border-top: 1px solid var(--border);
 }
 
+.project-trust-footer {
+  flex-wrap: wrap;
+}
+
+.project-trust-content section code {
+  overflow-wrap: anywhere;
+}
+
 .project-trust-button,
 .confirm-dialog-button {
   height: 32px;

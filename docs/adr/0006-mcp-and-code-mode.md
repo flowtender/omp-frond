@@ -11,6 +11,9 @@ Per-entry approval of project servers was dropped after P1 in favor of the
 CLI's project trust (see "Safety"). Statements that building P2 proved wrong
 are corrected in place below.
 
+The shared CLI trust policy for project admission is superseded by
+[gate project code before agent start](gate-project-code-before-agent-start.md).
+
 ## Context
 
 pi 0.99 ships three built-in extensions with the CLI: `codemode` (the model

@@ -6,9 +6,10 @@ import { sendAgentCommand, sendConfirmingCacheLoss, type RuntimeSessionBinding }
  * Reloads the open chat's resources from a settings panel, asking first while
  * its prompt cache is warm. Render `dialog` in the panel.
  */
-export function useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded }: {
+export function useSessionReload({ sessionId, runtimeId, openingId, onRuntimeIdentity, onReloaded }: {
   sessionId: string | null | undefined;
   runtimeId?: string;
+  openingId?: string;
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"];
   onReloaded?: (runtimeId: string | null) => void;
 }): {
@@ -19,13 +20,13 @@ export function useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onRe
   const { confirm, dialog } = usePromptCacheLossDialog();
   const reload = useCallback(async () => {
     if (!sessionId) return false;
-    const binding = { current: runtimeId ?? null, onIdentity: onRuntimeIdentity };
+    const binding = { current: runtimeId ?? null, openingId, onIdentity: onRuntimeIdentity };
     const reloaded = await sendConfirmingCacheLoss(
       (confirmCacheLoss) => sendAgentCommand(sessionId, confirmCacheLoss ? { type: "reload", confirmCacheLoss } : { type: "reload" }, binding),
       confirm,
     );
     if (reloaded) onReloaded?.(binding.current);
     return reloaded;
-  }, [confirm, onReloaded, onRuntimeIdentity, runtimeId, sessionId]);
+  }, [confirm, onReloaded, onRuntimeIdentity, runtimeId, sessionId, openingId]);
   return { reload, dialog };
 }

@@ -2,6 +2,7 @@ import type { AssistantMessage } from "@oh-my-pi/pi-ai";
 import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession, type AgentEvent } from "@/lib/rpc-manager";
+import { RpcProjectTrustError } from "@/lib/project-trust";
 import { isApiRequestAllowed } from "@/lib/request-security";
 import { readLiveComposer } from "@/lib/session-composer";
 
@@ -44,20 +45,21 @@ export async function GET(
     return new Response("Untrusted API request", { status: 403 });
   }
 
-
-  // Fast path: already-running session
+  const openingId = new URL(req.url).searchParams.get("openingId") ?? undefined;
   let session = getRpcSession(id);
-  if (!session || !session.isAlive()) {
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return new Response("Session not found", { status: 404 });
-    }
-    try {
-      ({ session } = await startRpcSession(id, filePath, undefined));
-    } catch {
-      return new Response("Failed to start agent", { status: 500 });
-    }
+  // An unauthorised observer may join an already-live stream, but must not
+  // construct, reload, or replace a runtime.
+  if (!openingId && !session?.isAlive()) return new Response("Project opening required", { status: 428 });
+  const filePath = session?.isAlive() ? session.sessionFile : await resolveSessionPath(id);
+  if (!session?.isAlive() && !filePath) return new Response("Session not found", { status: 404 });
+  try {
+    if (openingId) ({ session } = await startRpcSession(id, filePath ?? "", session?.cwd, { openingId }));
+  } catch (error) {
+    return new Response(error instanceof Error ? error.message : "Failed to start agent", {
+      status: error instanceof RpcProjectTrustError ? error.status : 500,
+    });
   }
+  if (!session?.isAlive()) return new Response("Session unavailable", { status: 409 });
 
   let cancelStream = () => {};
   const stream = new ReadableStream({

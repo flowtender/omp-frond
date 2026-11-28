@@ -1,4 +1,4 @@
-import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
+import { resolveAgentDir } from "@/bin/web-auth-store";
 import { runNpx, getSafeNpxEnv, redactNpxOutput } from "@/lib/npx";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
         return Response.json({ error: "Access denied" }, { status: 403 });
       }
-      if (!getProjectTrustStatus(cwd, getAgentDir()).trusted) {
+      if (!(await getProjectTrustStatus(cwd, resolveAgentDir())).trusted) {
         return Response.json(
           { error: "Project resources must be trusted before installing project skills" },
           { status: 403 },

@@ -114,13 +114,14 @@ function PythonFormatSetting({ installed }: { installed: InstalledPythonFormatte
 interface UiSettingsProps {
   sessionId: string | null;
   runtimeId?: string;
+  openingId?: string;
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"];
   onReloaded?: (runtimeId: string | null) => void;
   quoteSelectionEnabled: boolean;
   onQuoteSelectionChange: (enabled: boolean) => void;
 }
 
-export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: UiSettingsProps) {
+export function UiSettings({ sessionId, runtimeId, openingId, onRuntimeIdentity, onReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: UiSettingsProps) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const chatAnimations = useChatAnimationsPreference();
@@ -138,7 +139,7 @@ export function UiSettings({ sessionId, runtimeId, onRuntimeIdentity, onReloaded
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
-  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
+  const sessionReload = useSessionReload({ sessionId, runtimeId, openingId, onRuntimeIdentity, onReloaded });
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 

@@ -1,4 +1,4 @@
-import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
+import { resolveAgentDir } from "@/bin/web-auth-store";
 import { runNpx, getSafeNpxEnv, redactNpxOutput } from "@/lib/npx";
 import type { SkillInstallScope } from "@/lib/api-types";
 import { buildSkillUpdateArgs } from "@/lib/skill-updates";
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return Response.json({ error: "Access denied" }, { status: 403 });
     }
-    if (scope === "project" && !getProjectTrustStatus(cwd, getAgentDir()).trusted) {
+    if (scope === "project" && !(await getProjectTrustStatus(cwd, resolveAgentDir())).trusted) {
       return Response.json(
         { error: "Project resources must be trusted before updating project skills" },
         { status: 403 },

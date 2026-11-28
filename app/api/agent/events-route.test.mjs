@@ -33,7 +33,7 @@ function harness({ cold = false, running = false, pendingExtensionUiIds = [] } =
   const dependencies = {
     getRpcSession: () => cold ? undefined : session,
     resolveSessionPath: async () => "session.jsonl",
-    startRpcSession: () => startup,
+    startRpcSession: () => cold ? startup : Promise.resolve({ session }),
     isApiRequestAllowed: () => true,
     readLiveComposer: () => ({ source: "live" }),
     getStreamingPartialJson,
@@ -42,11 +42,21 @@ function harness({ cold = false, running = false, pendingExtensionUiIds = [] } =
   };
   const GET = new Function(...Object.keys(dependencies), `${outputText}\nreturn GET;`)(...Object.values(dependencies));
   const controller = new AbortController();
-  const response = GET(new Request("http://localhost/api/agent/session-a/events", {
+  const response = GET(new Request("http://localhost/api/agent/session-a/events?openingId=test-opening", {
     signal: controller.signal,
   }), { params: Promise.resolve({ id: "session-a" }) });
   return { state, timers, controller, response, finishStartup };
 }
+
+test("SSE without an opening never starts a session", async () => {
+  const GET = new Function("isApiRequestAllowed", "getRpcSession", `${outputText}\nreturn GET;`)(
+    () => true, () => undefined,
+  );
+  const response = await GET(new Request("http://localhost/api/agent/session-a/events"), {
+    params: Promise.resolve({ id: "session-a" }),
+  });
+  assert.equal(response.status, 428);
+});
 
 test("a client disconnecting during session startup never acquires a subscription or heartbeat", async () => {
   const h = harness({ cold: true });

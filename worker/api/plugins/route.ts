@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "fs
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 import { PluginManager } from "@oh-my-pi/pi-coding-agent/extensibility/plugins";
+import { resolveAgentDir } from "@/bin/web-auth-store";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
@@ -433,7 +434,7 @@ function isFilteredEntry(entry: PluginPackageEntry): boolean {
 
 async function readPlugins(cwd: string): Promise<PluginsResponse> {
   const agentDir = getAgentDir();
-  const projectTrust = getProjectTrustStatus(cwd, agentDir);
+  const projectTrust = await getProjectTrustStatus(cwd, resolveAgentDir());
   const scopes = loadScopes(cwd, agentDir, projectTrust.trusted);
   const diagnostics: PluginDiagnostic[] = [];
   if (scopes.global.error) {
@@ -545,7 +546,7 @@ export async function POST(req: Request) {
     }
 
     const agentDir = getAgentDir();
-    const projectTrust = getProjectTrustStatus(body.cwd, agentDir);
+    const projectTrust = await getProjectTrustStatus(body.cwd, resolveAgentDir());
     const canEditProjectPlugins = projectPluginsTrusted(body.cwd, projectTrust);
 
     if (body.packages !== undefined) {

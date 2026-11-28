@@ -70,6 +70,8 @@ function loaded({ servers = [], file = {}, status = untrusted } = {}) {
 function view(props) {
   return render(h(ProjectTrustDialogView, {
     cwd: "/repo",
+    projectRoot: "/repo",
+    resources: [{ kind: "extension", path: "/repo/.omp/extensions/example.ts" }],
     busy: false,
     error: null,
     listing: loaded(),
@@ -121,7 +123,7 @@ test("each server shows its transport, what it would run or reach, and why it is
   }));
   const shown = text(html);
   assert.match(html, /<section class="project-trust-mcp" aria-labelledby="project-trust-mcp-title">/);
-  assert.match(shown, /^MCP servers in \.omp\/mcp\.json Trusting this project lets these servers connect/);
+  assert.match(shown, /^Project MCP preview After you trust this project, omp-frond can connect to its enabled servers\. The omp CLI does not use this trust decision\./);
 
   const items = html.split('<li class="project-trust-mcp-server">').slice(1).map(text);
   assert.equal(items.length, 5);
@@ -137,22 +139,20 @@ test("each server shows its transport, what it would run or reach, and why it is
     "github HTTP https://evil.example/mcp Runs a shell command on every connection: header Authorization"
       + " Sends environment variables of the computer running omp-frond to this server on every connection:"
       + " GITHUB_TOKEN in header X-Api-Key AWS_SECRET_ACCESS_KEY in oauth.clientSecret"
-      + " Replaces your global server of the same name while this project is trusted.",
+      + " May replace a user server of the same name while this project is trusted.",
   );
   // A refused entry has no transport tag, and still shows what it names.
   assert.equal(
     legacy,
     'legacy https://legacy.example/sse omp refuses this entry, so it never connects: server "legacy": legacy SSE transport is not supported',
   );
-  // The omp CLI shares the trust decision and does not refuse the password, so this is a warning, not a reassurance.
   assert.equal(
     leaky,
-    "leaky stdio node References OMP_FROND_PASSWORD. omp-frond refuses to connect it, but the omp CLI reads this file too"
-      + " and would send the password on if that variable is set where the CLI runs: env PASS",
+    "leaky stdio node References OMP_FROND_PASSWORD. The local worker launcher does not provide this frontend-only password; other environments may supply it: env PASS",
   );
   assert.match(html, /<p class="project-trust-mcp-line is-warning">References OMP_FROND_PASSWORD\./);
   assert.equal(off, "off stdio node off.js Turned off in the file, so it does not connect.");
-  assert.doesNotMatch(shown, /listed unchecked|declares no servers/);
+  assert.doesNotMatch(shown, /without resolving values|declares no servers/);
 });
 
 test("hidden characters in what an entry names are shown escaped, with a warning", () => {
@@ -186,7 +186,7 @@ test("a file problem is explained, and one that hides servers the SDK still load
   })));
   assert.equal(
     unparsable,
-    "MCP servers in .omp/mcp.json The file is not valid JSON, so none of its servers load. Unexpected end of JSON input",
+    "Project MCP preview /repo/.omp/mcp.json The file is not valid JSON, so none of its servers load. Unexpected end of JSON input",
   );
 
   const outside = render(h(ProjectTrustMcpSection, {
@@ -194,33 +194,33 @@ test("a file problem is explained, and one that hides servers the SDK still load
       file: { realPath: "/elsewhere/mcp.json", problems: [{ reason: "link-outside", error: "a symbolic link outside the folders omp-frond may read" }] },
     }),
   }));
-  assert.match(text(outside), /so its servers are not listed here\. omp still loads them once the project is trusted\. \/elsewhere\/mcp\.json$/);
+  assert.match(text(outside), /so its servers are not listed here\. They may still run in omp-frond after you trust the project\. \/elsewhere\/mcp\.json$/);
   assert.match(outside, /<code class="project-trust-mcp-detail">\/elsewhere\/mcp\.json<\/code>/);
 
   const tooLarge = text(render(h(ProjectTrustMcpSection, {
     listing: loaded({ file: { problems: [{ reason: "too-large", error: "larger than 1048576 bytes" }] } }),
   })));
-  assert.match(tooLarge, /omp still loads them once the project is trusted\.$/);
+  assert.match(tooLarge, /They may still run in omp-frond after you trust the project\.$/);
   assert.doesNotMatch(tooLarge, /1048576/, "a reason without a useful diagnostic shows only its translation");
 });
 
 test("an empty file, a missing one, and an unchecked listing", () => {
   assert.equal(
     text(render(h(ProjectTrustMcpSection, { listing: loaded() }))),
-    "MCP servers in .omp/mcp.json The file declares no servers.",
+    "Project MCP preview /repo/.omp/mcp.json The file declares no servers.",
   );
   assert.equal(render(h(ProjectTrustMcpSection, { listing: loaded({ file: { exists: false } }) })), "");
   const unchecked = text(render(h(ProjectTrustMcpSection, {
     listing: loaded({ servers: [server({ name: "raw", transport: "stdio", command: "node", validated: false })] }),
   })));
-  assert.match(unchecked, /listed unchecked\. raw stdio node$/);
+  assert.match(unchecked, /without resolving values or checking whether they connect\. raw stdio node$/);
 });
 
 test("while the listing loads it says so, and Trust waits for it", () => {
-  const html = render(h(ProjectTrustDialog, { cwd: "/repo", busy: false, error: null, onCancel() {}, onConfirm() {} }));
+  const html = render(h(ProjectTrustDialog, { cwd: "/repo", projectRoot: "/repo", resources: [], busy: false, error: null, onCancel() {}, onConfirm() {} }));
   assert.match(html, /role="dialog" aria-modal="true" aria-labelledby="project-trust-title" aria-describedby="project-trust-description" tabindex="-1" class="project-trust-dialog"/);
-  assert.match(html, /<p id="project-trust-mcp-status" role="status" class="project-trust-mcp-status">Reading \.omp\/mcp\.json…<\/p>/);
-  assert.match(html, /<button type="button" class="project-trust-button is-primary" disabled="" aria-describedby="project-trust-mcp-status">Trust project<\/button>/);
+  assert.match(html, /<p id="project-trust-mcp-status" role="status" class="project-trust-mcp-status">Reading project MCP files…<\/p>/);
+  assert.match(html, /class="project-trust-button is-primary" disabled="" aria-describedby="project-trust-mcp-status">Trust for this chat<\/button>/);
   assert.match(html, /<button type="button" class="project-trust-button">Cancel<\/button>/);
   assert.match(html, /<code class="project-trust-path">\/repo<\/code>/);
   // Padding and layout live in CSS, so the safe-area rules and the scrolling body apply.
@@ -230,6 +230,8 @@ test("while the listing loads it says so, and Trust waits for it", () => {
 test("the trust error stays outside the scrolling body, translated from its reason", () => {
   const busy = render(h(ProjectTrustDialog, {
     cwd: "/repo",
+    projectRoot: "/repo",
+    resources: [],
     busy: true,
     error: { error: "Wait for the active session to finish before trusting this project", reason: "session-busy" },
     onCancel() {},
@@ -239,7 +241,7 @@ test("the trust error stays outside the scrolling body, translated from its reas
     busy,
     /<\/div><\/div><div role="alert" class="project-trust-error">Wait for the running session in this folder to finish, then trust the project\.<\/div><div class="project-trust-footer">/,
   );
-  assert.match(busy, /disabled="" aria-busy="true" aria-describedby="project-trust-mcp-status">Trusting\.\.\.<\/button>/);
+  assert.match(busy, /disabled="" aria-busy="true" aria-describedby="project-trust-mcp-status">Trust for this chat<\/button>/);
 
   // An internal or network failure has nothing to translate: its diagnostic follows a generic line.
   const internal = view({ error: { error: "Lock file is already being held", reason: "internal" } });
@@ -248,31 +250,25 @@ test("the trust error stays outside the scrolling body, translated from its reas
   assert.match(network, /Could not trust this project\.<code class="project-trust-error-detail">Failed to fetch<\/code>/);
 });
 
-test("a folder trusted meanwhile, or no longer needing trust, is not offered Trust", () => {
-  const trusted = view({ listing: loaded({ status: { ...untrusted, trusted: true, decision: true, decisionPath: "/", inherited: true } }) });
-  assert.match(trusted, /<p id="project-trust-notice" role="status" class="project-trust-notice">This project is already trusted\.<\/p>/);
-  assert.doesNotMatch(trusted, /Trust project/);
-  assert.match(trusted, /<button type="button" class="project-trust-button">Close<\/button>/);
-
-  const fresh = view({ listing: loaded({ status: { requiresTrust: false, trusted: true, decision: null, inherited: false } }) });
-  assert.match(fresh, /This project has no resources that need trust anymore\./);
-  assert.doesNotMatch(fresh, /Trust project/);
-
-  const open = view({});
-  assert.match(open, /<button type="button" class="project-trust-button is-primary">Trust project<\/button>/);
-  assert.doesNotMatch(open, /project-trust-notice/);
+test("the dialog offers all choices for existing decisions and lists executable resources", () => {
+  const html = view({ listing: loaded({ status: { ...untrusted, trusted: true, decision: true, decisionPath: "/", inherited: true } }) });
+  assert.match(text(html), /Permanent decisions apply to this Git repository, including subdirectories and registered linked worktrees; outside Git, only to the exact folder shown: \/repo/);
+  assert.match(text(html), /Executable project resources Extension \/repo\/\.omp\/extensions\/example\.ts/);
+  for (const label of ["Trust for this chat", "Don't trust for this chat", "Always trust", "Never trust"]) {
+    assert.ok(text(html).includes(label), label);
+  }
 });
 
-test("a trust store that cannot be read is said so, above the servers still listed, and Trust stays offered", () => {
+test("a trust store that cannot be read is said so, above the servers still listed, and Trust is blocked", () => {
   const listing = loaded({ servers: [server({ name: "repo", transport: "stdio", command: "node" })] });
   delete listing.status;
   listing.statusError = "Lock file is already being held";
   const html = view({ listing });
   assert.match(
     text(html),
-    /omp-frond cannot read the trust store \(trust\.json\), or another program has it locked\. Lock file is already being held MCP servers in \.omp\/mcp\.json .* repo stdio node/,
+    /Could not read the saved trust decision: Lock file is already being held Project MCP preview .* repo stdio node/,
   );
-  assert.match(html, /class="project-trust-button is-primary">Trust project<\/button>/);
+  assert.match(html, /class="project-trust-button is-primary" disabled="">Trust for this chat<\/button>/);
 });
 
 test("a GET answer becomes a listing: the status beside it, or only the listing when the trust store failed", () => {
@@ -293,6 +289,37 @@ test("a GET answer becomes a listing: the status beside it, or only the listing 
     reason: "cwd-denied",
   });
   assert.deepEqual(projectTrustListingFrom(false, 502, {}), { state: "failed", error: "HTTP 502", reason: undefined });
+});
+
+test("grouped preview preserves sources and reports unsupported formats", () => {
+  const first = { scope: "project", path: "/repo/.omp/mcp.json", exists: true, problems: [] };
+  const second = { scope: "project", path: "/repo/.mcp.json", exists: true, problems: [] };
+  const third = { scope: "project", path: "/repo/config.yaml", exists: true, problems: [{ reason: "unsupported-preview", error: "unsupported" }] };
+  const result = projectTrustListingFrom(true, 200, {
+    ...untrusted, mcpFile: first, mcpFiles: [first, second, third],
+    mcpServers: [server({ name: "same", command: "first", sourcePath: first.path }), server({ name: "same", command: "second", sourcePath: second.path })],
+  });
+  assert.deepEqual(result.listing.mcpFiles, [first, second, third]);
+  const shown = text(render(h(ProjectTrustMcpSection, { listing: result })));
+  assert.match(shown, /\/repo\/\.omp\/mcp\.json same first \/repo\/\.mcp\.json same second \/repo\/config\.yaml This file format is not parsed by the preview/);
+});
+
+test("a decision error from a successful GET is shown with the preview", () => {
+  const listing = loaded({ status: { ...untrusted, decisionError: "store unavailable" } });
+  const html = text(view({ listing }));
+  assert.match(html, /Could not read the saved trust decision: store unavailable Project MCP preview/);
+  assert.doesNotMatch(html, /trust\.json/);
+});
+
+test("failed previews permit only temporary distrust with an assessed root", () => {
+  for (const listing of [{ state: "failed", timedOut: true }, { state: "failed", error: "offline" }]) {
+    const html = decode(view({ listing }));
+    assert.match(html, /class="project-trust-button">Don't trust for this chat<\/button>/);
+    assert.match(html, /class="project-trust-button is-primary" disabled="">Trust for this chat<\/button>/);
+    assert.match(html, /class="project-trust-button" disabled="">Never trust<\/button>/);
+    const noRoot = decode(view({ listing, projectRoot: "" }));
+    assert.match(noRoot, /class="project-trust-button" disabled="">Don't trust for this chat<\/button>/);
+  }
 });
 
 test("a listing that failed names why, or gives its diagnostic when there is nothing to translate", () => {
@@ -328,7 +355,7 @@ test("every string the dialog shows is translated", async () => {
     apiTypesSource.indexOf("export type McpConfigFileProblemReason"),
     apiTypesSource.indexOf("export interface McpConfigFileProblem "),
   ).matchAll(/\| "([a-z-]+)"/g)].map((match) => match[1]);
-  assert.equal(problemReasons.length, 9);
+  assert.ok(problemReasons.length >= 9);
   // Every reason but `internal`, whose diagnostic is shown instead, is translated.
   assert.ok(reasonCodes.length >= 8);
   const keys = [
@@ -342,7 +369,7 @@ test("every string the dialog shows is translated", async () => {
     "mcp.transport.http",
   ];
   assert.ok(literalKeys.length >= 18);
-  assert.deepEqual(returnedKeys.sort(), ["mcp.reason.trust-not-required", "trust.alreadyTrusted"]);
+  assert.deepEqual(returnedKeys.sort(), []);
   assert.ok(helperKeys.includes("mcp.server.sendsVariables") && helperKeys.includes("mcp.field.env"));
   for (const key of keys) assert.equal(typeof messages[key], "string", `${key} is missing from en.ts`);
 });

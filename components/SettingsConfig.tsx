@@ -42,6 +42,7 @@ interface SettingsConfigProps {
   cwd?: string | null;
   sessionId: string | null;
   runtimeId?: string;
+  openingId?: string;
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"];
   initialSection?: SettingsSection;
   projectTrust?: ProjectTrustStatus | null;
@@ -246,7 +247,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, initialSection = "ui", projectTrust, projects, quoteSelectionEnabled, onQuoteSelectionChange, onClose, onModelsChanged, onReloaded }: SettingsConfigProps) {
+export function SettingsConfig({ cwd, sessionId, runtimeId, openingId, onRuntimeIdentity, initialSection = "ui", projectTrust, projects, quoteSelectionEnabled, onQuoteSelectionChange, onClose, onModelsChanged, onReloaded }: SettingsConfigProps) {
   const { t } = useI18n();
   const [selectedSection, setSection] = useState<SettingsSection>(initialSection);
   const section = !cwd && CORE_SECTIONS.some((item) => item.id === selectedSection && item.requiresCwd) ? "ui" : selectedSection;
@@ -416,7 +417,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
       setVisitedProjectSections((previous) => previous.has(next) ? previous : new Set(previous).add(next));
     }
   };
-  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
+  const sessionReload = useSessionReload({ sessionId, runtimeId, openingId, onRuntimeIdentity, onReloaded });
   const reloadActiveSession = useCallback(async () => {
     setReloading(true);
     try {
@@ -530,16 +531,16 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
           )}
           {cwd && visitedProjectSections.has("plugins") && (
             <div className={styles.sectionHost} hidden={searching || section !== "plugins"}>
-              <PluginsConfig cwd={cwd} key={cwd} trust={projectTrust} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} embedded onClose={close} onReloaded={onReloaded} />
+              <PluginsConfig cwd={cwd} key={cwd} trust={projectTrust} sessionId={sessionId} runtimeId={runtimeId} openingId={openingId} onRuntimeIdentity={onRuntimeIdentity} embedded onClose={close} onReloaded={onReloaded} />
             </div>
           )}
           {searching ? renderGenericSettings()
             : projectSectionVisible ? null
-            : section === "ui" ? <UiSettings sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />
+            : section === "ui" ? <UiSettings sessionId={sessionId} runtimeId={runtimeId} openingId={openingId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />
             : section === "models" ? <ModelsConfig embedded onClose={close} onModelsChanged={onModelsChanged} enabledModels={enabledModels} />
-            : section === "roles" ? <ModelRolesConfig cwd={cwd ?? null} session={runtimeId ?? sessionId} onClose={close} onRolesChanged={rolesChanged} />
+            : section === "roles" ? <ModelRolesConfig cwd={cwd ?? null} session={runtimeId ?? sessionId} openingId={openingId} onClose={close} onRolesChanged={rolesChanged} />
             : section === "themes" ? renderThemeSection()
-            : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} />
+            : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} openingId={openingId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} />
             : section === "access" ? <AccessConfig />
             : renderGenericSettings()}
         </main>
@@ -548,7 +549,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
   );
 }
 
-function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded }: { cwd?: string | null; sessionId?: string | null; runtimeId?: string;
+function McpSettings({ cwd, sessionId, runtimeId, openingId, onRuntimeIdentity, onReloaded }: { cwd?: string | null; sessionId?: string | null; runtimeId?: string; openingId?: string;
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"]; onReloaded?: (runtimeId: string | null) => void }) {
   const [data, setData] = useState<McpConfigResponse | null>(null);
   const [scope, setScope] = useState<"user" | "project">("user");
@@ -558,7 +559,7 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
-  const sessionReload = useSessionReload({ sessionId, runtimeId, onRuntimeIdentity, onReloaded });
+  const sessionReload = useSessionReload({ sessionId, runtimeId, openingId, onRuntimeIdentity, onReloaded });
 
   const load = useCallback(async () => {
     try {
@@ -652,7 +653,7 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
       {sessionReload.dialog}
       <header className={styles.contentHeader}>
         <h2 className={styles.contentTitle}>MCP servers</h2>
-        <p className={styles.contentDescription}>All MCP servers discovered by OMP are listed by scope and can be enabled or disabled here. Native OMP entries are editable; configurations owned by Claude, Codex, Gemini, plugins, or other providers remain read-only at their source.</p>
+        <p className={styles.contentDescription}>Edit native OMP MCP configuration files by scope and enable or disable their servers. Values that may contain credentials are redacted; leave a redaction unchanged to keep the stored value.</p>
       </header>
       <div className={styles.settingsBody}>
         {!data ? <div className={styles.empty}>{error ?? "Loading MCP configuration…"}</div> : (

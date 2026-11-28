@@ -1,22 +1,25 @@
 import { isDeepStrictEqual } from "node:util";
+import { resolveAgentDir } from "../bin/web-auth-store";
 import { getSetting } from "@/lib/omp-settings";
 import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-coding-agent/utils/render-utils";
 import { CompactionCancelledError } from "@oh-my-pi/pi-agent-core/compaction";
 import {
   applyResolvedSystemPromptInputs,
   createAgentSession,
-  type CreateAgentSessionOptions,
   discoverSessionExtensionPaths,
+  type CreateAgentSessionOptions,
   ensureTheme,
   getAgentDir,
   SessionManager,
 } from "@oh-my-pi/pi-coding-agent";
+import { discoverCustomToolPaths } from "@oh-my-pi/pi-coding-agent/extensibility/custom-tools";
 import type { ExtensionTheme, ExtensionUiFactory } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/render-types";
 import { type ExtensionUISelectItem, getExtensionUISelectOptionLabel } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { buildAvailableSlashCommands } from "@oh-my-pi/pi-coding-agent/slash-commands/available-commands";
 import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import { executeAcpBuiltinSlashCommand, type AcpBuiltinSlashCommandResult } from "@oh-my-pi/pi-coding-agent/slash-commands/acp-builtins";
-import { discoverCustomToolPaths } from "@oh-my-pi/pi-coding-agent/extensibility/custom-tools";
+import { parseSlashCommand } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/parse";
+import { resolveToCwd } from "@oh-my-pi/pi-coding-agent/tools/path-utils";
 import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
 import { toWireEvent } from "@oh-my-pi/pi-coding-agent/session/loop-end-wire";
 import { readPlanFile } from "@oh-my-pi/pi-coding-agent/plan-mode/plan-files";
@@ -41,13 +44,14 @@ import {
   readSessionToolSelection,
   validateSessionToolSelection,
 } from "./session-tool-selection";
-import { getProjectTrustStatus, untrustedProjectSessionOptions } from "./project-trust";
+import { bindProjectOpening, getChatProjectPolicy, RpcProjectTrustError } from "./project-trust";
 import { createProjectCommandBashOperations } from "./project-command-env";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import { resolveSessionSystemPrompts } from "./session-system-prompt";
 import { readDefaultModelRole } from "./model-roles";
 import { getOmpRuntime, getSettingsForCwd } from "./omp-runtime";
+import { isPathWithinRoots } from "./path-security";
 import { assertPromptCacheLossConfirmed, livePromptCacheReport } from "./prompt-cache";
 import type { PromptCacheChange, PromptCacheReport } from "./prompt-cache-shared";
 import { defaultRoleThinkingLevel } from "./model-presets";
@@ -219,6 +223,7 @@ export interface RpcSessionStartOptions {
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
   thinkingLevel?: ConfiguredThinkingLevel;
+  openingId?: string;
 }
 
 const CODING_TOOL_NAMES: Record<string, true> = Object.fromEntries(
@@ -397,6 +402,7 @@ type AgentSessionWrapperOptions = {
   onAgentRunComplete?: (sessionId: string, sessionName: string | undefined) => void;
   /** Session never announces completion (its work is not operator-facing). */
   suppressCompletionNotifications?: boolean;
+  projectTrusted?: boolean;
 };
 
 export class AgentSessionWrapper {
@@ -454,6 +460,8 @@ export class AgentSessionWrapper {
   private readonly chatOnly: boolean = false;
   private readonly onAgentRunComplete?: (sessionId: string, sessionName: string | undefined) => void;
   private readonly suppressCompletionNotifications: boolean = false;
+  readonly projectTrusted: boolean;
+  private projectPolicyLeases = 0;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
@@ -496,6 +504,7 @@ export class AgentSessionWrapper {
     this.chatOnly = asOptions.chatOnly ?? false;
     this.onAgentRunComplete = asOptions.onAgentRunComplete;
     this.suppressCompletionNotifications = asOptions.suppressCompletionNotifications ?? false;
+    this.projectTrusted = asOptions.projectTrusted ?? false;
     this.subagents = new RpcSubagentRegistry(eventBus as EventBus, (frame) => {
       const event = frame as unknown as AgentEvent;
       this.rememberSubagentFrame(event);
@@ -626,6 +635,16 @@ export class AgentSessionWrapper {
    */
   isAlive(): boolean {
     return this._alive && !this.closing;
+  }
+
+  acquireProjectPolicyLease(): () => void {
+    if (!this.isAlive()) throw new Error("Session is closing. Please retry.");
+    this.projectPolicyLeases = (this.projectPolicyLeases ?? 0) + 1;
+    return () => { this.projectPolicyLeases--; };
+  }
+
+  hasProjectPolicyLease(): boolean {
+    return (this.projectPolicyLeases ?? 0) > 0;
   }
 
   /**
@@ -1158,7 +1177,7 @@ export class AgentSessionWrapper {
     }, timeoutMs);
   }
 
-  private persistBashOnlySession(): void {
+  persistBashOnlySession(): void {
     const manager = this.inner.sessionManager;
     const sessionFile = manager.getSessionFile();
     if (!sessionFile || existsSync(sessionFile)) return;
@@ -1783,6 +1802,20 @@ export class AgentSessionWrapper {
           }));
           return { handled: true, output };
         }
+        const slash = typeof command.message === "string" ? parseSlashCommand(command.message) : undefined;
+        if (slash?.name === "move" && slash.args) {
+          const target = resolveToCwd(slash.args, this.cwd);
+          const policy = await getChatProjectPolicy(target, resolveAgentDir(), undefined);
+          if (!isWorkerWorkspacePath(target) || !policy.decided || policy.trusted !== this.projectTrusted) {
+            return { handled: true, output: ["Open the destination in frond to choose its project trust before moving this chat."] };
+          }
+        }
+        if (slash?.name === "wt" || slash?.name === "worktree") {
+          const policy = await getChatProjectPolicy(this.cwd, resolveAgentDir(), undefined);
+          if (!policy.trusted || !this.projectTrusted) {
+            return { handled: true, output: ["Create the worktree in frond and open it separately, or always trust this repository before moving the chat."] };
+          }
+        }
         const result: AcpBuiltinSlashCommandResult = await executeAcpBuiltinSlashCommand(command.message as string, {
           session: this.inner as never,
           sessionManager: this.inner.sessionManager,
@@ -2062,10 +2095,9 @@ export class AgentSessionWrapper {
   }
 
   private syncProjectTrust(): void {
-    const status = getProjectTrustStatus(this.cwd, getAgentDir());
-    // SDK builds and test doubles differ on the settings manager; each read is optional.
+    // A reload must not promote a session beyond the policy it started with.
     const settingsManager = this.inner.settingsManager as HostSettingsLike | undefined;
-    settingsManager?.setProjectTrusted?.(status.trusted);
+    settingsManager?.setProjectTrusted?.(this.projectTrusted);
   }
 
   /**
@@ -2703,7 +2735,6 @@ declare global {
   var __ompFinalSessionIds: Map<string, string> | undefined;
   var __ompStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __ompOfflineRenames: Map<string, Promise<string | null>> | undefined;
-  var __ompStartingSessionCwds: Map<string, number> | undefined;
   var __ompRunningListeners: Set<(ids: string[]) => void> | undefined;
 }
 
@@ -2775,22 +2806,6 @@ function normalizeRpcCwd(cwd: string): string {
   }
 }
 
-function getStartingSessionCwds(): Map<string, number> {
-  if (!globalThis.__ompStartingSessionCwds) globalThis.__ompStartingSessionCwds = new Map();
-  return globalThis.__ompStartingSessionCwds;
-}
-
-function trackStartingSession(cwd: string): () => void {
-  const startingCwds = getStartingSessionCwds();
-  const key = normalizeRpcCwd(cwd);
-  startingCwds.set(key, (startingCwds.get(key) ?? 0) + 1);
-  return () => {
-    const remaining = (startingCwds.get(key) ?? 1) - 1;
-    if (remaining > 0) startingCwds.set(key, remaining);
-    else startingCwds.delete(key);
-  };
-}
-
 export function getFinalRpcSessionId(runtimeId: string): string | undefined {
   return globalThis.__ompFinalSessionIds?.get(runtimeId);
 }
@@ -2809,6 +2824,13 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return [...registry.values()].find(
     (candidate) => candidate.isAlive() && (candidate.sessionId === sessionId || candidate.runtimeId === sessionId),
   );
+}
+
+/** Refuse access to a live wrapper created under another opening's policy. */
+export async function assertRpcSessionProjectPolicy(session: AgentSessionWrapper, openingId?: string): Promise<void> {
+  const policy = await getChatProjectPolicy(session.cwd, resolveAgentDir(), openingId, session.sessionId);
+  if (!policy.decided) throw new RpcProjectTrustError(428);
+  if (session.projectTrusted !== policy.trusted) throw new RpcProjectTrustError(409);
 }
 
 /** Rename on the owner's leaf without waiting for extension dialogs to finish. */
@@ -2851,6 +2873,7 @@ export async function setRpcSessionTools(
   sessionId: string,
   sessionFile: string | undefined,
   requestedToolNames: unknown,
+  openingId?: string,
 ): Promise<SetRpcSessionToolsResult> {
   const toolNames = requestedToolNames === undefined
     ? undefined
@@ -2865,17 +2888,19 @@ export async function setRpcSessionTools(
     const pending = closingRpcSessionWait(sessionId) ?? getLocks().get(sessionId);
     if (pending) {
       await pending.catch(() => undefined);
-      return setRpcSessionTools(sessionId, sessionFile, requestedToolNames);
+      return setRpcSessionTools(sessionId, sessionFile, requestedToolNames, openingId);
     }
     const manager = await SessionManager.open(sessionFile, undefined);
     if (toolNames === undefined) appendClearedSessionToolSelection(manager);
     else appendSessionToolSelection(manager, toolNames);
     invalidateSessionListCache();
-    const started = await startRpcSession(sessionId, sessionFile, undefined);
+    const started = await startRpcSession(sessionId, sessionFile, undefined, { openingId });
     return { session: started.session, sessionId: started.realSessionId, recreated: false };
   }
 
   if (existing.isRunning()) throw new Error("Cannot change tools while the session is running");
+  const releasePolicyLease = existing.acquireProjectPolicyLease();
+  try {
 
   const hasCurrentResourcePolicy = typeof existing.isChatOnly === "function"
     && typeof existing.setActiveToolSelection === "function";
@@ -2891,6 +2916,7 @@ export async function setRpcSessionTools(
     return { session: existing, sessionId, recreated: false };
   }
 
+  existing.persistBashOnlySession();
   const persistedFile = existing.sessionFile && existsSync(existing.sessionFile)
     ? existing.sessionFile
     : undefined;
@@ -2900,16 +2926,20 @@ export async function setRpcSessionTools(
   await existing.shutdown();
 
   if (persistedFile) {
-    const started = await startRpcSession(sessionId, persistedFile, undefined);
+    const started = await startRpcSession(sessionId, persistedFile, undefined, { openingId });
     return { session: started.session, sessionId: started.realSessionId, recreated: true };
   }
 
   const started = await startRpcSession(`__recreate__${randomUUID()}`, "", sessionCwd, {
+    openingId,
     ...(toolNames !== undefined ? { toolNames } : {}),
     ...(model ? { initialModel: { provider: model.provider, modelId: model.id } } : {}),
     ...(currentThinkingLevel ? { thinkingLevel: currentThinkingLevel as ConfiguredThinkingLevel } : {}),
   });
   return { session: started.session, sessionId: started.realSessionId, recreated: true };
+  } finally {
+    releasePolicyLease();
+  }
 }
 
 function runtimeMessageText(entry: SessionMessageEntry): string {
@@ -2992,23 +3022,6 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
 
 export async function shutdownWorkerSessions(): Promise<void> {
   await Promise.allSettled(Array.from(getRegistry().values(), (session) => session.shutdown()));
-}
-
-export function hasBusyRpcSessionForCwd(cwd: string): boolean {
-  const targetCwd = normalizeRpcCwd(cwd);
-  if (getStartingSessionCwds().has(targetCwd)) return true;
-  return Array.from(getRegistry().values()).some(
-    (session) => normalizeRpcCwd(session.cwd) === targetCwd && session.isRunning(),
-  );
-}
-
-export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
-  const targetCwd = normalizeRpcCwd(cwd);
-  const sessions = Array.from(getRegistry().values()).filter(
-    (session) => normalizeRpcCwd(session.cwd) === targetCwd,
-  );
-  await Promise.all(sessions.map((session) => session.shutdown()));
-  return sessions.length;
 }
 
 // Include idle wrappers so a run that changes ID and finishes between polls
@@ -3112,9 +3125,11 @@ export async function startRpcSession(
     : validateSessionToolSelection(options.toolNames);
   const registry = getRegistry();
   const locks = getLocks();
+  const liveIdentity = getRpcSession(sessionId);
+  if (liveIdentity?.isAlive()) sessionId = liveIdentity.sessionId;
 
-  const existing = getRpcSession(sessionId);
-  if (existing?.isAlive()) return { session: existing, realSessionId: existing.sessionId };
+  // Serialize policy checks and replacement with startup, including callers
+  // arriving while a different opening is constructing this session.
 
   const renaming = sessionFile && globalThis.__ompOfflineRenames?.get(sessionFile);
   if (renaming) {
@@ -3123,7 +3138,10 @@ export async function startRpcSession(
   }
 
   const inflight = locks.get(sessionId);
-  if (inflight) return inflight;
+  if (inflight) {
+    await inflight;
+    return startRpcSession(sessionId, sessionFile, cwd, options);
+  }
 
   // A wrapper still closing owns the session until it is disposed: a replacement
   // opened earlier would branch away from appends its session_shutdown still makes
@@ -3139,6 +3157,23 @@ export async function startRpcSession(
     return waiting;
   }
   const starting = (async () => {
+    const existing = getRpcSession(sessionId);
+    if (existing?.isAlive()) {
+      const policy = await getChatProjectPolicy(existing.cwd, resolveAgentDir(), options.openingId, existing.sessionId);
+      if (!policy.decided) throw new RpcProjectTrustError(428);
+      const trusted = policy.trusted;
+      if (existing.projectTrusted === trusted) return { session: existing, realSessionId: existing.sessionId };
+      // A request without an opening must not shut down a trusted runtime.
+      if (existing.projectTrusted && !options.openingId) {
+        throw new RpcProjectTrustError(428);
+      }
+      if (existing.isRunning() || existing.hasProjectPolicyLease()) throw new RpcProjectTrustError(409);
+      // SDK delays the initial transcript flush; preserve it before replacement.
+      existing.persistBashOnlySession();
+      sessionFile = existing.sessionFile;
+      if (!sessionFile || !existsSync(sessionFile)) throw new Error("Cannot safely replace this session without its transcript.");
+      await existing.shutdown();
+    }
     // Some extensions access the SDK's global theme even outside the terminal UI.
     ensureTheme();
     const agentDir = getAgentDir();
@@ -3151,6 +3186,9 @@ export async function startRpcSession(
       })();
     const sessionCwd = sessionManager.getCwd();
     if (sessionFile && !isWorkerWorkspacePath(sessionCwd)) throw new Error("Session is outside this worker's workspace");
+    const policy = await getChatProjectPolicy(sessionCwd, resolveAgentDir(), options.openingId, sessionFile ? sessionManager.getSessionId() : undefined);
+    if (!policy.decided) throw new RpcProjectTrustError(428);
+    const projectTrusted = policy.trusted;
     const sessionEntries = sessionManager.getEntries() as unknown as SessionEntry[];
     // The newest selection in the file wins over a request, so a replacement of a
     // closing wrapper comes up with the tool policy the session already carries.
@@ -3159,11 +3197,16 @@ export async function startRpcSession(
     if (persistedToolNames === undefined && requestedToolNames !== undefined) {
       appendSessionToolSelection(sessionManager, requestedToolNames);
     }
-    const finishStartingSession = trackStartingSession(sessionCwd);
 
-    try {
+    {
       const runtime = await getOmpRuntime();
-      const settings = await getSettingsForCwd(sessionCwd);
+      // The process-wide settings may itself be scoped to a project. The
+      // authority projection removes every project layer, including overlays.
+      const userSettings = runtime.settings.grantAuthority();
+      const scopedSettings = projectTrusted || !policy.requiresTrust
+        ? await getSettingsForCwd(sessionCwd)
+        : userSettings;
+      const settings = projectTrusted ? scopedSettings : scopedSettings.overlay({ "mcp.enableProjectConfig": false });
 
       // Determine which tools to pass based on requested toolNames.
       let toolsOption: string[] | undefined;
@@ -3178,15 +3221,30 @@ export async function startRpcSession(
         toolsOption = selectedToolNames.length === 0 ? [] : undefined;
       }
 
-      // Gate untrusted project code so opening a repository in a browser tab does
-      // not run its `.omp/extensions`, `.omp/tools`, or `.mcp.json` servers (see
-      // lib/project-trust.ts). Discovery still runs — only project-local entries
-      // are dropped, so user-level extensions keep working.
-      const [extensionPaths, customToolPaths] = await Promise.all([
-        discoverSessionExtensionPaths({}, sessionCwd, settings),
-        discoverCustomToolPaths([], sessionCwd),
-      ]);
-      const untrusted = untrustedProjectSessionOptions(sessionCwd, agentDir, { extensionPaths, customToolPaths });
+      // Never scan project executable sources until the opening has consent.
+      // Explicit-only roots also constrain reloads and child sessions, not just
+      // this initial extension/tool load.
+      let untrusted: Partial<CreateAgentSessionOptions> | undefined;
+      if (!projectTrusted) {
+        const excluded = new Set([normalizeRpcCwd(sessionCwd), policy.projectRoot]);
+        const agentRoot = new Set([normalizeRpcCwd(agentDir)]);
+        const userOwned = (path: string) => {
+          const location = normalizeRpcCwd(path);
+          return !isPathWithinRoots(location, excluded) || isPathWithinRoots(location, agentRoot);
+        };
+        const [extensionPaths, customToolPaths] = toolsOption === undefined
+          ? await Promise.all([
+            discoverSessionExtensionPaths({}, agentDir, userSettings),
+            discoverCustomToolPaths([], agentDir, agentDir),
+          ])
+          : [[], []];
+        untrusted = {
+          disableExtensionDiscovery: true,
+          extensionRoots: () => ({ explicit: [], configured: [], configuredLevel: "user", mode: "explicit-only" }),
+          preloadedExtensionPaths: extensionPaths.filter(userOwned),
+          preloadedCustomToolPaths: customToolPaths.filter((tool) => tool.source?.level !== "project" && userOwned(tool.path)),
+        };
+      }
 
       // `SYSTEM.md` / `APPEND_SYSTEM.md`, resolved against this session's cwd the
       // way the CLI resolves them against its own (lib/session-system-prompt.ts).
@@ -3246,7 +3304,7 @@ export async function startRpcSession(
         await session.setActiveToolsByName(withExtensionTools(session, selectedToolNames));
       }
 
-      const wrapper = new AgentSessionWrapper(session, eventBus);
+      const wrapper = new AgentSessionWrapper(session, { eventBus, projectTrusted });
       wrapper.bindToolUiContext(
         setToolUIContext as unknown as (uiContext: ExtensionUiContextLike, hasUI: boolean) => void,
       );
@@ -3259,6 +3317,7 @@ export async function startRpcSession(
       wrapper.start();
 
       const realSessionId = inner.sessionId as string;
+      if (!sessionFile) bindProjectOpening(options.openingId, realSessionId);
       const realSessionFile = inner.sessionFile as string | undefined;
       if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
 
@@ -3272,8 +3331,6 @@ export async function startRpcSession(
       wrapper.beginExtensionBinding({ forceEmptySystemPrompt: selectedToolNames?.length === 0 });
 
       return { session: wrapper, realSessionId };
-    } finally {
-      finishStartingSession();
     }
   })().finally(() => {
     locks.delete(sessionId);

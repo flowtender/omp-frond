@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
+import { ProjectPermissionsIcon } from "./SidebarIcons";
 import { SubagentPanel } from "./SubagentPanel";
 import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
@@ -75,7 +76,7 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BackgroundJob, BlockingExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot } from "@/lib/types";
-import type { ProjectTrustStatus } from "@/lib/api-types";
+import type { ProjectTrustChoice, ProjectTrustResponse } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/omp-types";
@@ -97,6 +98,15 @@ const LANGUAGE_MENU_WIDTH = 176;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
 const TOOL_END_REFRESH_MS = 1000;
+
+function newProjectOpeningId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
@@ -221,7 +231,12 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsConfigSection, setSettingsConfigSection] = useState<"ui" | OmpSettingsShortcut | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
-  const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
+  const [projectTrust, setProjectTrust] = useState<ProjectTrustResponse | null>(null);
+  const [projectOpeningId, setProjectOpeningId] = useState(newProjectOpeningId);
+  const projectOpeningRef = useRef(projectOpeningId);
+  projectOpeningRef.current = projectOpeningId;
+  const pendingApprovalRef = useRef<string | null>(null);
+  const [trustRefresh, setTrustRefresh] = useState(0);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
   const [projectTrustError, setProjectTrustError] = useState<ProjectTrustFailure | null>(null);
@@ -753,6 +768,7 @@ export function AppShell() {
       // present: useAgentSession loads content in a mount-only effect, so
       // the null-session welcome mount from the switch would never load
       // the restored session's messages.
+      setProjectOpeningId(newProjectOpeningId());
       setSelectedSession(s);
       setSessionKey((k) => k + 1);
       if (new URLSearchParams(window.location.search).get("session") !== s.id) {
@@ -808,6 +824,7 @@ export function AppShell() {
     ) {
       return;
     }
+    setProjectOpeningId(newProjectOpeningId());
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
     const previousDraftKey = activeNewSessionDraftKeyRef.current;
@@ -875,6 +892,7 @@ export function AppShell() {
         return;
       }
     }
+    setProjectOpeningId(newProjectOpeningId());
     setNewSessionCwd(null);
     if (!isRestore) clearSessionContinuation();
     setSelectedSession({ ...session, runtimeId: isRestore ? session.runtimeId ?? getSessionContinuation(session.id) : undefined });
@@ -905,6 +923,7 @@ export function AppShell() {
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => {
+    setProjectOpeningId(newProjectOpeningId());
     clearSessionContinuation();
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
@@ -1115,7 +1134,11 @@ export function AppShell() {
     try {
       const response = await fetch(`/api/sessions/${encodeURIComponent(runtimeId ?? sessionId)}/auto-name`, {
         method: "POST",
+        headers: { "X-OMP-Project-Opening": projectOpeningId },
       });
+      if (response.status === 428) {
+        window.dispatchEvent(new CustomEvent("omp-project-approval-required", { detail: projectOpeningId }));
+      }
       const body = (await response.json().catch(() => ({}))) as { title?: string; error?: string; sessionId?: string; runtimeId?: string };
       if (!response.ok || !body.title) {
         throw new Error(body.error || `HTTP ${response.status}`);
@@ -1138,7 +1161,7 @@ export function AppShell() {
       setAutoNameStatus({ kind: "error", message });
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 5000);
     }
-  }, [autoNameStatus.kind, selectedSession?.id, selectedSession?.runtimeId, handleRuntimeIdentity]);
+  }, [autoNameStatus.kind, selectedSession?.id, selectedSession?.runtimeId, handleRuntimeIdentity, projectOpeningId]);
 
   useEffect(() => {
     if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
@@ -1171,11 +1194,11 @@ export function AppShell() {
     const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
       type: "fork_branch",
       entryId: sourceEntryId,
-    });
+    }, { current: sourceSessionId === selectedSession?.id ? selectedSession.runtimeId ?? null : null, openingId: projectOpeningId });
     if (!result?.newSessionId) throw new Error(translate("chat.quoteForkFailed"));
     setPendingQuotePrompt({ sessionId: result.newSessionId, text: prompt });
     handleSessionForked(result.newSessionId);
-  }, [handleSessionForked, translate]);
+  }, [handleSessionForked, translate, selectedSession, projectOpeningId]);
 
   // The sidebar calls this when the initial session is not in its list.
   const handleInitialRestoreDone = useCallback(() => {
@@ -1193,6 +1216,7 @@ export function AppShell() {
     const active = selectedSessionRef.current;
     if (active?.id === sessionId) {
       clearTabOpenSession(sessionId);
+      setProjectOpeningId(newProjectOpeningId());
       const cwd = active.cwd;
       const draftId = typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
@@ -1364,6 +1388,21 @@ export function AppShell() {
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
+  useEffect(() => {
+    const handleApprovalRequired = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== projectOpeningId) return;
+      pendingApprovalRef.current = projectOpeningId;
+      setTrustRefresh((value) => value + 1);
+    };
+    window.addEventListener("omp-project-approval-required", handleApprovalRequired);
+    return () => window.removeEventListener("omp-project-approval-required", handleApprovalRequired);
+  }, [projectOpeningId]);
+
+  const handleTrustAssessment = useCallback((data: ProjectTrustResponse) => {
+    setProjectTrust((current) => current
+      ? { ...current, projectRoot: data.projectRoot, resources: data.resources }
+      : data);
+  }, []);
 
   useEffect(() => {
     setProjectTrust(null);
@@ -1372,37 +1411,45 @@ export function AppShell() {
     if (!projectTrustCwd) return;
 
     const controller = new AbortController();
-    // The answer also lists the project's MCP servers (`mcpFile`, `mcpServers`), unused here: the
-    // trust dialog fetches the listing again when it opens, since the file can change in between.
     fetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
       signal: controller.signal,
     })
       .then(async (response) => {
-        const data = await response.json() as ProjectTrustStatus & { error?: string };
+        const data = await response.json() as ProjectTrustResponse & { error?: string };
+        if (controller.signal.aborted) return;
         if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
         setProjectTrust(data);
+        if (data.requiresTrust && (data.decision === null || pendingApprovalRef.current === projectOpeningId)) setProjectTrustDialogOpen(true);
+        pendingApprovalRef.current = null;
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         console.error("Failed to load project trust:", error);
       });
     return () => controller.abort();
-  }, [projectTrustCwd]);
+  }, [projectTrustCwd, projectOpeningId, trustRefresh]);
 
-  const handleTrustProject = useCallback(async () => {
-    if (!projectTrustCwd || projectTrustBusy) return;
+  const handleTrustProject = useCallback(async (choice: ProjectTrustChoice) => {
+    if (!projectTrustCwd || !projectTrust || projectTrustBusy) return;
     setProjectTrustBusy(true);
     setProjectTrustError(null);
     try {
       const response = await fetch("/api/project-trust", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: projectTrustCwd }),
+        body: JSON.stringify({ cwd: projectTrustCwd, projectRoot: projectTrust.projectRoot, openingId: projectOpeningId, sessionId: selectedSession?.id, choice }),
       });
-      const data = await response.json() as ProjectTrustStatus & { error?: string; reason?: ProjectTrustFailure["reason"] };
+      const data = await response.json() as ProjectTrustResponse & { error?: string; reason?: ProjectTrustFailure["reason"] };
+      if (projectOpeningRef.current !== projectOpeningId) return;
       if (!response.ok || data.error) {
         // The dialog translates the reason; the English error is only its diagnostic.
         setProjectTrustError({ error: data.error ?? `HTTP ${response.status}`, ...(data.reason ? { reason: data.reason } : {}) });
+        if (response.status === 409) {
+          const refreshed = await fetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, { cache: "no-store" });
+          if (refreshed.ok && projectOpeningRef.current === projectOpeningId) {
+            handleTrustAssessment(await refreshed.json() as ProjectTrustResponse);
+          }
+        }
         return;
       }
       setProjectTrust(data);
@@ -1410,13 +1457,15 @@ export function AppShell() {
       setModelsRefreshKey((key) => key + 1);
       setSessionKey((key) => key + 1);
     } catch (error) {
-      setProjectTrustError({ error: error instanceof Error ? error.message : String(error) });
+      if (projectOpeningRef.current === projectOpeningId) {
+        setProjectTrustError({ error: error instanceof Error ? error.message : String(error) });
+      }
     } finally {
       setProjectTrustBusy(false);
     }
-  }, [projectTrustBusy, projectTrustCwd]);
+  }, [projectTrustBusy, projectTrustCwd, projectTrust, projectOpeningId, selectedSession?.id, handleTrustAssessment]);
 
-  // The restricted-mode banner opens the project trust dialog.
+  // Both the warning and the project menu open the same permissions dialog.
   const openProjectTrustDialog = useCallback(() => {
     setProjectTrustError(null);
     setProjectTrustDialogOpen(true);
@@ -1438,6 +1487,19 @@ export function AppShell() {
     observer.observe(document.head, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, [windowTitle]);
+
+  const hasMessages = (sessionStats?.userMessages ?? 0) > 0 || (selectedSession?.messageCount ?? 0) > 0;
+  const titleAction = selectedSession && {
+    label: translate(autoNameStatus.kind === "naming" ? "title.generating"
+      : autoNameStatus.kind === "success" ? "title.updated"
+        : autoNameStatus.kind === "error" ? "title.failed" : "title.generate"),
+    disabledReason: selectedSession.transient ? translate("title.unsaved")
+      : !hasMessages ? translate("title.noMessages") : undefined,
+    title: autoNameStatus.kind === "error" ? autoNameStatus.message : translate("title.generateSession"),
+    pending: autoNameStatus.kind === "naming",
+    succeeded: autoNameStatus.kind === "success",
+    onSelect: handleAutoName,
+  };
 
   const sidebarContent = (
     <>
@@ -1473,6 +1535,11 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
+        projectPermissions={projectTrust?.requiresTrust && projectTrust.trusted ? {
+          root: projectTrust.projectRoot,
+          onSelect: openProjectTrustDialog,
+        } : undefined}
+        titleAction={titleAction ?? undefined}
       />
       <div style={{ padding: "0 8px", flexShrink: 0 }}>
         <OmpUpdateIndicator />
@@ -1531,22 +1598,7 @@ export function AppShell() {
         }}
         data-mobile-trust-banner={mobileBanner ? "true" : undefined}
       >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-          <path d="M12 8v4" />
-          <path d="M12 16h.01" />
-        </svg>
+        <ProjectPermissionsIcon />
         <span>{translate("trust.resourcesNotLoaded")}</span>
       </button>
     );
@@ -1617,84 +1669,6 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("history.label")}</span>}
         </button>
-        {(() => {
-          // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
-          const hasMessages = Boolean(
-            selectedSession
-            && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
-          );
-          const disabled = !selectedSession || selectedSession.transient || !hasMessages || autoNameStatus.kind === "naming";
-          const isSuccess = autoNameStatus.kind === "success";
-          const isError = autoNameStatus.kind === "error";
-          const label = autoNameStatus.kind === "naming"
-            ? translate("title.generating")
-            : isSuccess
-              ? translate("title.updated")
-              : isError
-                ? translate("title.failed")
-                : translate("title.generate");
-          const title = !selectedSession || selectedSession.transient
-            ? translate("title.unsaved")
-            : !hasMessages
-              ? translate("title.noMessages")
-              : isError
-                ? autoNameStatus.message
-                : translate("title.generateSession");
-
-          return (
-            <button
-              type="button"
-              onClick={() => {
-                void handleAutoName();
-                if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
-              }}
-              disabled={disabled}
-              title={title}
-              aria-label={label}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-                height: "100%", padding: mobile ? 0 : "0 12px",
-                background: "none", border: "none",
-                borderTop: "2px solid transparent",
-                borderRight: "1px solid var(--border)",
-                color: isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
-                cursor: disabled ? "not-allowed" : "pointer",
-                opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
-                flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
-                transition: "color 0.1s, background 0.1s, opacity 0.1s",
-              }}
-              onMouseEnter={(event) => {
-                if (disabled) return;
-                event.currentTarget.style.color = isError ? "#dc2626" : "var(--text)";
-                event.currentTarget.style.background = "var(--bg-hover)";
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)";
-                event.currentTarget.style.background = "none";
-              }}
-              data-mobile-toolbar-action={mobile ? "name" : undefined}
-            >
-              {autoNameStatus.kind === "naming" ? (
-                <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                  <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              ) : isSuccess ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m15 4 5 5L7 22l-5-5Z" />
-                  <path d="m14 5 5 5" />
-                  <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
-                </svg>
-              )}
-              {!mobile && <span>{label}</span>}
-            </button>
-          );
-        })()}
         {sessionHasBranches && (mobile ? (
           <button
             type="button"
@@ -2628,6 +2602,7 @@ export function AppShell() {
           {showChat ? (
             <ChatWindow
               key={sessionKey}
+              openingId={projectOpeningId}
               session={selectedSession}
               searchTarget={searchTarget?.sessionId === selectedSession?.id ? searchTarget : null}
               onSearchTargetHandled={handleSearchTargetHandled}
@@ -2872,6 +2847,7 @@ export function AppShell() {
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         runtimeId={selectedSession?.runtimeId}
+        openingId={projectOpeningId}
         onRuntimeIdentity={handleRuntimeIdentity}
         initialSection={settingsConfigSection}
         projectTrust={projectTrust}
@@ -2892,13 +2868,15 @@ export function AppShell() {
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}
+        projectRoot={projectTrust?.projectRoot ?? ""}
+        resources={projectTrust?.resources ?? []}
         busy={projectTrustBusy}
         error={projectTrustError}
         onCancel={() => {
           if (!projectTrustBusy) setProjectTrustDialogOpen(false);
         }}
-        onConfirm={() => void handleTrustProject()}
-        onStatus={setProjectTrust}
+        onConfirm={(choice) => void handleTrustProject(choice)}
+        onAssessment={handleTrustAssessment}
       />
     )}
     </>

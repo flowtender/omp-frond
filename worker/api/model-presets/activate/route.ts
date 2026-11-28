@@ -12,7 +12,8 @@ import { resolveModelRoleValue } from "@oh-my-pi/pi-coding-agent/config/model-re
 import { cfgDefaultThinkingLevel } from "@oh-my-pi/pi-coding-agent/session/settings";
 import { listModelRoles, listRoleModelPool } from "@/lib/model-roles";
 import { getOmpRuntime, getSettingsForCwd, reloadProjectSettings } from "@/lib/omp-runtime";
-import { getRpcSession } from "@/lib/rpc-manager";
+import { assertRpcSessionProjectPolicy, getRpcSession } from "@/lib/rpc-manager";
+import { RpcProjectTrustError } from "@/lib/project-trust";
 
 
 /**
@@ -31,6 +32,7 @@ import { getRpcSession } from "@/lib/rpc-manager";
 export async function POST(req: Request) {
   const rejected = rejectUntrustedJsonWrite(req);
   if (rejected) return rejected;
+  let releasePolicyLease: (() => void) | undefined;
   try {
     const body = await req.json() as { cwd?: unknown; name?: unknown; scope?: unknown; session?: unknown; liveSwitch?: unknown };
     const cwd = await requirePresetCwd(body.cwd);
@@ -44,6 +46,10 @@ export async function POST(req: Request) {
     const candidates = await listRoleModelPool(runtime.modelRegistry, scoped);
     const sessionLookup = typeof body.session === "string" ? getRpcSession(body.session) : undefined;
     const live = liveSwitch !== "skip" && sessionLookup?.isAlive() ? sessionLookup : undefined;
+    if (live) {
+      releasePolicyLease = live.acquireProjectPolicyLease();
+      await assertRpcSessionProjectPolicy(live, req.headers.get("X-OMP-Project-Opening") ?? undefined);
+    }
 
     if (live && liveSwitch === "ask") {
       // The default role the switch would land on, before anything is written.
@@ -76,6 +82,9 @@ export async function POST(req: Request) {
     }
     return Response.json(response);
   } catch (error) {
+    if (error instanceof RpcProjectTrustError) return Response.json({ error: error.message }, { status: error.status });
     return modelPresetErrorResponse(error);
+  } finally {
+    releasePolicyLease?.();
   }
 }

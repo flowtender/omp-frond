@@ -243,8 +243,14 @@ type ActivationReport =
   | { kind: "done"; response: ModelPresetActivateResponse; keptChat: boolean };
 
 /** The activate route's answer: done, or held back because the open chat's cache is warm. */
-async function postActivation(body: Record<string, unknown>): Promise<ModelPresetActivateResponse | { cacheLoss: PromptCacheLossWarning }> {
-  const response = await fetch("/api/model-presets/activate", jsonRequest("POST", body));
+async function postActivation(body: Record<string, unknown>, openingId?: string): Promise<ModelPresetActivateResponse | { cacheLoss: PromptCacheLossWarning }> {
+  const response = await fetch("/api/model-presets/activate", {
+    ...jsonRequest("POST", body),
+    headers: { "Content-Type": "application/json", ...(openingId ? { "X-OMP-Project-Opening": openingId } : {}) },
+  });
+  if (response.status === 428 && openingId) {
+    window.dispatchEvent(new CustomEvent("omp-project-approval-required", { detail: openingId }));
+  }
   const data = await response.json() as ModelPresetActivateResponse & { error?: string; code?: string; cacheLoss?: PromptCacheLossWarning };
   if (data.code === PROMPT_CACHE_WARM_CODE && data.cacheLoss) return { cacheLoss: data.cacheLoss };
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -479,10 +485,11 @@ function NewPresetPane({ cwd, onCreated }: { cwd: string | null; onCreated: (nam
  * (`modelPresets`), listed like the Models tab lists providers. Without a
  * project only the global config is read and written.
  */
-export function ModelRolesConfig({ cwd, session, onClose, onRolesChanged }: {
+export function ModelRolesConfig({ cwd, session, openingId, onClose, onRolesChanged }: {
   cwd: string | null;
   /** The open chat (its runtime id while it has one), switched when a preset is activated. */
   session: string | null;
+  openingId?: string;
   onClose: () => void;
   /** Open chats re-read their role table. */
   onRolesChanged: () => void;
@@ -546,7 +553,7 @@ export function ModelRolesConfig({ cwd, session, onClose, onRolesChanged }: {
     setActivation(null);
     try {
       const request = { cwd: cwd ?? undefined, name, scope: activateScope, session: session ?? undefined };
-      let result = await postActivation(request);
+      let result = await postActivation(request, openingId);
       let keptChat = false;
       if ("cacheLoss" in result) {
         const choice = await cacheLoss.ask(result.cacheLoss, {
@@ -555,7 +562,7 @@ export function ModelRolesConfig({ cwd, session, onClose, onRolesChanged }: {
         });
         if (choice === "cancel") return;
         keptChat = choice === "alternate";
-        result = await postActivation({ ...request, liveSwitch: keptChat ? "skip" : "switch" });
+        result = await postActivation({ ...request, liveSwitch: keptChat ? "skip" : "switch" }, openingId);
         if ("cacheLoss" in result) throw new Error("The activation was held back again");
       }
       setActivation({ name, report: { kind: "done", response: result, keptChat } });

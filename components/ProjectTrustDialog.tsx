@@ -11,6 +11,7 @@ import type {
   McpServerInfo,
   ProjectMcpListing,
   ProjectTrustResponse,
+  ProjectTrustChoice,
   ProjectTrustStatus,
 } from "@/lib/api-types";
 import {
@@ -34,7 +35,7 @@ export interface ProjectTrustFailure {
   reason?: McpRefusalReason;
 }
 
-/** What the dialog knows about the project's `.pi/mcp.json`, and its trust as the same answer read it. */
+/** What the dialog knows about project MCP files and trust from the same answer. */
 export type ProjectTrustMcpListing =
   | { state: "loading" }
   | { state: "failed"; error?: string; reason?: McpRefusalReason; timedOut?: boolean }
@@ -75,6 +76,7 @@ export function projectTrustListingFrom(
     ? {
         mcpServers: data.mcpServers,
         ...(data.mcpFile ? { mcpFile: data.mcpFile } : {}),
+        ...(data.mcpFiles !== undefined ? { mcpFiles: data.mcpFiles } : {}),
         ...(data.mcpError !== undefined ? { mcpError: data.mcpError } : {}),
       }
     : undefined;
@@ -87,48 +89,27 @@ export function projectTrustListingFrom(
   return { state: "failed", error: data.error ?? `HTTP ${status}`, reason: data.reason };
 }
 
-/** Why the dialog no longer offers Trust: the folder's trust changed since the page read it. */
-function settledTrustNotice(status: ProjectTrustStatus | undefined): string | undefined {
-  if (!status) return undefined;
-  if (!status.requiresTrust) return "mcp.reason.trust-not-required";
-  if (status.trusted) return "trust.alreadyTrusted";
-  return undefined;
-}
-
-/**
- * Asks before trusting a project, and lists what its `.pi/mcp.json` would
- * connect once trusted (ADR 0006: the visibility that replaced per-entry
- * approval). The listing is fetched when the dialog opens, not taken from the
- * status the page loaded with: the file can change in between. Trust waits for
- * it, so the list cannot appear under a click already on its way, but a
- * listing that fails or takes too long stops holding Trust back. The same
- * answer carries the folder's trust as it is now, which goes to `onStatus`;
- * a folder trusted meanwhile, or no longer needing trust, is no longer offered
- * Trust. It opens from the page's restricted-mode banner and from Settings ›
- * MCP's trust notice, above Settings, so Escape closes it alone.
- */
+/** Choose a policy for this opening or for the repository. */
 export function ProjectTrustDialog({
   cwd,
+  projectRoot,
+  resources,
   busy,
   error,
   onCancel,
   onConfirm,
-  onStatus,
+  onAssessment,
 }: {
   cwd: string;
+  projectRoot: string;
+  resources: ProjectTrustResponse["resources"];
   busy: boolean;
   error: ProjectTrustFailure | null;
   onCancel: () => void;
-  onConfirm: () => void;
-  /** The fresh status the dialog read, so the page's restricted-mode banner can follow it. */
-  onStatus?: (status: ProjectTrustStatus) => void;
+  onAssessment?: (data: ProjectTrustResponse) => void;
+  onConfirm: (choice: ProjectTrustChoice) => void;
 }) {
   const [listing, setListing] = useState<ProjectTrustMcpListing>({ state: "loading" });
-  // Read through a ref, so a new callback on every page render does not fetch again.
-  const onStatusRef = useRef(onStatus);
-  useEffect(() => {
-    onStatusRef.current = onStatus;
-  }, [onStatus]);
 
   useEffect(() => {
     let active = true;
@@ -145,7 +126,7 @@ export function ProjectTrustDialog({
         if (!active) return;
         const next = projectTrustListingFrom(response.ok, response.status, data);
         setListing(next);
-        if (next.state === "loaded" && next.status) onStatusRef.current?.(next.status);
+        if (response.ok && data.projectRoot && Array.isArray(data.resources)) onAssessment?.(data as ProjectTrustResponse);
       })
       .catch((reason: unknown) => {
         if (!active) return;
@@ -157,11 +138,13 @@ export function ProjectTrustDialog({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [cwd]);
+  }, [cwd, onAssessment]);
 
   return (
     <ProjectTrustDialogView
       cwd={cwd}
+      projectRoot={projectRoot}
+      resources={resources}
       busy={busy}
       error={error}
       listing={listing}
@@ -174,6 +157,8 @@ export function ProjectTrustDialog({
 /** The dialog for a listing in any state, without the fetch; exported for tests. */
 export function ProjectTrustDialogView({
   cwd,
+  projectRoot,
+  resources,
   busy,
   error,
   listing,
@@ -181,15 +166,17 @@ export function ProjectTrustDialogView({
   onConfirm,
 }: {
   cwd: string;
+  projectRoot: string;
+  resources: ProjectTrustResponse["resources"];
   busy: boolean;
   error: ProjectTrustFailure | null;
   listing: ProjectTrustMcpListing;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (choice: ProjectTrustChoice) => void;
 }) {
   const { t } = useI18n();
   const loading = listing.state === "loading";
-  const notice = listing.state === "loaded" ? settledTrustNotice(listing.status) : undefined;
+  const notice = listing.state === "loaded" && listing.status && !listing.status.requiresTrust ? "mcp.reason.trust-not-required" : undefined;
   const dialogRef = useRef<HTMLDivElement>(null);
   // Read through refs, so the Escape listener registered once sees the current props.
   const busyRef = useRef(busy);
@@ -248,11 +235,23 @@ export function ProjectTrustDialogView({
               {t("trust.dialogBody")}
             </div>
             <code className="project-trust-path">{revealHiddenCharacters(cwd)}</code>
+            <p>{t("trust.root")}</p>
+            <code className="project-trust-path">{revealHiddenCharacters(projectRoot)}</code>
+            {resources.length > 0 && (
+              <section aria-label={t("trust.resources")}>
+                <h3>{t("trust.resources")}</h3>
+                <ul>{resources.map((resource) => (
+                  <li key={`${resource.kind}:${resource.path}`}>
+                    <span>{t(`trust.kind.${resource.kind}`)}</span>{" "}<code>{revealHiddenCharacters(resource.path)}</code>
+                  </li>
+                ))}</ul>
+              </section>
+            )}
             {notice && <p id={NOTICE_ID} role="status" className="project-trust-notice">{t(notice)}</p>}
-            {listing.state === "loaded" && listing.statusError !== undefined && (
+            {listing.state === "loaded" && (listing.statusError !== undefined || listing.status?.decisionError !== undefined) && (
               <div className="project-trust-mcp-failed">
-                <p className="project-trust-mcp-line is-warning">{t("mcp.reason.trust-unreadable")}</p>
-                <code className="project-trust-mcp-detail">{revealHiddenCharacters(listing.statusError)}</code>
+                <p className="project-trust-mcp-line is-warning">{t("trust.decisionError")}</p>
+                <code className="project-trust-mcp-detail">{revealHiddenCharacters(listing.statusError ?? listing.status?.decisionError ?? "")}</code>
               </div>
             )}
             <ProjectTrustMcpSection listing={listing} />
@@ -267,20 +266,26 @@ export function ProjectTrustDialogView({
             onClick={onCancel}
             disabled={busy}
           >
-            {notice ? t("trust.close") : t("trust.cancel")}
+            {t("trust.cancel")}
           </button>
-          {!notice && (
+          {([
+            ["distrust-chat", "trust.denyChat"],
+            ["trust-chat", "trust.allowChat"],
+            ["always-distrust", "trust.denyAlways"],
+            ["always-trust", "trust.allowAlways"],
+          ] as const).map(([choice, label]) => (
             <button
+              key={choice}
               type="button"
-              className="project-trust-button is-primary"
-              onClick={onConfirm}
-              disabled={busy || loading}
+              className={`project-trust-button${choice === "trust-chat" ? " is-primary" : ""}`}
+              onClick={() => onConfirm(choice)}
+              disabled={busy || loading || !projectRoot || ((listing.state === "failed" || (listing.state === "loaded" && (listing.statusError !== undefined || listing.listing.mcpError !== undefined || (!listing.listing.mcpFiles && !listing.listing.mcpFile)))) && choice !== "distrust-chat")}
               aria-busy={busy || undefined}
               aria-describedby={loading ? STATUS_ID : undefined}
             >
-              {busy ? t("trust.trusting") : t("trust.trustProject")}
+              {t(label)}
             </button>
-          )}
+          ))}
         </div>
       </div>
     </div>
@@ -305,7 +310,7 @@ export function ProjectTrustMcpSection({ listing }: { listing: ProjectTrustMcpLi
   if (listing.state === "loading") {
     return <p id={STATUS_ID} role="status" className="project-trust-mcp-status">{t("trust.mcp.loading")}</p>;
   }
-  if (listing.state === "failed" || listing.listing.mcpError !== undefined || !listing.listing.mcpFile) {
+  if (listing.state === "failed" || listing.listing.mcpError !== undefined || (!listing.listing.mcpFiles && !listing.listing.mcpFile)) {
     let detail: string | undefined;
     if (listing.state === "failed") {
       // An internal failure has nothing to translate: its diagnostic is the reason.
@@ -322,25 +327,34 @@ export function ProjectTrustMcpSection({ listing }: { listing: ProjectTrustMcpLi
     );
   }
 
-  const { mcpFile: file, mcpServers: servers } = listing.listing;
-  // No file and nothing wrong with one: there is nothing about MCP to say.
-  if (!file.exists && file.problems.length === 0) return null;
+  const { mcpServers: servers } = listing.listing;
+  const files = (listing.listing.mcpFiles ?? (listing.listing.mcpFile ? [listing.listing.mcpFile] : []))
+    .filter((file) => file.exists || file.problems.length > 0 || servers.some((server) => server.sourcePath === file.path));
+  if (files.length === 0) return null;
   return (
     <section className="project-trust-mcp" aria-labelledby="project-trust-mcp-title">
       <div id="project-trust-mcp-title" className="project-trust-mcp-title">{t("trust.mcp.title")}</div>
       {servers.length > 0 && <p className="project-trust-mcp-intro">{t("trust.mcp.intro")}</p>}
-      <McpFileProblems file={file} />
-      {servers.length === 0 && file.problems.length === 0 && (
-        <p className="project-trust-mcp-line">{t("trust.mcp.none")}</p>
-      )}
-      {servers.some((server) => !server.validated) && (
-        <p className="project-trust-mcp-line">{t("trust.mcp.unchecked")}</p>
-      )}
-      {servers.length > 0 && (
-        <ul className="project-trust-mcp-list">
-          {servers.map((server) => <McpServerItem key={server.name} server={server} />)}
-        </ul>
-      )}
+      {files.map((file) => {
+        const fileServers = servers.filter((server) => server.sourcePath === file.path);
+        return (
+          <section key={file.path}>
+            <code className="project-trust-mcp-detail">{revealHiddenCharacters(file.path)}</code>
+            <McpFileProblems file={file} />
+            {fileServers.length === 0 && file.problems.length === 0 && (
+              <p className="project-trust-mcp-line">{t("trust.mcp.none")}</p>
+            )}
+            {fileServers.some((server) => !server.validated) && (
+              <p className="project-trust-mcp-line">{t("trust.mcp.unchecked")}</p>
+            )}
+            {fileServers.length > 0 && (
+              <ul className="project-trust-mcp-list">
+                {fileServers.map((server) => <McpServerItem key={server.name} server={server} />)}
+              </ul>
+            )}
+          </section>
+        );
+      })}
     </section>
   );
 }

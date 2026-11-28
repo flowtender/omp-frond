@@ -103,6 +103,7 @@ import {
   DotOutlineIcon,
   EyeIcon,
   FolderIcon,
+  GenerateTitleIcon,
   MessageIcon,
   MoreIcon,
   ForkIcon,
@@ -111,9 +112,11 @@ import {
   PinIcon,
   PinOffIcon,
   PlusIcon,
+  ProjectPermissionsIcon,
   RefreshIcon,
   RestoreIcon,
   SearchIcon,
+  SpinnerIcon,
   TerminalIcon,
   TrashIcon,
   UploadIcon,
@@ -238,6 +241,15 @@ interface Props {
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
+  projectPermissions?: { root: string; onSelect: () => void };
+  titleAction?: {
+    label: string;
+    title: string;
+    disabledReason?: string;
+    pending: boolean;
+    succeeded: boolean;
+    onSelect: () => Promise<void>;
+  };
 }
 
 /**
@@ -509,7 +521,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBranches, optimisticSession, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBranches, optimisticSession, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, projectPermissions, titleAction }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -2387,21 +2399,40 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
     else filesPickerRef.current?.button("project")?.focus({ preventScroll: true });
   }, [filesShown, filesFocusRequest]);
 
-  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => sessionMenuEntries(row.context, row.status).map((entry, index) => {
-    if (entry.kind === "separator") return { type: "separator", id: `separator-${index}` };
-    const label = t(SESSION_ACTION_LABEL_KEYS[entry.id]);
-    return {
-      type: "item",
-      id: entry.id,
-      label: entry.id === "delete" ? `${label}…` : label,
-      icon: sessionActionIcon(entry.id),
-      shortcut: entry.shortcut,
-      danger: entry.id === "delete",
-      disabled: entry.disabledReason !== undefined,
-      disabledReason: entry.disabledReason === "running" ? t("sidebar.cannotArchiveRunning") : undefined,
-      onSelect: ({ shiftKey }) => runSessionAction(entry.id, row, shiftKey),
-    };
-  });
+  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => {
+    const items = sessionMenuEntries(row.context, row.status).map((entry, index): SidebarMenuItem => {
+      if (entry.kind === "separator") return { type: "separator", id: `separator-${index}` };
+      const label = t(SESSION_ACTION_LABEL_KEYS[entry.id]);
+      return {
+        type: "item",
+        id: entry.id,
+        label: entry.id === "delete" ? `${label}…` : label,
+        icon: sessionActionIcon(entry.id),
+        shortcut: entry.shortcut,
+        danger: entry.id === "delete",
+        disabled: entry.disabledReason !== undefined,
+        disabledReason: entry.disabledReason === "running" ? t("sidebar.cannotArchiveRunning") : undefined,
+        onSelect: ({ shiftKey }) => runSessionAction(entry.id, row, shiftKey),
+      };
+    });
+    const renameIndex = items.findIndex((item) => item.id === "rename");
+    if (renameIndex >= 0 && row.status.selected && titleAction) {
+      items.splice(renameIndex + 1, 0, {
+        type: "item",
+        id: "generate-title",
+        label: titleAction.label,
+        icon: titleAction.pending ? <SpinnerIcon /> : titleAction.succeeded ? <CheckIcon /> : <GenerateTitleIcon />,
+        title: titleAction.title,
+        disabled: titleAction.pending || !!titleAction.disabledReason,
+        disabledReason: titleAction.disabledReason,
+        onSelect: (event) => {
+          event.keepOpen();
+          void titleAction.onSelect();
+        },
+      });
+    }
+    return items;
+  };
 
   const groupMenuItems = (project: SidebarProject, olderCount: number): SidebarMenuItem[] => {
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;
@@ -2433,6 +2464,13 @@ export function SessionSidebar({ selectedSessionId, selectedRuntimeId, sessionBr
         onSelect: () => { void applyUiState({ action: "pin-project", projectKey: project.key, root: project.root, pinned: !project.pinned }); },
       },
       ...nameItems,
+      ...(projectPermissions?.root === project.root ? [{
+        type: "item" as const,
+        id: "project-permissions",
+        label: t("trust.manage"),
+        icon: <ProjectPermissionsIcon />,
+        onSelect: projectPermissions.onSelect,
+      }] : []),
       {
         type: "item",
         id: "open-in-files",

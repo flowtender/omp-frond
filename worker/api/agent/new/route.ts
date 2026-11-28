@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
+import { isProjectOpeningId, RpcProjectTrustError } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 // omp owns the selector grammar (including abbreviations like "med"); reuse its
 // parser so the browser and the CLI accept exactly the same values.
@@ -63,11 +64,12 @@ export async function POST(req: Request) {
     // Omitted means omp's own loadout; an explicit list pins the session's tools.
     const toolNames = requestedToolNames ?? undefined;
 
-    // Must be unique per request: startRpcSession coalesces concurrent callers
-    // that share a key onto one session. Date.now() (ms resolution) collides for
-    // requests in the same millisecond, merging two new sessions into one.
-    const tempKey = `__new__${randomUUID()}`;
+    const header = req.headers.get("X-OMP-Project-Opening");
+    const openingId = isProjectOpeningId(header) ? header : undefined;
+    // Serialize starts sharing an opening until its grant is bound to the new transcript.
+    const tempKey = `__new__${openingId ?? randomUUID()}`;
     const { session } = await startRpcSession(tempKey, "", cwd, {
+      openingId,
       ...(toolNames ? { toolNames } : {}),
       ...(provider && modelId ? { initialModel: { provider, modelId } } : {}),
       ...(explicitThinkingLevel ? { thinkingLevel: explicitThinkingLevel } : {}),
@@ -115,6 +117,7 @@ export async function POST(req: Request) {
       configuredThinkingLevel: state.configuredThinkingLevel,
     });
   } catch (error) {
+    if (error instanceof RpcProjectTrustError) return Response.json({ error: error.message, accepted: false }, { status: error.status });
     return Response.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted

@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { getAgentDir, loadSkills } from "@oh-my-pi/pi-coding-agent";
 import { parseFrontmatter } from "@oh-my-pi/pi-utils";
+import { resolveAgentDir } from "@/bin/web-auth-store";
 import type { SkillInfo, SkillsResponse } from "@/lib/api-types";
 import { annotateSkillsWithInstallInfo } from "@/lib/skill-lock";
 import { getProjectTrustStatus } from "@/lib/project-trust";
@@ -38,7 +39,7 @@ export async function loadSkillsWithInstallInfo(cwd: string): Promise<SkillsResp
       message: warning.message,
       path: warning.skillPath,
     })),
-    projectResourcesLoaded: getProjectTrustStatus(cwd, agentDir).trusted,
+    projectResourcesLoaded: (await getProjectTrustStatus(cwd, resolveAgentDir())).trusted,
   };
 }
 

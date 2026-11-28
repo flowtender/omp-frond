@@ -15,10 +15,16 @@ function isMissing(error: unknown): boolean {
   return code === "ENOENT" || code === "ENOTDIR";
 }
 
+export class RegularFileReadError extends Error {
+  constructor(readonly reason: "not-a-file" | "too-large", message: string) {
+    super(message);
+  }
+}
+
 /**
  * The text of the regular file at `path`, or undefined when nothing is there
- * (as `existsSync()` would say). A link is followed, as pi follows it. The
- * path is opened once without blocking and checked through what was opened,
+ * (as `existsSync()` would say). A link is followed unless `noFollow` is set.
+ * The path is opened once without blocking and checked through what was opened,
  * so a FIFO, which a plain `readFileSync()` waits on until something writes
  * to it, or a device such as `/dev/zero` is never read: it throws instead, as
  * a file that cannot be read does. With `maxBytes`, a larger file throws too,
@@ -28,19 +34,19 @@ function isMissing(error: unknown): boolean {
  * project's `.pi/settings.json`: anything there would otherwise stall the
  * whole server, since the read is synchronous.
  */
-export function readRegularFileText(path: string, maxBytes?: number): string | undefined {
+export function readRegularFileText(path: string, maxBytes?: number, { noFollow = false } = {}): string | undefined {
   let fd: number;
   try {
-    fd = openSync(path, OPEN_FLAGS);
+    fd = openSync(path, OPEN_FLAGS | (noFollow ? constants.O_NOFOLLOW || 0 : 0));
   } catch (error) {
     if (isMissing(error)) return undefined;
     throw error;
   }
   try {
     const stats = fstatSync(fd);
-    if (!stats.isFile()) throw new Error(`${path} is not a regular file`);
+    if (!stats.isFile()) throw new RegularFileReadError("not-a-file", `${path} is not a regular file`);
     if (maxBytes === undefined) return readFileSync(fd, "utf8");
-    if (stats.size > maxBytes) throw new Error(`${path} is larger than ${maxBytes} bytes`);
+    if (stats.size > maxBytes) throw new RegularFileReadError("too-large", `${path} is larger than ${maxBytes} bytes`);
     // One byte past the limit: a file still growing past it is refused rather than cut short.
     const limit = maxBytes + 1;
     const chunks: Buffer[] = [];
@@ -52,7 +58,7 @@ export function readRegularFileText(path: string, maxBytes?: number): string | u
       chunks.push(chunk.subarray(0, read));
       length += read;
     }
-    if (length > maxBytes) throw new Error(`${path} is larger than ${maxBytes} bytes`);
+    if (length > maxBytes) throw new RegularFileReadError("too-large", `${path} is larger than ${maxBytes} bytes`);
     return Buffer.concat(chunks, length).toString("utf8");
   } finally {
     closeSync(fd);

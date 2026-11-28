@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -114,7 +114,7 @@ async function readEvent(stream, predicate) {
 }
 
 async function openEvents(origin, runtimeId) {
-  const res = await fetch(`${origin}/api/agent/${encodeURIComponent(runtimeId)}/events`, {
+  const res = await fetch(`${origin}/api/agent/${encodeURIComponent(runtimeId)}/events?openingId=${randomUUID()}`, {
     signal: AbortSignal.timeout(5_000),
   });
   assert.equal(res.status, 200);
@@ -258,6 +258,48 @@ test("replacing the web relay does not replay a prompt or lose a pending extensi
       if (savedEnv[index] === undefined) delete process.env[key];
       else process.env[key] = savedEnv[index];
     }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the worker does not import a checkout tool until that chat opening is trusted", { timeout: 15_000 }, async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "omp-frond-worker-trust-")));
+  const children = [];
+  try {
+    const { cwd, endpoint, sessionId } = await startWorker(root, "trust", children);
+    const tools = join(cwd, ".omp", "tools");
+    const marker = join(cwd, "tool-loaded.txt");
+    await mkdir(tools, { recursive: true });
+    await writeFile(join(tools, "probe.ts"), [
+      'import { writeFileSync } from "node:fs";',
+      `writeFileSync(${JSON.stringify(marker)}, "loaded");`,
+      "export default function () { return []; }",
+    ].join("\n"));
+    const path = `/api/agent/${sessionId}`;
+    const request = (path, body, openingId) => requestWorker(endpoint, new Request(`http://localhost${path}`, {
+      ...(body && {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(openingId && { "X-OMP-Project-Opening": openingId }) },
+        body: JSON.stringify(body),
+      }),
+      signal: AbortSignal.timeout(6_000),
+    }));
+    const history = await request(`/api/sessions/${sessionId}`);
+    assert.equal(history.status, 200);
+    const assessment = await (await request(`/api/project-trust?${new URLSearchParams({ cwd })}`)).json();
+    const openingId = randomUUID();
+    assert.equal((await request(path, { type: "get_state" }, openingId)).status, 428);
+    const choose = (choice) => request("/api/project-trust", { cwd, sessionId, openingId, choice, projectRoot: assessment.projectRoot });
+    assert.equal((await choose("distrust-chat")).status, 200);
+    assert.equal((await request(path, { type: "get_state" }, openingId)).status, 200);
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+    assert.equal((await choose("trust-chat")).status, 200);
+    assert.equal((await request(path, { type: "get_state" }, openingId)).status, 200);
+    assert.equal(await readFile(marker, "utf8"), "loaded");
+    assert.equal((await request(path, { type: "get_state" }, randomUUID())).status, 428);
+  } finally {
+    for (const { child } of children) child.kill();
+    await Promise.allSettled(children.map(({ exited }) => exited));
     await rm(root, { recursive: true, force: true });
   }
 });

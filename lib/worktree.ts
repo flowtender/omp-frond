@@ -211,6 +211,28 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
   return info;
 }
 
+/**
+ * The root used for authorization, not the cached sidebar grouping. A linked
+ * checkout must appear in Git's worktree list before it can share a decision.
+ */
+export async function resolveProjectTrustRoot(cwd: string): Promise<{ projectRoot: string; checkoutRoot: string }> {
+  const folder = realPathOrSelf(resolve(cwd));
+  const standalone = { projectRoot: folder, checkoutRoot: folder };
+  try {
+    const topLevel = toNativePath(await git(folder, ["rev-parse", "--show-toplevel"]));
+    const checkoutRoot = realpathSync(topLevel);
+    if (!isPathWithinRoots(folder, new Set([checkoutRoot]))) return standalone;
+    const candidates = await git(folder, ["worktree", "list", "--porcelain", "-z"]);
+    const worktrees = candidates.split("\0").filter((field) => field.startsWith("worktree "))
+      .map((field) => realPathOrSelf(toNativePath(field.slice("worktree ".length))));
+    const [projectRoot] = worktrees;
+    if (!projectRoot || !worktrees.some((path) => samePath(path, checkoutRoot))) return standalone;
+    return { projectRoot, checkoutRoot };
+  } catch {
+    return standalone;
+  }
+}
+
 // ============================================================================
 // Worktree operations
 //

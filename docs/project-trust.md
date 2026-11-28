@@ -3,14 +3,16 @@
 ## Why omp-frond has a trust gate and `omp` does not
 
 The `omp` CLI loads a repository's `.omp/extensions`, `.omp/hooks`, `.omp/tools`
-and `.mcp.json` as a matter of course. That is safe by construction: you ran
-`omp` inside that repository, which is itself the decision to execute it.
+and `.mcp.json` as a matter of course. You ran `omp` inside that repository, which
+is itself the decision to execute it.
 
 omp-frond reaches the same code from a browser tab. Clicking a project in the
 sidebar — or having a session for it restored on page load — would otherwise
 import and run repository-controlled code on the machine hosting the server,
 without anything that reads as consent. So omp-frond keeps a trust store that omp
-itself has no need for.
+itself has no need for. The SDK's tool-call approval comes too late for this:
+the SDK imports custom tool modules and calls their factories before it can ask
+whether to run a tool call.
 
 ## What requires trust
 
@@ -18,10 +20,19 @@ Only resources omp *executes*:
 
 | Kind | Paths |
 | --- | --- |
-| Extensions | `.omp/extensions`, `.pi/extensions`, `.claude/extensions`, `.agents/extensions` |
-| Hooks | the `hooks/` directory under each of those config roots |
+| Extensions | `.omp/extensions`, `.pi/extensions`, `.claude/extensions`, `.agents/extensions`, `.codex/extensions` |
+| Hooks | the `hooks/` directory and `hooks.json` under each of those config roots |
 | Custom tools | the `tools/` directory under each of those config roots |
-| MCP servers | `.mcp.json`, `.omp/.mcp.json`, `.omp/mcp.json`, `.claude/.mcp.json`, `.claude/mcp.json`, `.cursor/mcp.json` |
+| MCP servers | `mcp.json`, `.mcp.json`, `.omp/.mcp.json`, `.omp/mcp.json`, `.pi/mcp.json`, `.claude/.mcp.json`, `.claude/mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.windsurf/mcp_config.json`, and MCP entries in `.gemini/settings.json` |
+
+The inventory also checks extension entries in `.omp/config.yml` and
+`.omp/config.yaml`, and extensions, packages, enabled plugins and hooks in
+`settings.json` under `.omp`, `.pi` and `.claude`. It checks from the chat's
+working directory up to the checkout root. The dialog lists the paths without
+running the resources. The MCP detail panel groups previews by source file and
+masks credentials. It flags references to host credentials, possible
+replacement of a same-named user server, and files it could not inspect.
+The SDK can still read some files the preview skips after you trust the project.
 
 Skills, rules, prompts and `AGENTS.md` are **not** gated. They are data folded
 into the system prompt, not modules the loader imports, and gating them would
@@ -34,36 +45,69 @@ the way `omp` resolves them for a terminal one, trusted project or not. Gating
 them would also be a boundary in name only — a project carrying nothing but
 `.omp/APPEND_SYSTEM.md` never requires trust in the first place.
 
-A project with none of the above never sees a prompt: `requiresTrust` is false
-and the session loads on omp's normal path.
+A project with none of the executable resources above never sees a prompt:
+`requiresTrust` is false. Empty tool directories do not count.
 
 ## What the gate actually does
 
-When a project needs trust and has not been trusted, omp-frond still runs omp's
-own discovery, then removes the project-local entries from the result before
-handing it to `createAgentSession`:
+When you open a new or saved chat, including one from the OMP TUI or Tern,
+omp-frond asks for a decision if it finds executable project resources and
+there is no permanent decision:
 
-- `preloadedExtensionPaths` — discovered extensions minus anything under the
-  project root
-- `preloadedCustomToolPaths` — discovered tools minus anything marked
-  `level: "project"` or living under the project root
-- `enableMCP: false` — MCP servers are processes omp would spawn from a
-  project manifest
+- **Trust for this chat** loads project resources for this opening only.
+- **Don't trust for this chat** keeps them disabled for this opening only.
+- **Always trust** allows project resources for future chats, including
+  resources added later.
+- **Never trust** keeps project resources disabled for future chats.
+
+Closing the dialog without choosing leaves the transcript readable but does not
+allow the worker to start or continue a live agent for the chat.
+
+In restricted mode, omp-frond skips project executable discovery and hands
+`createAgentSession`:
+
+- `preloadedExtensionPaths` — extensions discovered using user settings
+- `preloadedCustomToolPaths` — user-level tools, excluding project tools
+- `mcp.enableProjectConfig: false` — the SDK does not load MCP servers from
+  project manifests
 
 User-level extensions and tools in `~/.omp/agent` keep working throughout, so an
 untrusted project is a *narrowed* session, not a crippled one.
 
+To change the decision, click **Restricted mode** in the chat or, for a trusted
+chat, **Project resource permissions** in the project's sidebar menu.
+A change does not interrupt another client's live run. If the transcript has an
+idle agent under the opposite policy, the worker replaces it before the next
+live operation.
+
+## What a permanent decision covers
+
+omp-frond trusts a **Git repository**, not whichever folder the chat happens
+to open in. **Always trust** and **Never trust** apply to the repository's
+canonical root, subdirectories and registered linked worktrees. A separate
+repository nested inside a trusted directory needs its own decision. Outside
+Git, the decision applies only to the folder shown, with symlinks resolved.
+
+The OMP SDK's resource lookup answers a different question: what can this
+session load? For example, the SDK walks up to find project rules, but its
+native `.omp/tools` and MCP loaders check paths at the working directory.
+Those lookup rules do not grant consent or determine where frond stores it.
+Using the repository boundary lets chats in the same repo share a decision
+without extending that decision to unrelated checkouts.
+
 ## Where the decision is stored
 
-`~/.omp/agent/omp-frond-trusted-projects.json`, keyed by the project's real path
-(symlinks resolved). It is written `0600` through the same atomic-replace helper
-used for credentials. Deleting an entry revokes trust; deleting the file revokes
-everything.
+The worker keeps **for this chat** decisions in memory, not in the transcript.
+Reopening a chat asks again if the checkout has executable resources and no
+permanent decision.
 
-Trust is granted from the dialog omp-frond shows when you open such a project, and
-takes effect immediately: granting it invalidates the model cache and destroys
-any running session for that working directory so the next one starts with the
-project's resources loaded.
+Permanent decisions are stored on the worker in
+`~/.omp/agent/omp-frond-project-decisions.json` by default, or in the configured
+agent directory. The old `omp-frond-trusted-projects.json` or
+`pi-web-trusted-projects.json` allow-list is not used for these decisions.
+The file is written `0600` through the same atomic-replace helper used for
+credentials. Deleting an entry clears that permanent decision; deleting the
+file clears all permanent decisions.
 
 ## Relationship to the CLI
 
