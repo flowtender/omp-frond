@@ -131,6 +131,63 @@ function previewForEntry(entry: ProjectableEntry): BranchPreview | undefined {
   return { ...(role ? { role } : {}), text };
 }
 
+// Entries that are part of the conversation. Everything else (model_usage,
+// model/thinking/service-tier changes, labels, session_info, ...) is metadata
+// about it and never a path the user could navigate to.
+const CONVERSATION_ENTRY_TYPES: Record<string, true> = {
+  message: true,
+  custom_message: true,
+  compaction: true,
+  branch_summary: true,
+};
+
+/**
+ * Drop children that hold no conversation entry anywhere below them, so
+ * metadata written beside a real continuation (a cache-warm `model_usage`
+ * entry, say) does not turn its parent into a branch point. When no sibling
+ * has conversation content, the last child stays so the active leaf remains
+ * reachable. Copies nodes instead of mutating the SDK tree.
+ */
+function withoutMetadataBranches<T extends ProjectableTreeNode<T>>(nodes: T[]): T[] {
+  const preorder: T[] = [];
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    preorder.push(node);
+    for (const child of node.children) stack.push(child);
+  }
+
+  // Reversed pre-order visits every descendant before its ancestor.
+  const hasConversation = new Set<T>();
+  for (let i = preorder.length - 1; i >= 0; i--) {
+    const node = preorder[i];
+    if (CONVERSATION_ENTRY_TYPES[node.entry.type] === true || node.children.some((child) => hasConversation.has(child))) {
+      hasConversation.add(node);
+    }
+  }
+
+  const copies = new Map<T, T>();
+  const copyOf = (node: T): T => {
+    const copy = { ...node, children: [] as T[] };
+    copies.set(node, copy);
+    return copy;
+  };
+  const roots = nodes.map(copyOf);
+  const pending = [...nodes];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    const withConversation = node.children.filter((child) => hasConversation.has(child));
+    const kept = node.children.length < 2 || withConversation.length === node.children.length
+      ? node.children
+      : withConversation.length > 0
+        ? withConversation
+        : node.children.slice(-1);
+    copies.get(node)!.children = kept.map(copyOf);
+    for (const child of kept) pending.push(child);
+  }
+  return roots;
+}
+
 /**
  * Project the session tree into the shallow navigation tree sent to the client.
  * Keeps roots, branch points, and leaves while contracting single-child chains
@@ -138,8 +195,9 @@ function previewForEntry(entry: ProjectableEntry): BranchPreview | undefined {
  * visible node so the UI can still recognize an active leaf inside the chain.
  */
 export function projectTreeForResponse<T extends ProjectableTreeNode<T>>(
-  nodes: T[]
+  sourceNodes: T[]
 ): T[] {
+  const nodes = withoutMetadataBranches(sourceNodes);
   const keep = new Set<T>();
   const roots = new Set(nodes);
   const seen = new Set<T>();
