@@ -6,7 +6,7 @@ import { formatTurnDuration } from "@/lib/turn-duration";
 import type { AgentUsage } from "@/lib/types";
 import { FoldTokenTotals, TokenFlowFold, TokenFlowHandoff } from "./TokenFlow";
 import { cacheMissSummaryText, TRANSCRIPT_NOTICE_WARNING_COLOR } from "./TranscriptNotices";
-import { useTranscriptFold } from "./TranscriptGrowth";
+import { useTranscriptFold } from "./useTranscriptFold";
 
 export function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, failureCount, compaction = false, status, durationMs, cacheMisses, tokenDisplay = "text", usage, missingUsage = false, models = [], defaultExpanded = false, reveal = false, renderDetails, t }: {
   messageCount: number;
@@ -33,10 +33,12 @@ export function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCo
     if (reveal) setManualExpanded(true);
   }, [reveal]);
   const collapsed = !expanded && !reveal;
-  const { detailsRef, showDetails, bracketRef, bracketsMoving, measureBrackets } = useTranscriptFold(collapsed, reveal, tokenDisplay === "flow");
+  const {
+    detailsRef, contentRef, summaryRef, openingCoverRef, bracketRef, showDetails, bracketsMoving, measureBrackets,
+  } = useTranscriptFold(collapsed, reveal, tokenDisplay === "flow");
   const details = showDetails ? (
     <div ref={detailsRef} data-fold-details="" inert={collapsed} style={tokenDisplay === "flow" ? undefined : { marginTop: 8 }}>
-      <div className="flow-root">{renderDetails()}</div>
+      <div ref={contentRef} className="flow-root">{renderDetails()}</div>
     </div>
   ) : null;
   const sizeParts: string[] = [];
@@ -106,7 +108,11 @@ export function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCo
         <div ref={bracketRef} className="transcript-fold-brackets" aria-hidden="true" />
         {showDetails ? (
           <>
-            {measureBrackets && <div className="transcript-fold-measure" aria-hidden="true"><TokenFlowFold {...foldProps} measure /></div>}
+            {measureBrackets && (
+              <div ref={openingCoverRef} className="transcript-fold-measure" aria-hidden="true">
+                <TokenFlowFold {...foldProps} measure bodyRef={summaryRef} />
+              </div>
+            )}
             <TokenFlowHandoff kind="process" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>
             {details}
             <TokenFlowHandoff kind="process-end" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { AgentUsage } from "@/lib/types";
 import { ProviderIcon, modelIconProviders } from "./ProviderIcon";
@@ -42,7 +42,7 @@ export function TokenFlow({ usage, provider, model, modelName, estimatedOutput, 
  * New input and cache writes sit above the icon and output below it; stat rows flank it,
  * outputs-side rows left and input-side rows right. The toggle (children) sits on the wire entering the bracket.
  */
-export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows, inputRows, children, bottomToggle, measure }: {
+export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows, inputRows, children, bottomToggle, measure, bodyRef }: {
   usage?: TokenTotals;
   missing: boolean;
   models: { provider: string; model: string }[];
@@ -53,6 +53,7 @@ export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows,
   children?: ReactNode;
   bottomToggle?: ReactNode;
   measure?: boolean;
+  bodyRef?: Ref<HTMLDivElement>;
 }) {
   const { t } = useI18n();
   // A fold spanning several models has no single icon to show.
@@ -62,7 +63,7 @@ export function TokenFlowFold({ usage, missing, models, hasRequests, outputRows,
     <div className="token-flow token-flow-fold" data-transcript-port={measure ? undefined : "fold"} role="group" aria-label={t("chat.processDetails")}>
       {!measure && <svg className="token-flow-wire" aria-hidden="true" width="100%" height="100%"><path /></svg>}
       {!measure && <div className="token-flow-fold-toggle-slot">{children}</div>}
-      <div className="token-flow-fold-body">
+      <div ref={bodyRef} className="token-flow-fold-body">
         <div className="token-flow-fold-side token-flow-fold-output">{statRows(outputRows)}</div>
         <div className="token-flow-fold-center">
           {hasRequests && <InputCounts usage={usage} partial={missing} />}
