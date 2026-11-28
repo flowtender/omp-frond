@@ -2705,6 +2705,21 @@ pre, code {
   background: var(--bg-hover);
 }
 
+/* The worker's restart button: the icon alone, not the 72px a branch needs. */
+.project-picker.is-inline .project-picker-button.is-icon {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.worker-picker {
+  margin-left: 8px;
+}
+
+.worker-picker-state {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 /* The project's name (its display name, else its folder's), cut at its
    end, with its parent folder and "/", dim, only where two projects share
    the name. The parent gives way first (its ellipsis, a factor of a
