@@ -1691,6 +1691,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.refinePlan": "繼續規劃",
     "chat.approvePlan": "核准並實作",
     "chat.modelRoles": "角色",
+    "chat.modelPresets": "模型預設",
     "chat.allModels": "全部模型",
     "chat.thinkingAuto": "自動選擇推理強度",
     "chat.customCommands": "自訂命令",

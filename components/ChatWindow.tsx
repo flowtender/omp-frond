@@ -29,6 +29,7 @@ import { usePromptCacheLossDialog } from "./PromptCacheLossDialog";
 import { AnsiText } from "./AnsiText";
 import { OmpWordmark } from "./OmpWordmark";
 import { useI18n } from "@/hooks/useI18n";
+import { useModelPresets } from "@/hooks/useModelPresets";
 import { phaseLabel } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { useSyncedDisplaySettings } from "@/hooks/useDisplaySettings";
@@ -381,7 +382,7 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
     goalStatus,
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
-    handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange, handleRoleModelChange,
+    handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange, handleRoleModelChange, reloadAfterModelRolesChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     dismissCompactError,
     handleRecallQueue,
@@ -395,6 +396,15 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
     onOpenSettings, onToolsReport: setToolsReport,
     deferInitialScroll: Boolean(pendingScrollRestore),
     confirmPromptCacheLoss: cacheLoss.confirm,
+  });
+  const modelPresets = useModelPresets({
+    cwd: session?.cwd ?? newSessionCwd,
+    sessionId: session?.runtimeId ?? session?.id ?? sessionIdRef.current,
+    openingId,
+    modelRoles,
+    askCacheLoss: cacheLoss.ask,
+    onActivated: reloadAfterModelRolesChange,
+    notify: addNotice,
   });
   // The truncation notice offers omp's configured compaction method, not a menu of them.
   const compactWithConfiguredMethod = useCallback(() => { void handleCompact(); }, [handleCompact]);
@@ -1147,6 +1157,9 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
       composerStatus={composerStatus}
       sessionAccent={sessionAccent}
       onRoleModelChange={handleRoleModelChange}
+      modelPresets={modelPresets.presets}
+      onActivateModelPreset={modelPresets.activate}
+      modelPresetBusy={modelPresets.activating}
       modelSwitching={modelSwitching}
       defaultModel={defaultModel}
       onSetDefaultModel={handleSetDefaultModel}

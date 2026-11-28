@@ -735,6 +735,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.filterModels": "筛选模型…",
     "chat.noMatchingModels": "没有匹配的模型",
     "chat.modelRoles": "角色",
+    "chat.modelPresets": "模型预设",
     "chat.allModels": "全部模型",
     "roles.title": "模型角色",
     "roles.description": "omp 按角色分派任务，而非只用一个当前模型。为每个角色分配模型后，omp-frond 与 omp 命令行都会使用该配置。",

@@ -735,6 +735,7 @@ export const enLocale: LocalePlugin = {
     "chat.filterModels": "Filter models…",
     "chat.noMatchingModels": "No matching models",
     "chat.modelRoles": "Roles",
+    "chat.modelPresets": "Model presets",
     "chat.allModels": "All models",
     "roles.title": "Model roles",
     "roles.description": "omp routes work by role, not by one current model. Assign a model to each role and both omp-frond and the omp CLI use it.",

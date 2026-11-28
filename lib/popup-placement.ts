@@ -9,6 +9,13 @@ export const POPUP_GAP_PX = 8;
 export const POPUP_VIEWPORT_MARGIN_PX = 8;
 export const POPUP_MIN_HEIGHT_PX = 120;
 
+/** Offset a popup from its anchor on the side placement chose. */
+export function popupOffset(side: PopupSide): { bottom: string } | { top: string } {
+  return side === "above"
+    ? { bottom: `calc(100% + ${POPUP_GAP_PX}px)` }
+    : { top: `calc(100% + ${POPUP_GAP_PX}px)` };
+}
+
 export interface PopupPlacementOptions {
   /** Distance between the anchor and the popup. */
   gap?: number;

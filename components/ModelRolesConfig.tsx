@@ -21,7 +21,7 @@ import { useI18n } from "@/hooks/useI18n";
 import type { TranslationParams } from "@/lib/i18n/types";
 import { ModelRoleRows, ThinkingLevelStrip, type ModelRoleRow } from "./ModelRoleRows";
 import { usePromptCacheLossDialog } from "./PromptCacheLossDialog";
-import { PROMPT_CACHE_WARM_CODE, type PromptCacheLossWarning } from "@/lib/prompt-cache-shared";
+import { activateModelPresetAskingCacheLoss } from "@/lib/model-preset-client";
 import {
   ConfigButton,
   ConfigDetail,
@@ -241,21 +241,6 @@ type ActivationReport =
   | { kind: "error"; message: string }
   /** `keptChat`: the user chose to leave the warm chat on its model. */
   | { kind: "done"; response: ModelPresetActivateResponse; keptChat: boolean };
-
-/** The activate route's answer: done, or held back because the open chat's cache is warm. */
-async function postActivation(body: Record<string, unknown>, openingId?: string): Promise<ModelPresetActivateResponse | { cacheLoss: PromptCacheLossWarning }> {
-  const response = await fetch("/api/model-presets/activate", {
-    ...jsonRequest("POST", body),
-    headers: { "Content-Type": "application/json", ...(openingId ? { "X-OMP-Project-Opening": openingId } : {}) },
-  });
-  if (response.status === 428 && openingId) {
-    window.dispatchEvent(new CustomEvent("omp-project-approval-required", { detail: openingId }));
-  }
-  const data = await response.json() as ModelPresetActivateResponse & { error?: string; code?: string; cacheLoss?: PromptCacheLossWarning };
-  if (data.code === PROMPT_CACHE_WARM_CODE && data.cacheLoss) return { cacheLoss: data.cacheLoss };
-  if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-  return data;
-}
 
 function ActivationStatus({ name, report }: { name: string; report: ActivationReport }) {
   const { t } = useI18n();
@@ -553,21 +538,14 @@ export function ModelRolesConfig({ cwd, session, openingId, onClose, onRolesChan
     setActivation(null);
     try {
       const request = { cwd: cwd ?? undefined, name, scope: activateScope, session: session ?? undefined };
-      let result = await postActivation(request, openingId);
-      let keptChat = false;
-      if ("cacheLoss" in result) {
-        const choice = await cacheLoss.ask(result.cacheLoss, {
-          confirmLabel: t("presets.switchChat"),
-          alternateLabel: t("presets.newChatsOnly"),
-        });
-        if (choice === "cancel") return;
-        keptChat = choice === "alternate";
-        result = await postActivation({ ...request, liveSwitch: keptChat ? "skip" : "switch" }, openingId);
-        if ("cacheLoss" in result) throw new Error("The activation was held back again");
-      }
-      setActivation({ name, report: { kind: "done", response: result, keptChat } });
-      setPresets(result.presets);
-      setRoles(result.roles);
+      const activated = await activateModelPresetAskingCacheLoss(request, openingId, cacheLoss.ask, {
+        confirmLabel: t("presets.switchChat"),
+        alternateLabel: t("presets.newChatsOnly"),
+      });
+      if (!activated) return;
+      setActivation({ name, report: { kind: "done", response: activated.response, keptChat: activated.keptChat } });
+      setPresets(activated.response.presets);
+      setRoles(activated.response.roles);
       onRolesChanged();
     } catch (caught) {
       setActivation({ name, report: { kind: "error", message: errorText(caught) } });

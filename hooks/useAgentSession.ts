@@ -2789,6 +2789,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, session?.cwd]);
 
+  /** The role setup changed under this chat (a preset was activated): re-read the role table and the model the chat now runs. */
+  const reloadAfterModelRolesChange = useCallback(async () => {
+    await loadModels();
+    const sid = sessionIdRef.current;
+    if (sid && !isNew) await loadSession(sid);
+  }, [isNew, loadModels, loadSession]);
+
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
     const match = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
@@ -3521,7 +3528,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, eventSourceRef, scrollContainerRef,
     lastUserMsgRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange, handleRoleModelChange,
+    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange, handleRoleModelChange, reloadAfterModelRolesChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     dismissCompactError,
     handleRecallQueue,

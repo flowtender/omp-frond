@@ -4,7 +4,7 @@ import React, { memo, useRef, useState, useCallback, useEffect, useLayoutEffect,
 import { CompactControl } from "./CompactControl";
 import type { CompactRequest } from "@/lib/compact-modes";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages } from "@/hooks/useAgentSession";
-import type { ModelRoleAssignment, SkillsResponse } from "@/lib/api-types";
+import type { ModelPresetView, ModelRoleAssignment, SkillsResponse } from "@/lib/api-types";
 import type { ContextUsage, SlashCommandInfo } from "@/lib/omp-types";
 import type { TextContent, UserMessage } from "@/lib/types";
 import type { SessionComposerSnapshot } from "@/lib/session-composer";
@@ -46,9 +46,10 @@ import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
 import { usePopupPlacement } from "@/hooks/usePopupPlacement";
 import { useSharedSessionDraft } from "@/hooks/useSharedSessionDraft";
-import { POPUP_GAP_PX, type PopupSide } from "@/lib/popup-placement";
+import { popupOffset } from "@/lib/popup-placement";
 import { SelectorRow } from "./SelectorRow";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { ModelPresetSwitcher } from "./ModelPresetSwitcher";
 import { PromptCacheIndicator } from "./PromptCacheIndicator";
 import type { PromptCacheReport } from "@/lib/prompt-cache-shared";
 
@@ -82,6 +83,10 @@ interface Props {
   composerStatus?: Pick<SessionComposerSnapshot, "source" | "shimmer" | "modelRole">;
   sessionAccent?: WebSessionAccent;
   onRoleModelChange?: (role: string) => void;
+  /** omp's model presets; the composer lists them beside the role picker. */
+  modelPresets?: ModelPresetView[];
+  onActivateModelPreset?: (name: string) => void;
+  modelPresetBusy?: boolean;
   modelSwitching?: boolean;
   /** The model new sessions start with, starred in the model selector. */
   defaultModel?: { provider: string; modelId: string } | null;
@@ -139,13 +144,6 @@ export interface ChatInputHandle {
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const TEXT_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const ANCHORED_MENU_GAP = 8;
-
-/** Offset a composer popup from the input on the side placement chose. */
-function popupOffset(side: PopupSide): React.CSSProperties {
-  return side === "above"
-    ? { bottom: `calc(100% + ${POPUP_GAP_PX}px)` }
-    : { top: `calc(100% + ${POPUP_GAP_PX}px)` };
-}
 
 export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, gap = ANCHORED_MENU_GAP): number {
   return Math.max(0, Math.floor(menuBottom - visibleTop - gap));
@@ -702,6 +700,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
   modelRoles, composerStatus, sessionAccent, onRoleModelChange, modelSwitching,
+  modelPresets, onActivateModelPreset, modelPresetBusy,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult,
   thinkingLevel, effectiveThinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -2702,6 +2701,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 </div>
               )}
               {roleRows.length === 0 && modelRole && <span className="chat-composer-value">{roleLabel}</span>}
+              {onActivateModelPreset && (
+                <ModelPresetSwitcher
+                  presets={modelPresets ?? []}
+                  disabled={isStreaming}
+                  busy={modelPresetBusy === true}
+                  onActivate={onActivateModelPreset}
+                />
+              )}
               </>
             )}
           </div>
