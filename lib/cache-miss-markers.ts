@@ -2,7 +2,7 @@ import { buildSessionContext as ompBuildSessionContext, type SessionEntry as Omp
 import { detectCacheInvalidation } from "@oh-my-pi/pi-coding-agent/session/transcript/cache-invalidation-marker";
 import type { Usage } from "@oh-my-pi/pi-ai";
 import type { SessionEntry } from "./types";
-import { withTranscriptNotices, type TranscriptNotice } from "./transcript-notices";
+import type { TranscriptNotice } from "./transcript-notices";
 
 // omp's cache-miss marker (`display.cacheMissMarker`), derived from the session
 // entries the way the TUI's transcript replay derives it
@@ -67,19 +67,6 @@ export function findCacheMisses(entries: readonly SessionEntry[], leafId: string
     if (usage.cacheRead + usage.cacheWrite + usage.input > 0) previousUsage = usage;
   });
   return misses;
-}
-
-/** `context` with each message carrying its entry's cache-miss marker. */
-export function attachCacheMisses<T extends { messages: unknown[]; entryIds: string[] }>(
-  context: T,
-  misses: Map<string, TranscriptNotice>,
-): T {
-  if (misses.size === 0) return context;
-  const messages = context.messages.map((message, index) => {
-    const miss = misses.get(context.entryIds[index]);
-    return miss ? withTranscriptNotices(message as object, [miss]) : message;
-  });
-  return { ...context, messages };
 }
 
 /**

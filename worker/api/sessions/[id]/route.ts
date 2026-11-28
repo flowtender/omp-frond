@@ -25,7 +25,7 @@ import { readLiveComposer, readRestoredComposer } from "@/lib/session-composer";
 import type { SessionEntry } from "@/lib/types";
 import { getWebSessionAccent } from "@/lib/omp-theme";
 import { livePromptCacheReport, savedSessionPromptCacheReport } from "@/lib/prompt-cache";
-import { attachCacheMisses, findCacheMisses } from "@/lib/cache-miss-markers";
+import { attachTranscriptNotices, findTranscriptNotices } from "@/lib/entry-notices";
 
 export async function GET(
   req: Request,
@@ -56,9 +56,9 @@ export async function GET(
     // branch (mobile OOM); the client pages upward from `oldestEntryId`.
     const rawTail = Number(searchParams.get("tail"));
     const tail = Math.min(Number.isFinite(rawTail) && rawTail > 0 ? rawTail : CONTEXT_DEFAULT_TAIL, 1000);
-    const context = attachCacheMisses(
+    const context = attachTranscriptNotices(
       buildSessionContext(entries, leafId, { deferThinking, deferToolResultImages, tail }),
-      findCacheMisses(entries, leafId),
+      findTranscriptNotices(entries, leafId),
     );
     const settings = liveRpc?.inner.settings ?? await getSettingsForCwd(sm.getCwd());
     const composer = liveRpc

@@ -1,7 +1,7 @@
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { resolveSessionPath, buildSessionContext, getHistoricalContextUsage, CONTEXT_DEFAULT_TAIL } from "@/lib/session-reader";
 import { getRpcSession, getFinalRpcSessionId } from "@/lib/rpc-manager";
-import { attachCacheMisses, findCacheMisses } from "@/lib/cache-miss-markers";
+import { attachTranscriptNotices, findTranscriptNotices } from "@/lib/entry-notices";
 
 export async function GET(
   req: Request,
@@ -34,14 +34,14 @@ export async function GET(
     const sm = liveRpc?.inner.sessionManager ?? await SessionManager.open(filePath!);
     const entries = sm.getEntries() as never;
     const pageLeafId = before ?? leafId;
-    const context = attachCacheMisses(
+    const context = attachTranscriptNotices(
       buildSessionContext(entries, pageLeafId, {
         deferThinking,
         deferToolResultImages,
         tail,
         excludeLeaf: Boolean(before),
       }),
-      findCacheMisses(entries, pageLeafId ?? sm.getLeafId()),
+      findTranscriptNotices(entries, pageLeafId ?? sm.getLeafId()),
     );
     const contextUsage = await getHistoricalContextUsage(entries, leafId);
 

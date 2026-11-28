@@ -7,12 +7,25 @@ import { formatNoticeTokens, type CacheMissSummary, type TranscriptNotice } from
 // The amber Process details uses for what went wrong inside a folded turn.
 export const TRANSCRIPT_NOTICE_WARNING_COLOR = "#d97706";
 
-// A cache-miss line is drawn as omp's TUI draws its marker: muted text after a short dim rule.
+// A notice line is drawn as omp's TUI draws its cache-miss marker: muted text after a short dim rule.
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 export function transcriptNoticeText(t: Translate, notice: TranscriptNotice): string {
-  return t("transcriptNotice.cacheMiss", { tokens: formatNoticeTokens(notice.reprocessedTokens) });
+  switch (notice.kind) {
+    case "cache_miss":
+      return t("transcriptNotice.cacheMiss", { tokens: formatNoticeTokens(notice.reprocessedTokens) });
+    case "model_usage":
+      return t("transcriptNotice.modelUsage", { purpose: notice.purpose, model: notice.model, tokens: formatNoticeTokens(notice.totalTokens) });
+    case "model_change":
+      return t("transcriptNotice.modelChange", { role: notice.role, model: notice.model });
+    case "thinking_level_change":
+      return t("transcriptNotice.thinkingLevelChange", { level: notice.level });
+    case "service_tier_change": {
+      const tiers = Object.entries(notice.serviceTier).map(([family, tier]) => `${family}: ${tier}`).join(", ");
+      return tiers ? t("transcriptNotice.serviceTierChange", { tier: tiers }) : t("transcriptNotice.serviceTierCleared");
+    }
+  }
 }
 
 /** The folded Process details header's part for the cache misses inside it. */

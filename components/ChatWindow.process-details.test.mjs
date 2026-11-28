@@ -46,16 +46,20 @@ function withTranscriptDom(run, { processPreference = "automatic", onlyPinnedRow
   }
 }
 
-function renderTranscript(messages, { processPreference, onlyPinnedRows, ...overrides } = {}) {
+function renderTranscript(messages, { processPreference, onlyPinnedRows, cacheMissMarker = false, sessionEventNotices = {}, ...overrides } = {}) {
+  const noticeVisibility = {
+    cache_miss: cacheMissMarker, model_usage: false, model_change: false, thinking_level_change: false, service_tier_change: false,
+    ...sessionEventNotices,
+  };
   return withTranscriptDom(({ host, render }) => {
     render(createElement(ChatTranscript, {
-      transcript: buildChatTranscript(messages, {}, Boolean(overrides.cacheMissMarker)),
+      transcript: buildChatTranscript(messages, {}, noticeVisibility),
       showTokenFlow: overrides.tokenDisplay === "flow",
       messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
       toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project", sessionId: "fixture",
       sessionBusy: false, isStreaming: false, isCompacting: false, loading: false, restoringScroll: false,
       visibleReplyStarts: { current: new Set() }, visibleCount: 100, hasEarlierMessages: false, earlierTurnCount: 0,
-      hideCost: false, tokenDisplay: "text", cacheMissMarker: false,
+      hideCost: false, tokenDisplay: "text", noticeVisibility,
       ...overrides,
     }));
     return host.innerHTML;
@@ -205,6 +209,25 @@ test("cache-miss markers show under their step while omp's display.cacheMissMark
 
   const off = renderTranscript(messages, { cacheMissMarker: false, processPreference: "expanded" });
   assert.doesNotMatch(off, /cache miss/i);
+});
+
+test("session-event notices show under their message only for the kinds switched on", () => {
+  const notices = [
+    { kind: "model_change", role: "default", model: "anthropic/claude-a" },
+    { kind: "thinking_level_change", level: "high" },
+    { kind: "model_usage", purpose: "naming-call", model: "anthropic/claude-b", totalTokens: 1500 },
+    { kind: "service_tier_change", serviceTier: {} },
+  ];
+  const messages = [{ ...user, transcriptNotices: notices }, reply("answer")];
+
+  const off = renderTranscript(messages);
+  assert.doesNotMatch(off, /claude-a|Thinking level|naming-call|Service tier/);
+
+  const some = renderTranscript(messages, { sessionEventNotices: { model_change: true, model_usage: true } });
+  assert.match(some, /anthropic\/claude-a/);
+  assert.match(some, /naming-call/);
+  assert.match(some, /1\.5K tokens/);
+  assert.doesNotMatch(some, /Thinking level/);
 });
 
 test("flow shows one set of counts when a reply's thinking and answer are split", () => {

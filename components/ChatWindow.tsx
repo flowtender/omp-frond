@@ -8,6 +8,7 @@ import { splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import type { DisplayOptions } from "@/lib/message-display";
+import type { TranscriptNoticeVisibility } from "@/lib/transcript-notices";
 import { buildChatTranscript } from "@/lib/chat-transcript";
 import { attachDeferredTaskResults } from "@/lib/task-tool-display";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
@@ -28,6 +29,7 @@ import { useModelPresets } from "@/hooks/useModelPresets";
 import { phaseLabel } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { useSyncedDisplaySettings } from "@/hooks/useDisplaySettings";
+import { useSessionEventNoticeSettings } from "@/hooks/useSessionEventNotices";
 import { ChatAnimationsContext, useEffectiveChatAnimationDuration } from "@/hooks/useChatAnimations";
 import { useProviderUsage } from "@/hooks/useProviderUsage";
 import { useShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
@@ -291,13 +293,18 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
   // omp's render-affecting settings (hideThinkingBlock, display.cacheMissMarker).
   // Synced here once for the whole transcript; MessageView reads the shared store directly.
   const { hideThinkingBlock, cacheMissMarker } = useSyncedDisplaySettings(newSessionCwd ?? session?.cwd ?? null);
+  const sessionEventNotices = useSessionEventNoticeSettings();
+  const noticeVisibility = useMemo<TranscriptNoticeVisibility>(
+    () => ({ cache_miss: cacheMissMarker, ...sessionEventNotices }),
+    [cacheMissMarker, sessionEventNotices],
+  );
   const displayOptions = useMemo<DisplayOptions>(() => ({ hideThinking: hideThinkingBlock }), [hideThinkingBlock]);
   const transcript = useMemo(() => {
     const retainedIndex = presentingReply === undefined ? -1 : messages.findLastIndex(
       (message) => message.role === "assistant" && message.timestamp === presentingReply,
     );
-    return buildChatTranscript(retainedIndex < 0 ? messages : messages.slice(0, retainedIndex), displayOptions, cacheMissMarker);
-  }, [messages, displayOptions, cacheMissMarker, presentingReply]);
+    return buildChatTranscript(retainedIndex < 0 ? messages : messages.slice(0, retainedIndex), displayOptions, noticeVisibility);
+  }, [messages, displayOptions, noticeVisibility, presentingReply]);
   // While this session's run is under way its chime may come with the phone
   // locked, where a suspended context cannot start again (#1157).
   useEffect(() => {
@@ -1170,7 +1177,7 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
               transcript={transcript} messages={messages} entryIds={entryIds} messageKeys={messageKeys}
               toolResultsMap={toolResultsMap} modelNames={modelNames} messageCwd={messageCwd}
               sessionId={session?.id ?? sessionIdRef.current ?? undefined}
-              tokenDisplay={tokenDisplay} showTokenFlow={showTokenFlow} cacheMissMarker={cacheMissMarker} hideCost={hideCost}
+              tokenDisplay={tokenDisplay} showTokenFlow={showTokenFlow} noticeVisibility={noticeVisibility} hideCost={hideCost}
               loading={loading} restoringScroll={Boolean(pendingScrollRestore)} sessionBusy={sessionBusy} isStreaming={isStreaming}
               visibleReplyStarts={visibleReplyStartsRef} latestPromptRef={lastUserMsgRef}
               searchEntryId={pendingSearchScroll?.entryId} searchBlock={searchBlock} restoreEntryId={pendingScrollRestore?.anchorEntryId}

@@ -22,6 +22,8 @@ import { setTokenDisplay, TOKEN_DISPLAY_MODES, useTokenDisplay } from "@/hooks/u
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { headerLanguageSwitch, headerThemeSwitch } from "@/hooks/useHeaderControls";
 import { setPromptCacheIndicatorSettings, usePromptCacheIndicatorSettings } from "@/hooks/usePromptCacheIndicator";
+import { setSessionEventNoticeSettings, useSessionEventNoticeSettings } from "@/hooks/useSessionEventNotices";
+import { SESSION_EVENT_NOTICE_KINDS } from "@/lib/session-event-notice-settings";
 import { MAX_INFERRED_CACHE_TIMEOUT_MINUTES, type PromptCacheIndicatorSource, type PromptCacheIndicatorStyle } from "@/lib/prompt-cache-shared";
 import type { RuntimeSessionBinding } from "@/lib/agent-client";
 import { useSessionReload } from "@/hooks/useSessionReload";
@@ -135,6 +137,7 @@ export function UiSettings({ sessionId, runtimeId, openingId, onRuntimeIdentity,
   const showThemeSwitch = headerThemeSwitch.useVisible();
   const showLanguageSwitch = headerLanguageSwitch.useVisible();
   const promptCacheIndicator = usePromptCacheIndicatorSettings();
+  const sessionEventNotices = useSessionEventNoticeSettings();
   const installedPythonFormatters = useInstalledPythonFormatters();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
@@ -318,6 +321,23 @@ export function UiSettings({ sessionId, runtimeId, openingId, onRuntimeIdentity,
           <p id="settings-prompt-cache-timeout-description" className="settings-general-description">{t("settings.promptCacheInferredTimeoutDescription")}</p>
         </div>
         <p id="settings-prompt-cache-description" className="settings-general-description">{t("settings.promptCacheDescription")}</p>
+        <div className="settings-chat-options">
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.sessionEventNotices")}</span>
+          </div>
+          {SESSION_EVENT_NOTICE_KINDS.map((kind) => (
+            <div key={kind} className="settings-chat-option settings-chat-switch-option">
+              <span>{t(`settings.sessionEventNotice.${kind}`)}</span>
+              <ConfigSwitch
+                checked={sessionEventNotices[kind]}
+                label={t(`settings.sessionEventNotice.${kind}`)}
+                describedBy="settings-session-event-notices-description"
+                onChange={(shown) => setSessionEventNoticeSettings({ [kind]: shown })}
+              />
+            </div>
+          ))}
+        </div>
+        <p id="settings-session-event-notices-description" className="settings-general-description">{t("settings.sessionEventNoticesDescription")}</p>
       </section>
 
       <section className="settings-general-section">

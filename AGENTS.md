@@ -169,6 +169,8 @@ lib/
   prompt-cache-shared.ts  client-safe prompt-cache report, view-at-time and indicator settings
   cache-miss-markers.ts  omp's cache-miss marker per assistant entry (history routes + live message_end)
   transcript-notices.ts  client-safe shape of that marker on a chat message, its formatting and fold summary
+  entry-notices.ts     notices for model usage and model/thinking/service-tier changes, per message
+  session-event-notice-settings.ts  client-safe kinds, defaults and parsing of those switches
   push-client.ts       browser push subscription helpers
   web-push.ts          VAPID keys + web-push notification sending
   rpc-manager.ts       AgentSessionWrapper + registry + startRpcSession
@@ -212,6 +214,8 @@ hooks/
   useAudio.ts         completion sound + browser AudioContext unlock
   useSessionReload.ts settings panels' session reload, asking first while the chat's cache is warm
   usePromptCacheIndicator.ts  prompt-cache marker settings (localStorage)
+  useSessionEventNotices.ts  which session-event lines the chat draws (localStorage)
+  createLocalSettingsStore.ts  shared localStorage store behind those per-browser settings
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
   useTheme.ts         theme state

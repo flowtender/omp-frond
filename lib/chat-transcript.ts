@@ -1,5 +1,5 @@
 import { isHiddenAssistantBlock, isHiddenCustomMessage, type DisplayOptions } from "./message-display";
-import { getTranscriptNotices } from "./transcript-notices";
+import { visibleTranscriptNotices, type TranscriptNoticeVisibility } from "./transcript-notices";
 import type { AgentMessage, AgentUsage } from "./types";
 
 export interface AssistantTranscriptPart {
@@ -26,7 +26,7 @@ type TranscriptRow = TranscriptItem | {
 };
 
 /** Partition the recorded exchange first. The chat projection only decides what can fold. */
-export function buildChatTranscript(messages: readonly AgentMessage[], options: DisplayOptions, cacheMissMarker: boolean) {
+export function buildChatTranscript(messages: readonly AgentMessage[], options: DisplayOptions, noticeVisibility: TranscriptNoticeVisibility) {
   const items: TranscriptItem[] = [];
   let lastOutput: number | undefined;
   function handoff() {
@@ -74,7 +74,7 @@ export function buildChatTranscript(messages: readonly AgentMessage[], options: 
             items.push({ kind: "assistant", index, part });
           }
         }
-        if (message.stopReason === "error" || message.stopReason === "length" || (!part && cacheMissMarker && getTranscriptNotices(message).length)) {
+        if (message.stopReason === "error" || message.stopReason === "length" || (!part && visibleTranscriptNotices(message, noticeVisibility).length)) {
           part = { kind: "status", start: 0, end: 0 };
           items.push({ kind: "assistant", index, part });
         }

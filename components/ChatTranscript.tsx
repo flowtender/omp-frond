@@ -5,7 +5,7 @@ import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 import type { buildChatTranscript, ChatTranscriptItem } from "@/lib/chat-transcript";
 import { isMessageGroupAnchor } from "@/lib/message-display";
 import { toolCallFailureCount } from "@/lib/tool-call-expansion";
-import { getTranscriptNotices, summarizeCacheMisses } from "@/lib/transcript-notices";
+import { summarizeCacheMisses, visibleTranscriptNotices, type TranscriptNoticeVisibility } from "@/lib/transcript-notices";
 import { getTurnDurationMs } from "@/lib/turn-duration";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, ToolResultMessage, UserMessage } from "@/lib/types";
@@ -27,7 +27,7 @@ interface Props {
   sessionId?: string;
   tokenDisplay: TokenDisplayMode;
   showTokenFlow: boolean;
-  cacheMissMarker: boolean;
+  noticeVisibility: TranscriptNoticeVisibility;
   hideCost: boolean;
   loading: boolean;
   restoringScroll: boolean;
@@ -56,7 +56,7 @@ interface Props {
 
 export function ChatTranscript({
   transcript, messages, entryIds, messageKeys, toolResultsMap, modelNames, messageCwd, sessionId,
-  tokenDisplay, showTokenFlow, cacheMissMarker, hideCost, loading, restoringScroll, sessionBusy, isStreaming,
+  tokenDisplay, showTokenFlow, noticeVisibility, hideCost, loading, restoringScroll, sessionBusy, isStreaming,
   visibleReplyStarts, latestPromptRef, searchEntryId, searchBlock, restoreEntryId, editEntryId, forkingEntryId,
   onFork, onEditContent, onCancelEdit, onOpenFile, onOpenSubagent, onCompact, isCompacting, compactError,
   visibleCount, hasEarlierMessages, earlierTurnCount, earlierSentinelRef,
@@ -104,7 +104,7 @@ export function ChatTranscript({
         call={call?.type === "toolCall" ? call : undefined} requestTime={request?.timestamp} cwd={messageCwd}
         onOpenSubagent={onOpenSubagent} live={arriving} />;
     }
-    const notices = !cacheMissMarker || (part && !part.metadata) ? [] : getTranscriptNotices(msg);
+    const notices = part && !part.metadata ? [] : visibleTranscriptNotices(msg, noticeVisibility);
     const view = (
       <MessageView
         key={`view-${key}`}
@@ -242,7 +242,7 @@ export function ChatTranscript({
         return <ProcessDetailsGroup messageCount={messageCount} requestCount={row.requestCount} toolCallCount={toolCallCount}
           failureCount={failureCount} compaction={compaction} status={status} tokenDisplay={tokenDisplay} usage={row.usage} missingUsage={row.missingUsage} models={models}
           durationMs={anchor !== undefined && finished && before ? getTurnDurationMs(messages, anchor, before.index + 1) : undefined}
-          cacheMisses={cacheMissMarker ? summarizeCacheMisses(noticed) : undefined}
+          cacheMisses={noticeVisibility.cache_miss ? summarizeCacheMisses(noticed) : undefined}
           defaultExpanded={!before} reveal={reveal} renderDetails={() => row.items.map((item) => renderItem(item))} t={t} />;
       },
     });
