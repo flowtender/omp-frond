@@ -29,6 +29,7 @@ function setup() {
     // The fork's reconcile/refresh also carry runtime identity and the subagent merge.
     runtimeIdRef: { current: null }, followRuntimeState: () => false,
     setSubagents: () => {}, mergeSubagentSnapshots: (current) => current,
+    setError: () => {}, WORKER_UNAVAILABLE_MESSAGE: "worker unavailable", WORKER_UNAVAILABLE_CODE: "worker_unavailable",
     setSystemPrompt: () => {}, setExtensionStatuses: () => {}, setExtensionWidgets: () => {},
     setCurrentModelOverride: () => {}, modelSwitchPendingRef: { current: true },
     normalizeQueuedMessages: (value) => value, finishPromptWithoutStream: () => { throw new Error("busy run settled"); },

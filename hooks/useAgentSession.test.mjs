@@ -175,6 +175,5 @@ test("renders the transcript with omp's hideThinkingBlock setting", () => {
   assert.match(chatWindowSource, /displayOptions = useMemo<DisplayOptions>\(\(\) => \(\{ hideThinking: hideThinkingBlock \}\)/);
   // Turn grouping has to agree with what MessageView renders, or a message
   // made only of thinking blocks leaves an empty row behind.
-  assert.match(chatWindowSource, /getDisplayableAssistantBlocks\(message, displayOptions\)/);
-  assert.match(chatWindowSource, /findFinalAssistantIndex\(messages, userIdx, endIdx, displayOptions\)/);
+  assert.match(chatWindowSource, /buildChatTranscript\(retainedIndex < 0 \? messages : messages\.slice\(0, retainedIndex\), displayOptions, noticeVisibility\)/);
 });

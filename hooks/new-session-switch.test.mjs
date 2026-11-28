@@ -96,7 +96,7 @@ test("a composer unmounted before its session exists opens no event stream for i
 });
 
 test("stop during creation restores the first message without sending it", async () => {
-  const { getDraft } = await jiti.import("../lib/draft-store.ts");
+  const { getDraft } = await jiti.import("@/lib/draft-store");
   const result = await sendAndSwitch("cancel");
   assert.deepEqual(result.commands, []);
   assert.deepEqual(result.created, []);

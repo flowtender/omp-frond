@@ -87,6 +87,8 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1", overrides = {} } =
     PROMPT_SETTLE_INITIAL_DELAY_MS: 800,
     PROMPT_SETTLE_POLL_MS: 600,
     PROMPT_SETTLE_MAX_MS: 20_000,
+    WORKER_UNAVAILABLE_MESSAGE: "worker unavailable",
+    WORKER_UNAVAILABLE_CODE: "worker_unavailable",
     delay: (ms) => new Promise((resolve) => bindings.setTimeout(resolve, ms)),
     mountedRef: { current: true },
     sessionIdRef: { current: sessionId },

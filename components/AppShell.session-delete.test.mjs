@@ -55,6 +55,8 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     setSystemInfoLoading() {},
     setActiveTopPanel() {},
     useCallback: (callback) => callback,
+    newProjectOpeningId: () => "opening",
+    setProjectOpeningId() {},
   });
   vm.runInContext(stripTypeScriptTypes(`${handleSessionDeletedBody()}
     handleSessionDeleted("gone-session");
