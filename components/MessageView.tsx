@@ -11,6 +11,7 @@ import { parseStreamingJson } from "@oh-my-pi/pi-utils/json-parse";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
+import { SparkOutline } from "./SparkOutline";
 import { getFileIcon } from "./FileIcons";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
@@ -1188,9 +1189,7 @@ function CardSpark({ kind, active, repeat }: { kind: "input" | "output"; active?
   const [lap, setLap] = useState(0);
   if (active && !started) setStarted(true);
   if (!active && !started) return null;
-  return <svg className="chat-card-spark" data-card-spark={kind} aria-hidden="true">
-    <rect key={lap} x="1" y="1" pathLength="100" onAnimationEnd={repeat ? () => setLap(lap + 1) : undefined} />
-  </svg>;
+  return <SparkOutline variant={kind} lap={lap} onAnimationEnd={repeat ? () => setLap(lap + 1) : undefined} />;
 }
 
 function BlockView({ block, searchTarget, toolResults, isStreaming, outputSpark, thinkingSpark, toolArrival, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; outputSpark?: boolean; thinkingSpark?: boolean; toolArrival?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {

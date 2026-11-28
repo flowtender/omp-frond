@@ -3,6 +3,7 @@ import { useI18n } from "@/hooks/useI18n";
 import type { AgentUsage } from "@/lib/types";
 import { ProviderIcon, modelIconProviders } from "./ProviderIcon";
 import { CacheGlyph } from "./CacheGlyph";
+import { SparkOutline } from "./SparkOutline";
 
 type TokenTotals = Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
 
@@ -148,9 +149,7 @@ function ModelMark({ icon, title, active }: { icon?: string; title?: string; act
           <path d="M8 1.5 14 5v6l-6 3.5L2 11V5zM2 5l6 3.5L14 5M8 8.5v6" />
         </svg>
       )}
-      {active && <svg className="chat-card-spark token-flow-model-spark">
-        <rect x="1" y="1" pathLength="100" />
-      </svg>}
+      {active && <SparkOutline variant="model" />}
     </span>
   );
 }
