@@ -38,6 +38,8 @@ export function readToolPreview(text: string, path: unknown, details: unknown, r
   const provenance = info.raw !== true ? /^\[Skill file: ([^\r\n]+)\]\r?\n/.exec(text) : null;
   const content = provenance ? text.slice(provenance[0].length) : text;
   const snapshot = prefixed ? /^\[([^\r\n]+)#([0-9A-F]{4})\]\r?\n/i.exec(content) : null;
+  // The snapshot names the file alone; the call's path may carry a `:50-100` selector.
+  const namesRequestedFile = (file: string) => [path, source].some((requested) => typeof requested === "string" && (requested === file || requested.startsWith(`${file}:`)));
   // The SDK's display body also excludes model-only notices after the excerpt.
   const body = displayText ?? (prefixed
     ? (snapshot ? content.slice(snapshot[0].length) : content).replace(/^\d+(?:-\d+)?[:|]/gm, "")
@@ -46,7 +48,7 @@ export function readToolPreview(text: string, path: unknown, details: unknown, r
   return {
     markdown,
     hash: snapshot?.[2],
-    sourcePath: provenance?.[1] ?? (snapshot && snapshot[1] !== path && snapshot[1] !== source ? snapshot[1] : undefined),
+    sourcePath: provenance?.[1] ?? (snapshot && !namesRequestedFile(snapshot[1]) ? snapshot[1] : undefined),
     text: body,
   };
 }

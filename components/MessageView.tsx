@@ -34,7 +34,7 @@ import { useDisplaySettings } from "@/hooks/useDisplaySettings";
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { diffGapLabel, parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap } from "@/lib/patch";
 import { canHighlightDiff, highlightDiffFile, MAX_STREAMING_HIGHLIGHT_CHARS, type DiffToken } from "@/lib/diff-syntax";
-import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput, parseNumberedDiff, previewEditInput } from "@/lib/apply-patch";
+import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, extractEditInputPaths, getApplyPatchInputText, parseApplyPatchInput, parseNumberedDiff, previewEditInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isBashToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { isToolCallExpanded, setToolCallExpanded, toolCallExpandedByDefault, toolCallFailureCount } from "@/lib/tool-call-expansion";
@@ -1494,7 +1494,7 @@ function ToolCallBody({ block, result, duration, liveTiming, cwd, onOpenSubagent
   const previewFiles = patchFiles ?? editFiles;
   const showsSplitDiff = useWideDiffLayout() && Boolean(previewFiles
     || (resultDiff && resultDiff.text.length <= MAX_MARKDOWN_CHARS && (parseUnifiedPatch(resultDiff.text) ?? parseNumberedDiff(resultDiff.text))));
-  const patchLabel = isPatchTool ? extractApplyPatchPaths(patchInput).join(", ").slice(0, 120) : "";
+  const patchLabel = (isPatchTool ? extractApplyPatchPaths(patchInput) : isEditTool ? extractEditInputPaths(patchInput) : []).join(", ").slice(0, 120);
   const fileTarget = isFileMutation && (readHeaderTarget(fileArgs) || patchLabel ||
     (editFiles?.length === 1 ? editFiles[0].newPath ?? editFiles[0].oldPath : undefined));
   // A script and the calls it made, instead of the input JSON. Streamed input is
@@ -3366,7 +3366,7 @@ function formatCustomType(type: string): string {
 }
 
 
-function getToolPreview(block: ToolCallContent): string {
+export function getToolPreview(block: ToolCallContent): string {
   const input = block.input;
   if (!input || typeof input !== "object") return "";
   const keys = Object.keys(input);
@@ -3378,6 +3378,9 @@ function getToolPreview(block: ToolCallContent): string {
     if (intent) return intent.slice(0, 120);
   }
 
+  const specific = toolSpecificPreview(block.toolName, input);
+  if (specific) return specific.slice(0, 120);
+
   // Common tool input patterns
   if ("command" in input) return String(input.command).slice(0, 120);
   if ("path" in input) return String(input.path).slice(0, 120);
@@ -3385,8 +3388,43 @@ function getToolPreview(block: ToolCallContent): string {
   if ("pattern" in input) return String(input.pattern).slice(0, 120);
   if ("query" in input) return String(input.query).slice(0, 120);
 
-  const first = input[keys[0]];
-  return String(first).slice(0, 120);
+  // The first field a person could read: never "[object Object]" or a whole prompt's context.
+  for (const key of keys) {
+    const text = scalarPreview(input[key]);
+    if (text) return text.slice(0, 120);
+  }
+  return "";
+}
+
+function scalarPreview(value: unknown): string {
+  if (typeof value === "string") return value.trim().split(/\r?\n/, 1)[0];
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.filter((item) => typeof item === "string" || typeof item === "number").join(", ");
+  return "";
+}
+
+/** Tools whose first argument says nothing about the call: a form's markup, a shared prompt, a nested JSON string. */
+function toolSpecificPreview(toolName: string, input: Record<string, unknown>): string {
+  if (toolNameIs(toolName, "ask") && typeof input.html === "string") {
+    return input.html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  if (toolNameIs(toolName, "task") && Array.isArray(input.tasks)) {
+    return input.tasks.map((item) => isRecord(item) ? scalarPreview(item.name ?? item.id) : "").filter(Boolean).join(", ");
+  }
+  if (toolNameIs(toolName, "github")) {
+    let args: unknown = input.args;
+    if (typeof args === "string") {
+      try { args = JSON.parse(args); } catch { return ""; }
+    }
+    return isRecord(args) ? [args.op, args.repo, args.issue ?? args.pr ?? args.number ?? args.path].map(scalarPreview).filter(Boolean).join(" · ") : "";
+  }
+  if (toolNameIs(toolName, "vikunja")) {
+    return [input.action, input.project ?? input.id].map(scalarPreview).filter(Boolean).join(" · ");
+  }
+  if (toolNameIs(toolName, "goal")) {
+    return [input.op, input.objective].map(scalarPreview).filter(Boolean).join(" · ");
+  }
+  return "";
 }
 
 

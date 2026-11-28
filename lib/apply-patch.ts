@@ -47,6 +47,12 @@ export function extractApplyPatchPaths(patchText: string): string[] {
   return paths;
 }
 
+/** Paths named by the `[path#HASH]` section headers of an edit tool's hashline input, in order. */
+export function extractEditInputPaths(editText: string): string[] {
+  const paths = Array.from(editText.matchAll(/^\[(.+)#[\da-f]{4}\]$/gim), (match) => match[1]);
+  return paths.filter((filePath, index) => paths.indexOf(filePath) === index);
+}
+
 /** Pull the patch document out of an apply_patch tool call's input. */
 export function getApplyPatchInputText(input: unknown, rawInput?: string): string {
   if (input && typeof input === "object" && !Array.isArray(input)) {

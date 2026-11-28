@@ -28,6 +28,7 @@ const {
   getModelDisplayName,
   getTokenEstimateText,
   getToolCallInputText,
+  getToolPreview,
   replaceUserMessageText,
 } = await jiti.import("./MessageView.tsx");
 
@@ -1612,6 +1613,24 @@ test("Read previews keep source metadata separate from the rendered document", (
   assert.deepEqual(preview, { url, contentType: "text/html", method: "native", notes: "Extracted article", markdown: true, text: "# Docs" });
   const skill = readToolPreview("[Skill file: skills/example/SKILL.md]\n[skills/example/SKILL.md#ABCD]\n1:# Example\n2:\n3:- Step", "skill://example", { rowPrefixes: true }, true);
   assert.deepEqual(skill, { markdown: true, hash: "ABCD", sourcePath: "skills/example/SKILL.md", text: "# Example\n\n- Step" });
+});
+
+test("a ranged read's header does not repeat its path beside the hash", () => {
+  const ranged = readToolPreview("[lib/a.ts#ABCD]\n10:const a = 1;", "lib/a.ts:10-20", { rowPrefixes: true }, true);
+  assert.equal(ranged.hash, "ABCD");
+  assert.equal(ranged.sourcePath, undefined);
+  const elsewhere = readToolPreview("[lib/b.ts#ABCD]\n1:x", "lib/a.ts", { rowPrefixes: true }, true);
+  assert.equal(elsewhere.sourcePath, "lib/b.ts");
+});
+
+test("a card title without a path reads as the call's subject, not its first argument", () => {
+  const title = (toolName, input) => getToolPreview({ type: "toolCall", toolCallId: "t", toolName, input });
+  assert.equal(title("ask", { html: "<form>\n<p>Pick <b>one</b></p></form>" }), "Pick one");
+  assert.equal(title("task", { context: "# Goal\nlong shared text", tasks: [{ name: "A", task: "x" }, { name: "B", task: "y" }] }), "A, B");
+  assert.equal(title("github", { args: '{"op":"issue_view","issue":"72"}' }), "issue_view · 72");
+  assert.equal(title("vikunja", { action: "next", project: "sprites" }), "next · sprites");
+  assert.equal(title("runtests", { paths: ["a.mjs", "b.mjs"] }), "a.mjs, b.mjs");
+  assert.equal(title("unknown", { options: { deep: true }, label: "shown" }), "shown");
 });
 
 test("compact JSON arguments keep short nested values together without modifying streamed input", () => {
