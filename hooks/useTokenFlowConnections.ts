@@ -1,6 +1,6 @@
 import { useLayoutEffect, type RefObject } from "react";
 
-const landmarks = "[data-token-flow], [data-token-handoff], [data-transcript-block], [data-transcript-gap]";
+const landmarks = "[data-transcript-port], [data-transcript-gap]";
 const radius = 8;
 
 function arrow(x: number, y: number): string {
@@ -37,6 +37,62 @@ const portRails = {
 } as const;
 type Port = keyof typeof portRails;
 
+// `rail` is the full-width row the rails are measured on; `bounds` is the box the wire touches vertically.
+type Edge = { bounds: DOMRect; rail: DOMRect; port: Port; block: boolean };
+type Row = Edge & {
+  element: HTMLElement;
+  source?: Edge;
+  target?: Edge;
+  foldBody?: DOMRect;
+  foldSlot?: DOMRect;
+  foldExit?: DOMRect;
+};
+
+function drawRow(row: Row) {
+  const { bounds, port, source, target } = row;
+  const entryX = bounds.width * portRails[port].entry;
+  const exitX = bounds.width * portRails[port].exit;
+  const startY = source ? source.bounds.bottom - bounds.top : 0;
+  const fromX = source ? source.rail.left + source.rail.width * portRails[source.port].exit - bounds.left : entryX;
+  const toX = target ? target.rail.left + target.rail.width * portRails[target.port].entry - bounds.left : exitX;
+  if (port === "fold") {
+    const { foldBody: body, foldSlot: slot, foldExit: exit } = row;
+    if (!body || !slot || !exit) return;
+    const centerX = bounds.width / 2;
+    const endY = target ? target.bounds.top - bounds.top : bounds.height;
+    const intoToggle = foldEntry(fromX, startY, centerX, slot.top - bounds.top);
+    const outOfBracket = foldEntry(toX, endY, centerX, exit.bottom - bounds.top, -1);
+    return { kind: "single", path: `${intoToggle} V${body.top - bounds.top} ${outOfBracket} V${body.bottom - bounds.top}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}` } as const;
+  }
+  if (port === "process" || port === "process-end") {
+    // The toggle sits on the wire where it arrives, whichever rail that is; only below it may the wire shift.
+    const toggleBottom = bounds.height / 2 + 14;
+    const endY = target ? target.bounds.top - bounds.top : bounds.height;
+    return { kind: "process", offset: fromX, path: `M${fromX} ${startY} V${toggleBottom} ${verticalConnector(fromX, toggleBottom, toX, endY)}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}` } as const;
+  }
+  if (port === "handoff") {
+    // The wire turns toward the exit rail: left when the flow enters on the right.
+    const turn = Math.sign(exitX - entryX);
+    const turnDown = `q0 ${radius} ${turn * radius} ${radius} H${exitX - turn * radius} q${turn * radius} 0 ${turn * radius} ${radius}`;
+    const lineY = bounds.height / 2;
+    const input = verticalConnector(fromX, startY, entryX, lineY - radius);
+    const endY = target ? target.bounds.top - bounds.top : Math.min(bounds.height - 4, lineY + radius + 6);
+    const output = verticalConnector(exitX, lineY + radius, toX, endY);
+    const base = `M${fromX} ${startY} ${input} ${turnDown}`;
+    const fallback = `${base} ${output}${target?.block || !target ? ` ${arrow(toX, endY)}` : ""}`;
+    return { kind: "handoff", base, fallback } as const;
+  }
+  const endY = target ? target.bounds.top - bounds.top : bounds.height;
+  const lineY = (startY + endY) / 2;
+  const input = verticalConnector(fromX, startY, entryX, lineY - radius);
+  const output = verticalConnector(exitX, lineY + radius, toX, endY);
+  const centerX = bounds.width / 2;
+  const inputRail = `M${fromX} ${startY} ${input} q0 ${radius} ${-radius} ${radius} H${centerX}`;
+  const outputRail = `M${centerX} ${lineY} H${exitX + radius} q${-radius} 0 ${-radius} ${radius} ${output}`;
+  return { kind: "model", offset: lineY - bounds.height / 2, inputRail, outputRail,
+    arrowPath: target?.port === "output" ? arrow(toX, endY) : undefined } as const;
+}
+
 function updatePath(path: Element | null | undefined, drawing?: string) {
   if (!path) return;
   const previous = path.getAttribute("d");
@@ -57,7 +113,6 @@ export function useTokenFlowConnections(
   enabled: boolean,
   contentRef: RefObject<HTMLDivElement | null>,
   composerWireRef?: RefObject<SVGSVGElement | null>,
-  explicitPorts = false,
 ) {
   useLayoutEffect(() => {
     const content = contentRef.current;
@@ -87,34 +142,20 @@ export function useTokenFlowConnections(
       layoutFrame = 0;
       if (!content) return;
       // Measure all boxes before touching SVG or inline styles.
-      // `rail` is the full-width row the rails are measured on; `bounds` is the box the wire touches vertically.
-      type Edge = { bounds: DOMRect; rail: DOMRect; port: Port; block: boolean };
-      type Row = Edge & {
-        element: HTMLElement;
-        source?: Edge;
-        target?: Edge;
-        foldBody?: DOMRect;
-        foldSlot?: DOMRect;
-        foldExit?: DOMRect;
-      };
       const rows: Row[] = [];
       const foldClips = new Map<Element, { bottom: number; hidden: boolean }>();
       let previous: Edge | undefined;
       let previousRow: Row | undefined;
-      const selector = explicitPorts ? "[data-transcript-port], [data-transcript-gap]" : landmarks;
-      for (const element of content.querySelectorAll<HTMLElement>(selector)) {
+      for (const element of content.querySelectorAll<HTMLElement>(landmarks)) {
         if (element.closest(".transcript-flow-layout") !== content) continue;
         if (element.hasAttribute("data-transcript-gap")) {
           previous = previousRow = undefined;
           continue;
         }
-        const port = explicitPorts ? element.dataset.transcriptPort as Port
-          : element.hasAttribute("data-token-handoff") ? "handoff"
-          : element.hasAttribute("data-token-flow") ? "model"
-          : element.dataset.transcriptBlock === "response" ? "output" : "input";
+        const port = element.dataset.transcriptPort as Port;
         // Transcript views declare the semantic port; the inner box supplies its geometry.
         const block = portRails[port].box;
-        const box = explicitPorts && block && !element.hasAttribute("data-transcript-block")
+        const box = block && !element.hasAttribute("data-transcript-block")
           ? element.querySelector("[data-transcript-block]") ?? element : element;
         const bounds = box.getBoundingClientRect();
         const fold = element.closest("[data-fold-moving] > [data-fold-details]");
@@ -150,62 +191,29 @@ export function useTokenFlowConnections(
       const composerDrawing = measureComposerPath(lastHandoff?.bounds);
       composerHandoff = undefined;
       for (const row of rows) {
-        const { element, bounds, port, source, target } = row;
-        const entryX = bounds.width * portRails[port].entry;
-        const exitX = bounds.width * portRails[port].exit;
-        // The wire turns toward the exit rail: left when the flow enters on the right.
-        const turn = Math.sign(exitX - entryX);
-        const startY = source ? source.bounds.bottom - bounds.top : 0;
+        const drawing = drawRow(row);
+        if (!drawing) continue;
+        const { element } = row;
         const wire = element.querySelector<SVGSVGElement>(":scope > .token-flow-wire");
-        const path = port === "model" ? null : wire?.querySelector<SVGPathElement>("path");
-        const fromX = source ? source.rail.left + source.rail.width * portRails[source.port].exit - bounds.left : entryX;
-        const toX = target ? target.rail.left + target.rail.width * portRails[target.port].entry - bounds.left : exitX;
-        const turnDown = `q0 ${radius} ${turn * radius} ${radius} H${exitX - turn * radius} q${turn * radius} 0 ${turn * radius} ${radius}`;
-        if (port === "fold") {
-          const { foldBody: body, foldSlot: slot, foldExit: exit } = row;
-          if (!body || !slot || !exit) continue;
-          const centerX = bounds.width / 2;
-          const endY = target ? target.bounds.top - bounds.top : bounds.height;
-          const intoToggle = foldEntry(fromX, startY, centerX, slot.top - bounds.top);
-          const outOfBracket = foldEntry(toX, endY, centerX, exit.bottom - bounds.top, -1);
-          updatePath(path, `${intoToggle} V${body.top - bounds.top} ${outOfBracket} V${body.bottom - bounds.top}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
-          continue;
-        }
-        if (port === "process" || port === "process-end") {
-          // The toggle sits on the wire where it arrives, whichever rail that is; only below it may the wire shift.
-          const toggleBottom = bounds.height / 2 + 14;
-          const endY = target ? target.bounds.top - bounds.top : bounds.height;
-          updateOffset(element, "--token-flow-process-x", fromX);
-          updatePath(path, `M${fromX} ${startY} V${toggleBottom} ${verticalConnector(fromX, toggleBottom, toX, endY)}${target?.port === "output" ? ` ${arrow(toX, endY)}` : ""}`);
-          continue;
-        }
-        if (port === "handoff") {
-          const lineY = bounds.height / 2;
-          const input = verticalConnector(fromX, startY, entryX, lineY - radius);
-          const endY = target ? target.bounds.top - bounds.top : Math.min(bounds.height - 4, lineY + radius + 6);
-          const output = verticalConnector(exitX, lineY + radius, toX, endY);
-          const base = `M${fromX} ${startY} ${input} ${turnDown}`;
-          const fallback = `${base} ${output}${target?.block || !target ? ` ${arrow(toX, endY)}` : ""}`;
-          if (composerPath && path && row === lastHandoff) {
-            composerHandoff = { row: element, path, base, fallback };
+        if (drawing.kind === "model") {
+          updateOffset(element, "--token-flow-offset", drawing.offset);
+          updatePath(wire?.querySelector('[data-flow-rail="input"]'), drawing.inputRail);
+          updatePath(wire?.querySelector('[data-flow-rail="output"]'), drawing.outputRail);
+          updatePath(wire?.querySelector("[data-flow-arrow]"), drawing.arrowPath);
+          if (element.hasAttribute("data-flow-live")) {
+            updatePath(wire?.querySelector('[data-flow-spark="input"]'), drawing.inputRail);
+            updatePath(wire?.querySelector('[data-flow-spark="output"]'), drawing.outputRail);
           }
-          updatePath(path, row === lastHandoff && composerDrawing !== undefined ? base : fallback);
           continue;
         }
-        const endY = target ? target.bounds.top - bounds.top : bounds.height;
-        const lineY = (startY + endY) / 2;
-        updateOffset(element, "--token-flow-offset", lineY - bounds.height / 2);
-        const input = verticalConnector(fromX, startY, entryX, lineY - radius);
-        const output = verticalConnector(exitX, lineY + radius, toX, endY);
-        const centerX = bounds.width / 2;
-        const inputRail = `M${fromX} ${startY} ${input} q0 ${radius} ${-radius} ${radius} H${centerX}`;
-        const outputRail = `M${centerX} ${lineY} H${exitX + radius} q${-radius} 0 ${-radius} ${radius} ${output}`;
-        updatePath(wire?.querySelector('[data-flow-rail="input"]'), inputRail);
-        updatePath(wire?.querySelector('[data-flow-rail="output"]'), outputRail);
-        updatePath(wire?.querySelector("[data-flow-arrow]"), target?.port === "output" ? arrow(toX, endY) : undefined);
-        if (element.hasAttribute("data-flow-live")) {
-          updatePath(wire?.querySelector('[data-flow-spark="input"]'), inputRail);
-          updatePath(wire?.querySelector('[data-flow-spark="output"]'), outputRail);
+        const path = wire?.querySelector<SVGPathElement>("path");
+        if (drawing.kind === "handoff") {
+          const { base, fallback } = drawing;
+          if (composerPath && path && row === lastHandoff) composerHandoff = { row: element, path, base, fallback };
+          updatePath(path, row === lastHandoff && composerDrawing !== undefined ? base : fallback);
+        } else {
+          if (drawing.kind === "process") updateOffset(element, "--token-flow-process-x", drawing.offset);
+          updatePath(path, drawing.path);
         }
       }
       updatePath(composerPath, composerDrawing);
@@ -242,5 +250,5 @@ export function useTokenFlowConnections(
       scroller?.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(scrollFrame);
     };
-  }, [enabled, contentRef, composerWireRef, explicitPorts]);
+  }, [enabled, contentRef, composerWireRef]);
 }

@@ -139,7 +139,7 @@ export function ChatTranscript({
       />
     );
     const noticeLines = notices.length > 0 ? <TranscriptNoticeLines notices={notices} /> : null;
-    const port = item.kind === "input" ? "input" : undefined;
+    const port = item.kind === "input" && msg.role !== "custom" ? "input" : undefined;
     const canReveal = item.kind === "user" || item.kind === "compaction" || item.kind === "input"
       || part?.kind === "chat" || part?.kind === "status";
     return (

@@ -981,7 +981,7 @@ function AssistantMessageView({
       streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)}
       cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />;
     if (isCallPart && pairedToolCalls?.has(block.toolCallId)) return null;
-    return <TranscriptBlock key={originalIndex} data-transcript-port={isCallPart ? "input" : undefined}><BlockView block={block} toolResults={toolResults} toolArrival={toolArrival || live} toolCallDurations={toolCallDurations} cwd={cwd} onOpenSubagent={onOpenSubagent} blockIndex={originalIndex} /></TranscriptBlock>;
+    return <TranscriptBlock key={originalIndex} data-transcript-port={isCallPart || !transcriptPart ? "input" : undefined}><BlockView block={block} toolResults={toolResults} toolArrival={toolArrival || live} toolCallDurations={toolCallDurations} cwd={cwd} onOpenSubagent={onOpenSubagent} blockIndex={originalIndex} /></TranscriptBlock>;
   };
 
   const outputBlocks = (
@@ -1051,6 +1051,7 @@ function AssistantMessageView({
 
       {providerError && (
         <TranscriptBlock kind="response"
+          data-transcript-port={transcriptPart ? undefined : "output"}
           role="alert"
           style={{
             marginTop: blocks.length > 0 ? 8 : 0,
@@ -1072,6 +1073,7 @@ function AssistantMessageView({
 
       {truncated && (
         <TranscriptBlock kind="response"
+          data-transcript-port={transcriptPart ? undefined : "output"}
           role="alert"
           style={{
             marginTop: blocks.length > 0 || providerError ? 8 : 0,
@@ -2904,6 +2906,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   return (
     <div className="transcript-message">
       <TranscriptBlock
+        data-transcript-port="input"
         style={{
           border: "1px solid var(--border)",
           borderRadius: 8,

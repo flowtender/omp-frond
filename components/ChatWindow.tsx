@@ -879,7 +879,7 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
   const showTokenFlow = tokenDisplay === "flow" && !loading && !error && !isEmptyNew;
   const waitingForModel = showTokenFlow && agentRunning && agentPhase?.kind === "waiting_model"
     && !isCompacting && !retryInfo && !extensionDialog;
-  useTokenFlowConnections(showTokenFlow, messageContentRef, composerWireRef, true);
+  useTokenFlowConnections(showTokenFlow, messageContentRef, composerWireRef);
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
