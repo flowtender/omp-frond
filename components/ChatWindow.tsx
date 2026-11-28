@@ -1,25 +1,20 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { AgentMessage, AgentUsage, AssistantContentBlock, AssistantMessage, BackgroundJob, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
+import type { AgentMessage, AssistantMessage, BackgroundJob, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, SubagentSnapshot, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { isMessageGroupAnchor, type DisplayOptions } from "@/lib/message-display";
-import { buildChatTranscript, type ChatTranscriptItem } from "@/lib/chat-transcript";
-import { useExpansionPreference } from "@/lib/expansion-preference";
-import { toolCallFailureCount } from "@/lib/tool-call-expansion";
-import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
+import type { DisplayOptions } from "@/lib/message-display";
+import { buildChatTranscript } from "@/lib/chat-transcript";
 import { attachDeferredTaskResults } from "@/lib/task-tool-display";
-import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
-import { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } from "./MessageView";
-import { TranscriptViewportRow } from "./TranscriptViewportRow";
-import { FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff } from "./TokenFlow";
-import { TranscriptGrowth, useTranscriptFold } from "./TranscriptGrowth";
+import { MessageView } from "./MessageView";
+import { ChatTranscript } from "./ChatTranscript";
+import { StreamingReply } from "./StreamingReply";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -36,13 +31,11 @@ import { useSyncedDisplaySettings } from "@/hooks/useDisplaySettings";
 import { ChatAnimationsContext, useEffectiveChatAnimationDuration } from "@/hooks/useChatAnimations";
 import { useProviderUsage } from "@/hooks/useProviderUsage";
 import { useShowCostWithUsage } from "@/hooks/useShowCostWithUsage";
-import { useTokenDisplay, type TokenDisplayMode } from "@/hooks/useTokenDisplay";
+import { useTokenDisplay } from "@/hooks/useTokenDisplay";
 import { useTokenFlowConnections } from "@/hooks/useTokenFlowConnections";
 import type { ProviderUsageSummary } from "@/lib/provider-usage-types";
 import { formatTokenCount } from "@/lib/format-tokens";
 import { selectHasStreamingContent, selectIsStreaming, useStreamingSelector } from "@/hooks/useStreamingSelector";
-import { useSequencedReply } from "@/hooks/useSequencedReply";
-import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
@@ -50,8 +43,6 @@ import type { GoalStatusInfo, SessionStatsInfo } from "@/lib/omp-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import type { OmpSettingsShortcut } from "@/lib/settings-navigation";
-import { getTranscriptNotices, summarizeCacheMisses, type CacheMissSummary } from "@/lib/transcript-notices";
-import { cacheMissSummaryText, TRANSCRIPT_NOTICE_WARNING_COLOR, TranscriptNoticeLines } from "@/components/TranscriptNotices";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
   CHAT_SCROLL_TAIL_TOLERANCE,
@@ -59,7 +50,6 @@ import {
   getNextVisibleCount,
   getNextWindowCount,
   getPromptAnchorSpacerHeight,
-  getVisibleRenderWindow,
   isScrollAtTail,
   LOAD_OLDER_PAGE_TAIL,
   RESTORE_ENTRY_BUDGET,
@@ -202,124 +192,6 @@ function getUserInputText(message: AgentMessage): string | null {
     .join("\n")
     .trim();
   return text.length > 0 ? text : null;
-}
-
-function ProcessDetailsGroup({ messageCount, requestCount = 0, toolCallCount, failureCount, compaction = false, status, durationMs, cacheMisses, tokenDisplay = "text", usage, missingUsage = false, models = [], defaultExpanded = false, reveal = false, renderDetails, t }: {
-  messageCount: number;
-  requestCount?: number;
-  toolCallCount: number;
-  failureCount: number;
-  compaction?: boolean;
-  status?: string;
-  durationMs?: number;
-  cacheMisses?: CacheMissSummary;
-  tokenDisplay?: TokenDisplayMode;
-  usage?: Pick<AgentUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
-  missingUsage?: boolean;
-  defaultExpanded?: boolean;
-  models?: { provider: string; model: string }[];
-  reveal?: boolean;
-  renderDetails: () => ReactNode;
-  t: (key: string, params?: Record<string, string | number>) => string;
-}) {
-  const preference = useExpansionPreference("process");
-  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
-  const expanded = manualExpanded ?? (preference === "automatic" ? defaultExpanded : preference === "expanded");
-  useLayoutEffect(() => {
-    if (reveal) setManualExpanded(true);
-  }, [reveal]);
-  const collapsed = !expanded && !reveal;
-  const { detailsRef, showDetails, bracketRef, bracketsMoving, measureBrackets } = useTranscriptFold(collapsed, reveal, tokenDisplay === "flow");
-  const details = showDetails ? (
-    <div ref={detailsRef} data-fold-details="" inert={collapsed} style={tokenDisplay === "flow" ? undefined : { marginTop: 8 }}>
-      <div className="flow-root">{renderDetails()}</div>
-    </div>
-  ) : null;
-  const sizeParts: string[] = [];
-  if (messageCount > 0) sizeParts.push(`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`);
-  if (requestCount > 0) sizeParts.push(`${requestCount} ${t(requestCount === 1 ? "chat.modelRequest" : "chat.modelRequests")}`);
-  const toolParts: string[] = [];
-  if (toolCallCount > 0) toolParts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
-  const otherParts: string[] = [];
-  if (compaction) otherParts.push(t("i18n.conversationCompacted"));
-  if (status && collapsed) otherParts.push(status);
-  if (durationMs !== undefined) otherParts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
-  const parts = [...sizeParts, ...toolParts, ...otherParts];
-  // Folded, the cache misses inside are added up here; open, each shows under its step.
-  const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
-  const failureText = failureCount > 0 && !(expanded || reveal) ? t("chat.processFailures", { count: failureCount }) : undefined;
-
-  const expandedNow = expanded || reveal;
-  const toggleIcon = (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-      <path d="M2.5 6h7" />
-      {!expandedNow && <path d="M6 2.5v7" />}
-    </svg>
-  );
-  const summary = (
-    <>
-      {parts.join(" · ")}
-      {failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${failureText}`}</span>}
-      {cacheMissText && ` · ${cacheMissText}`}
-    </>
-  );
-  const foldSummaryId = useId();
-  const toggleProps = {
-    type: "button" as const,
-    "aria-expanded": !collapsed,
-    onClick: () => setManualExpanded(collapsed),
-    title: collapsed ? t("chat.expandProcess") : t("chat.collapseProcess"),
-  };
-  const toggle = (
-    <button
-      {...toggleProps}
-      className="transcript-fold-toggle"
-      aria-label={t("chat.processDetails")}
-      aria-describedby={foldSummaryId}
-    >
-      <span style={{ flexShrink: 0, display: "inline-flex" }} aria-hidden="true">{toggleIcon}</span>
-      <span className="transcript-fold-label" id={foldSummaryId} dir="auto">
-        <span>{summary}</span>
-        {collapsed && tokenDisplay === "text" && requestCount > 0 && <FoldTokenTotals usage={usage} missing={missingUsage} />}
-      </span>
-    </button>
-  );
-  // In flow mode a run of requests is drawn on the wire: collapsed as a bracketed turn marker whose rows hold the
-  // fold's stats, open as a handoff row. Either way the toggle is an icon button on the wire.
-  let body: ReactNode;
-  if (tokenDisplay === "flow") {
-    const summaryLabel = [t("chat.processDetails"), ...parts, failureText, cacheMissText].filter(Boolean).join(" · ");
-    const iconToggle = (
-      <button {...toggleProps} className="token-flow-handoff-icon token-flow-fold-toggle" aria-label={summaryLabel}>{toggleIcon}</button>
-    );
-    const foldProps = {
-      usage, missing: missingUsage, models, hasRequests: requestCount > 0,
-      outputRows: [...sizeParts, ...otherParts],
-      inputRows: [...toolParts, failureText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{failureText}</span>, cacheMissText].filter(Boolean),
-    };
-    body = (
-      <div className="transcript-process transcript-flow-fold-group" data-fold-moving={bracketsMoving ? "" : undefined}>
-        <div ref={bracketRef} className="transcript-fold-brackets" aria-hidden="true" />
-        {showDetails ? (
-          <>
-            {measureBrackets && <div className="transcript-fold-measure" aria-hidden="true"><TokenFlowFold {...foldProps} measure /></div>}
-            <TokenFlowHandoff kind="process" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>
-            {details}
-            <TokenFlowHandoff kind="process-end" label={summaryLabel} time={null}>{iconToggle}</TokenFlowHandoff>
-          </>
-        ) : <TokenFlowFold {...foldProps} bottomToggle={iconToggle}>{iconToggle}</TokenFlowFold>}
-      </div>
-    );
-  } else {
-    body = (
-      <div className="transcript-process">
-        {toggle}
-        {details}
-        {showDetails && <button {...toggleProps} className="transcript-fold-toggle" aria-label={toggleProps.title}>{toggleIcon}</button>}
-      </div>
-    );
-  }
-  return body;
 }
 
 export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onProviderUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, onSubagentsChange, onBackgroundJobsChange, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
@@ -1294,208 +1166,22 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} className={showTokenFlow ? "transcript-flow-layout" : undefined} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
-            {(() => {
-              const { rows, results, lastUserIndex: lastUserIdx, foldedRequests } = transcript;
-
-              const pinMessage = (idx: number) => {
-                const id = entryIds[idx];
-                return idx === lastUserIdx || Boolean(id && (
-                  id === pendingSearchScroll?.entryId || id === pendingScrollRestore?.anchorEntryId || id === editEntryId
-                ));
-              };
-              const attachLatestPrompt = (el: HTMLDivElement | null) => { lastUserMsgRef.current = el; };
-
-              const itemKey = (item: ChatTranscriptItem) => `${messageKeys[item.index]}-${item.kind}${item.kind === "assistant" ? `-${item.part.kind}-${item.part.start}` : ""}`;
-              const matches = (item: ChatTranscriptItem, id: string | undefined, block?: AssistantContentBlock | null) => {
-                if (!id || entryIds[item.index] !== id || item.kind === "model" || item.kind === "user-handoff") return false;
-                if (!block || item.kind !== "assistant") return true;
-                const message = messages[item.index] as AssistantMessage;
-                const index = message.content.indexOf(block);
-                return index >= item.part.start && index < item.part.end;
-              };
-              const renderItem = (item: ChatTranscriptItem, writtenFiles?: WrittenFile[], turnDurationMs?: number): ReactNode => {
-                const idx = item.index;
-                const msg = messages[idx];
-                const key = itemKey(item);
-                const part = item.kind === "assistant" ? item.part : undefined;
-                const arriving = !loading && !pendingScrollRestore && idx >= lastUserIdx && !entryIds[idx];
-                const wasStreamed = msg.role === "assistant" && msg.timestamp !== undefined && visibleReplyStartsRef.current.has(msg.timestamp);
-                if (item.kind === "model" && msg.role === "assistant") {
-                  if (!showTokenFlow) return tokenDisplay === "text" && foldedRequests.has(idx) && msg.usage
-                    ? <div key={key} className="transcript-message text-xs text-text-dim">{formatUsage(msg.usage, true, true)}</div>
-                    : null;
-                  return <TokenFlow key={key} usage={msg.usage} provider={msg.provider} model={msg.model}
-                    modelName={getModelDisplayName(msg.provider, msg.model, modelNames)} time={formatTime(msg.timestamp)} />;
-                }
-                if (item.kind === "user-handoff" && msg.role === "assistant") {
-                  if (!showTokenFlow || ((sessionBusy || isStreaming) && idx === messages.length - 1)) return null;
-                  return <TokenFlowHandoff key={key} kind="user" label={t("session.user")} time={handoffTimeOf(msg)} />;
-                }
-                if (item.kind === "result" && msg.role === "toolResult") {
-                  const request = item.call ? messages[item.call.index] as AssistantMessage : undefined;
-                  const call = item.call && request?.content[item.call.blockIndex];
-                  return <TranscriptToolResult key={key} result={toolResultsMap.get(msg.toolCallId) ?? msg}
-                    call={call?.type === "toolCall" ? call : undefined} requestTime={request?.timestamp} cwd={messageCwd}
-                    onOpenSubagent={onOpenSubagent} live={arriving} />;
-                }
-                const notices = !cacheMissMarker || (part && !part.metadata) ? [] : getTranscriptNotices(msg);
-                const view = (
-                  <MessageView
-                    key={`view-${key}`}
-                    message={msg}
-                    toolResults={toolResultsMap}
-                    modelNames={modelNames}
-                    cwd={messageCwd}
-                    onOpenFile={onOpenFile}
-                    onOpenSubagent={onOpenSubagent}
-                    entryId={entryIds[idx]}
-                    arrivalSpark={arriving && (msg.role === "user" || part?.kind === "chat")}
-                    toolArrival={part?.kind === "call" && arriving && !wasStreamed}
-                    searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
-                    onFork={bashRunning || isNew ? undefined : handleFork}
-                    forking={forkingEntryId === entryIds[idx]}
-                    onEditContent={sessionBusy ? undefined : handleEditContent}
-                    onCancelEdit={cancelEdit}
-                    isEditing={editEntryId === entryIds[idx]}
-                    showTimestamp={part?.metadata}
-                    prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
-                    sessionId={session?.id ?? sessionIdRef.current ?? undefined}
-                    writtenFiles={writtenFiles}
-                    turnDurationMs={turnDurationMs}
-                    onCompact={part?.kind === "status" && idx === messages.length - 1 && !isStreaming ? compactWithConfiguredMethod : undefined}
-                    isCompacting={isCompacting}
-                    compactError={compactError}
-                    hideCost={hideCost}
-                    tokenDisplay={tokenDisplay}
-                    transcriptPart={part}
-                    pairedToolCalls={part?.kind === "call" ? results : undefined}
-                    hideTokenCounts={foldedRequests.has(idx)}
-                  />
-                );
-                const noticeLines = notices.length > 0 ? <TranscriptNoticeLines notices={notices} /> : null;
-                const port = item.kind === "input" ? "input" : undefined;
-                const canReveal = item.kind === "user" || item.kind === "compaction" || item.kind === "input"
-                  || part?.kind === "chat" || part?.kind === "status";
-                return (
-                  <div key={key} data-entry-id={entryIds[idx]}
-                    data-transcript-port={port}
-                    data-chat-scroll-anchor={entryIds[idx] && (isMessageGroupAnchor(msg) || part?.kind === "chat") ? "" : undefined}
-                    ref={item.kind === "user" && idx === lastUserIdx ? attachLatestPrompt : undefined}>
-                    {canReveal ? (
-                      <TranscriptGrowth from={arriving && !wasStreamed ? 0 : undefined}
-                        data-chat-arrival={arriving && !wasStreamed ? part?.kind === "status" ? "attention" : item.kind : undefined}>
-                        {view}
-                        {noticeLines}
-                      </TranscriptGrowth>
-                    ) : <>{view}{noticeLines}</>}
-                  </div>
-                );
-              };
-
-              const rendered: { key: string; pinned?: boolean; render: () => ReactNode }[] = [];
-              let writtenStart = 0;
-              let durationAnchor: number | undefined;
-              let durationOnFold = false;
-              for (const row of rows) {
-                if (row.kind !== "fold") {
-                  if (!showTokenFlow && (row.kind === "model" || row.kind === "user-handoff")) continue;
-                  if (row.kind === "user") {
-                    writtenStart = row.index + 1;
-                    durationAnchor = entryIds[row.index] ? row.index : undefined;
-                    durationOnFold = false;
-                  }
-                  const completed = row.kind === "assistant" && row.part.kind === "chat" && row.part.metadata
-                    && (messages[row.index] as AssistantMessage).stopReason !== "toolUse";
-                  const first = writtenStart;
-                  const anchor = durationOnFold ? undefined : durationAnchor;
-                  rendered.push({
-                    key: itemKey(row),
-                    pinned: pinMessage(row.index),
-                    render: () => {
-                      if (!completed) return renderItem(row);
-                      const blocks: AssistantContentBlock[] = [];
-                      for (let i = first; i <= row.index; i++) {
-                        const message = messages[i];
-                        if (message.role === "assistant") for (const block of message.content) {
-                          if (block.type === "toolCall") blocks.push(block);
-                        }
-                      }
-                      return renderItem(row, blocks.length ? extractTurnWrittenFiles(blocks, toolResultsMap, messageCwd) : undefined,
-                        anchor === undefined ? undefined : getTurnDurationMs(messages, anchor, row.index + 1));
-                    },
-                  });
-                  if (completed) {
-                    writtenStart = row.index + 1;
-                    durationAnchor = undefined;
-                  }
-                  continue;
-                }
-                const reveal = Boolean(pendingSearchScroll || pendingScrollRestore) && row.items.some((item) => matches(item, pendingSearchScroll?.entryId, searchBlock)
-                  || matches(item, pendingScrollRestore?.anchorEntryId));
-                const anchor = durationAnchor;
-                const before = row.before;
-                const finished = before?.kind === "assistant" && before.part.metadata === true
-                  && (messages[before.index] as AssistantMessage).stopReason !== "toolUse";
-                durationOnFold = finished;
-                rendered.push({
-                  key: `fold-${row.after ? itemKey(row.after) : itemKey(row.items[0])}`,
-                  pinned: reveal,
-                  render: () => {
-                    let messageCount = 0;
-                    let toolCallCount = 0;
-                    let failureCount = 0;
-                    let compaction = false;
-                    let status: string | undefined;
-                    const noticed: AgentMessage[] = [];
-                    const models: { provider: string; model: string }[] = [];
-                    for (const item of row.items) {
-                      const message = messages[item.index];
-                      if (item.kind === "model" && message.role === "assistant") models.push({ provider: message.provider, model: message.model });
-                      if (item.kind === "model" || item.kind === "user-handoff") continue;
-                      if (item.kind === "assistant" && item.part.kind === "status" && message.role === "assistant") {
-                        if (message.stopReason === "error") status = t("chat.foldModelError");
-                        if (message.stopReason === "length") status ??= t("chat.foldOutputLimit");
-                      }
-                      messageCount++;
-                      compaction ||= item.kind === "compaction";
-                      if (item.kind === "assistant" && message.role === "assistant") {
-                        if (item.part.metadata) noticed.push(message);
-                        for (let i = item.part.start; i < item.part.end; i++) {
-                          const block = message.content[i];
-                          if (block.type !== "toolCall") continue;
-                          toolCallCount++;
-                          if (!results.has(block.toolCallId)) failureCount += toolCallFailureCount(block, toolResultsMap.get(block.toolCallId));
-                        }
-                      }
-                      if (item.kind === "result" && message.role === "toolResult") {
-                        const call = item.call && (messages[item.call.index] as AssistantMessage).content[item.call.blockIndex];
-                        const result = toolResultsMap.get(message.toolCallId) ?? message;
-                        failureCount += call?.type === "toolCall" ? toolCallFailureCount(call, result) : Number(Boolean(result.isError));
-                      }
-                    }
-                    return <ProcessDetailsGroup messageCount={messageCount} requestCount={row.requestCount} toolCallCount={toolCallCount}
-                      failureCount={failureCount} compaction={compaction} status={status} tokenDisplay={tokenDisplay} usage={row.usage} missingUsage={row.missingUsage} models={models}
-                      durationMs={anchor !== undefined && finished && before ? getTurnDurationMs(messages, anchor, before.index + 1) : undefined}
-                      cacheMisses={cacheMissMarker ? summarizeCacheMisses(noticed) : undefined}
-                      defaultExpanded={!before} reveal={reveal} renderDetails={() => row.items.map((item) => renderItem(item))} t={t} />;
-                  },
-                });
-              }
-              const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
-              const hasMore = startIndex > 0 || hasEarlierMessages;
-              return (
-                <>
-                  {hasMore && (
-                     <div ref={setSentinel} className="py-3 text-center text-xs text-text-muted">
-                       {t("chat.loadEarlier", { count: earlierTurnCount })}
-                    </div>
-                  )}
-                  {rendered.slice(startIndex).map(({ key, pinned, render }, index) => (
-                    <TranscriptViewportRow key={key} pinned={pinned || index + startIndex >= rendered.length - 2} render={render} />
-                  ))}
-                </>
-              );
-            })()}
+            <ChatTranscript
+              transcript={transcript} messages={messages} entryIds={entryIds} messageKeys={messageKeys}
+              toolResultsMap={toolResultsMap} modelNames={modelNames} messageCwd={messageCwd}
+              sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+              tokenDisplay={tokenDisplay} showTokenFlow={showTokenFlow} cacheMissMarker={cacheMissMarker} hideCost={hideCost}
+              loading={loading} restoringScroll={Boolean(pendingScrollRestore)} sessionBusy={sessionBusy} isStreaming={isStreaming}
+              visibleReplyStarts={visibleReplyStartsRef} latestPromptRef={lastUserMsgRef}
+              searchEntryId={pendingSearchScroll?.entryId} searchBlock={searchBlock} restoreEntryId={pendingScrollRestore?.anchorEntryId}
+              editEntryId={editEntryId} forkingEntryId={forkingEntryId}
+              onFork={bashRunning || isNew ? undefined : handleFork}
+              onEditContent={sessionBusy ? undefined : handleEditContent} onCancelEdit={cancelEdit}
+              onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent}
+              onCompact={compactWithConfiguredMethod} isCompacting={isCompacting} compactError={compactError}
+              visibleCount={visibleCount} hasEarlierMessages={hasEarlierMessages} earlierTurnCount={earlierTurnCount}
+              earlierSentinelRef={setSentinel}
+            />
             <StreamingReply store={streamingStore} onCommit={onStreamingCommit} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} waitingForModel={waitingForModel || (showTokenFlow && isStreaming)} model={displayModelValue} />
 
             {agentRunning && !hasStreamingContent && (agentPhase || isCompacting) && (
@@ -1724,34 +1410,6 @@ function GoalBar({ goal, t }: { goal: GoalStatusInfo | null; t: (key: string, pa
     </div>
   );
 }
-
-// The reply being streamed: the one part of the chat a chunk re-renders.
-const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, tokenDisplay, waitingForModel, model }: {
-  store: StreamingStore;
-  /** Runs after each visible update is in the DOM. */
-  onCommit: (message: AssistantMessage | null) => void;
-  toolResults: Map<string, ToolResultMessage>;
-  modelNames: Record<string, string>;
-  cwd?: string;
-  onOpenFile?: (filePath: string, page?: number) => void;
-  onOpenSubagent?: (sessionId: string, label: string) => void;
-  tokenDisplay: TokenDisplayMode;
-  waitingForModel: boolean;
-  model: { provider: string; modelId: string } | null;
-}) {
-  const { root, message } = useSequencedReply(store);
-  const { t } = useI18n();
-  useLayoutEffect(() => onCommit(message), [message, onCommit, waitingForModel]);
-  const waitingMessage = useMemo<AssistantMessage>(() => ({
-    role: "assistant",
-    content: [],
-    provider: model?.provider ?? "",
-    model: model?.modelId ?? t("chat.waitingModel"),
-  }), [model, t]);
-  if (!waitingForModel && (!message || (!message.content.length && tokenDisplay !== "flow"))) return null;
-  return <div ref={root} className="contents"><MessageView message={message ?? waitingMessage} toolResults={toolResults} isStreaming live
-    modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} tokenDisplay={tokenDisplay} /></div>;
-});
 
 // A one-line notice is exactly as tall as its entrance animation pins it, and
 // its line sits dead centre: the two 1px borders, a 21px line box (14px at

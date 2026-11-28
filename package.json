@@ -102,6 +102,7 @@
     "ansi_up": "^6.0.6",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.8",
+    "happy-dom": "^21.0.4",
     "jiti": "^2.7.0",
     "json-stringify-pretty-compact": "^4.0.0",
     "katex": "^0.16.47",

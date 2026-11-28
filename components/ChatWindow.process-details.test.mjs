@@ -1,75 +1,65 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { Script, createContext } from "node:vm";
+import { Window } from "happy-dom";
 import { createJiti } from "jiti";
-import ts from "typescript";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const React = await jiti.import("react");
-const { renderToStaticMarkup } = await jiti.import("react-dom/server");
+const { act, createElement } = await jiti.import("react");
+const { createRoot } = await jiti.import("react-dom/client");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
-const { formatTime, formatUsage, getModelDisplayName, handoffTimeOf, MessageView, TranscriptToolResult } = await jiti.import("./MessageView.tsx");
-const { FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff } = await jiti.import("./TokenFlow.tsx");
-const { useI18n } = await jiti.import("@/hooks/useI18n");
-const { useSequencedReply } = await jiti.import("@/hooks/useSequencedReply");
-const { TranscriptGrowth, useTranscriptFold } = await jiti.import("./TranscriptGrowth.tsx");
-const display = await import("../lib/message-display.ts");
-const { buildChatTranscript } = await import("../lib/chat-transcript.ts");
-const duration = await import("../lib/turn-duration.ts");
-const notices = await import("../lib/transcript-notices.ts");
-const noticeViews = await jiti.import("./TranscriptNotices.tsx");
-const { extractTurnWrittenFiles } = await import("../lib/turn-written-files.ts");
-const paging = await import("../lib/chat-lazy-load.ts");
-const { toolCallFailureCount } = await jiti.import("@/lib/tool-call-expansion");
-
-// Exercise the real transcript renderer without mounting the session/network hooks.
-const source = ts.createSourceFile("ChatWindow.tsx", await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const nodes = [];
-function visit(node) { nodes.push(node); ts.forEachChild(node, visit); }
-visit(source);
-const renderer = nodes.find((node) => ts.isArrowFunction(node) && ts.isBlock(node.body)
-  && node.body.statements.length > 0
-  && ts.isVariableStatement(node.body.statements[0])
-  && node.body.statements[0].declarationList.declarations[0].name.getText(source).includes("lastUserIdx"));
-assert.ok(renderer);
-const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === "ProcessDetailsGroup");
-const script = new Script(ts.transpileModule(
-  `${functions.map((node) => node.getText(source)).join("\n")}\n(${renderer.getText(source)})`,
-  { compilerOptions: { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.React } },
-).outputText);
+const { ChatTranscript } = await jiti.import("./ChatTranscript.tsx");
+const { ProcessDetailsGroup } = await jiti.import("./ProcessDetailsGroup.tsx");
+const { StreamingReply } = await jiti.import("./StreamingReply.tsx");
+const { buildChatTranscript } = await jiti.import("@/lib/chat-transcript");
+const { setExpansionPreference } = await jiti.import("@/lib/expansion-preference");
+const { createStreamingStore } = await jiti.import("@/lib/streaming-message");
 
 const user = { role: "user", content: "inspect the project", timestamp: 1000 };
 const reply = (text, extra = {}) => ({ role: "assistant", provider: "test", model: "test", stopReason: "stop", content: [{ type: "text", text }], ...extra });
 const work = (text) => reply(text, { stopReason: "toolUse", content: [{ type: "text", text }, { type: "toolCall", toolCallId: text, toolName: "read", input: { path: "example.txt" } }] });
 
-function renderTranscript(messages, overrides = {}) {
-  const context = createContext({
-    React, Fragment: React.Fragment, useState: React.useState, useLayoutEffect: React.useLayoutEffect, useId: React.useId,
-    ...display, ...duration, ...notices, ...noticeViews, ...paging, extractTurnWrittenFiles, toolCallFailureCount,
-    useExpansionPreference: () => "automatic",
-    useTranscriptFold, TranscriptGrowth,
-    FoldTokenTotals, TokenFlow, TokenFlowFold, TokenFlowHandoff, TranscriptToolResult,
-    formatTime, formatUsage, getModelDisplayName, handoffTimeOf,
-    transcript: buildChatTranscript(messages, {}, Boolean(overrides.cacheMissMarker)),
-    showTokenFlow: overrides.tokenDisplay === "flow",
-    TranscriptViewportRow: ({ render, pinned }) => !overrides.onlyPinnedRows || pinned ? render() : null,
-    MessageView, messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
-    toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project",
-    sessionBusy: false, isStreaming: false, bashRunning: false, isNew: false, isCompacting: false, compactError: null,
-    loading: false, visibleReplyStartsRef: { current: new Set() },
-    lastUserMsgRef: { current: null }, pendingSearchScroll: null, searchBlock: null, forkingEntryId: null, editEntryId: null,
-    pendingScrollRestore: null,
-    session: { id: "fixture" }, sessionIdRef: { current: "fixture" }, visibleCount: 100, hasEarlierMessages: false, earlierTurnCount: 0,
-    handleFork: undefined, handleEditContent: undefined, cancelEdit: undefined, handleOpenFile: undefined,
-    onOpenFile: undefined, onOpenSubagent: undefined, handleCompact: undefined, setSentinel: undefined, setVisibleCount: undefined,
-    hideCost: false, t: (key) => key,
-    tokenDisplay: "text",
-    cacheMissMarker: false,
-    ...overrides,
-  });
-  const Transcript = script.runInContext(context);
-  return renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(Transcript)));
+function withTranscriptDom(run, { processPreference = "automatic", onlyPinnedRows = false } = {}) {
+  const window = new Window({ url: "http://localhost" });
+  const { document } = window;
+  // No intersections are delivered: only rows pinned by the real renderer mount.
+  const IntersectionObserver = onlyPinnedRows ? class {
+    observe() {}
+    unobserve() {}
+  } : undefined;
+  const globals = { window, document, navigator: window.navigator, Element: window.Element, Event: window.Event, IntersectionObserver, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  const host = document.createElement("div");
+  host.setAttribute("data-chat-transcript-scroll", "");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    setExpansionPreference("process", processPreference);
+    return run({ host, render(element) { act(() => root.render(createElement(I18nProvider, null, element))); } });
+  } finally {
+    act(() => root.unmount());
+    window.happyDOM.abort();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
+}
+
+function renderTranscript(messages, { processPreference, onlyPinnedRows, ...overrides } = {}) {
+  return withTranscriptDom(({ host, render }) => {
+    render(createElement(ChatTranscript, {
+      transcript: buildChatTranscript(messages, {}, Boolean(overrides.cacheMissMarker)),
+      showTokenFlow: overrides.tokenDisplay === "flow",
+      messages, entryIds: messages.map((_, idx) => `entry-${idx}`), messageKeys: messages.map((_, idx) => `message-${idx}`),
+      toolResultsMap: new Map(), modelNames: {}, messageCwd: "/project", sessionId: "fixture",
+      sessionBusy: false, isStreaming: false, isCompacting: false, loading: false, restoringScroll: false,
+      visibleReplyStarts: { current: new Set() }, visibleCount: 100, hasEarlierMessages: false, earlierTurnCount: 0,
+      hideCost: false, tokenDisplay: "text", cacheMissMarker: false,
+      ...overrides,
+    }));
+    return host.innerHTML;
+  }, { processPreference, onlyPinnedRows });
 }
 
 test("preserves every completed reply across autonomous continuations", () => {
@@ -144,7 +134,7 @@ test("does not attach one reply's written files to the next reply", () => {
 test("reveals only the searched process segment without hiding either reply", () => {
   const thinking = (text) => reply("", { stopReason: "toolUse", content: [{ type: "thinking", thinking: text }] });
   const html = renderTranscript([user, thinking("matched process commentary"), reply("first reply"), thinking("unmatched process commentary"), reply("second reply")], {
-    pendingSearchScroll: { entryId: "entry-1" },
+    searchEntryId: "entry-1",
   });
   assert.ok(html.includes("matched process commentary"));
   assert.ok(!html.includes("unmatched process commentary"));
@@ -155,13 +145,13 @@ test("reveals only the searched process segment without hiding either reply", ()
 test("process preference overrides the automatic default", () => {
   const hidden = reply("", { content: [{ type: "thinking", thinking: "process thinking" }] });
   const messages = [user, hidden, reply("final answer")];
-  assert.ok(renderTranscript(messages, { useExpansionPreference: () => "expanded" }).includes("process thinking"));
-  assert.ok(!renderTranscript(messages, { useExpansionPreference: () => "collapsed" }).includes("process thinking"));
+  assert.ok(renderTranscript(messages, { processPreference: "expanded" }).includes("process thinking"));
+  assert.ok(!renderTranscript(messages, { processPreference: "collapsed" }).includes("process thinking"));
 });
 
 test("leaves unfinished process steps visible with no fold toggles", () => {
   const thought = reply("", { content: [{ type: "thinking", thinking: "unfinished thought" }] });
-  const options = { tokenDisplay: "flow", useExpansionPreference: () => "collapsed" };
+  const options = { tokenDisplay: "flow", processPreference: "collapsed" };
   const pending = renderTranscript([user, thought], options);
   assert.match(pending, /unfinished thought/);
   assert.doesNotMatch(pending, /token-flow-fold-toggle/);
@@ -171,70 +161,56 @@ test("leaves unfinished process steps visible with no fold toggles", () => {
 });
 
 test("manual process choice survives an answer and later preference changes", () => {
-  const group = functions.find((node) => node.name.text === "ProcessDetailsGroup");
-  let state = null;
-  let preference = "automatic";
-  const context = createContext({
-    React,
-    useState: () => [state, (value) => { state = value; }],
-    useId: () => "summary",
-    useLayoutEffect: () => {},
-    useExpansionPreference: () => preference,
-    useTranscriptFold: (collapsed) => ({ showDetails: !collapsed }),
-    formatTurnDuration: duration.formatTurnDuration,
-    cacheMissSummaryText: noticeViews.cacheMissSummaryText,
-    TRANSCRIPT_NOTICE_WARNING_COLOR: noticeViews.TRANSCRIPT_NOTICE_WARNING_COLOR,
+  withTranscriptDom(({ host, render }) => {
+    const renderGroup = (defaultExpanded) => render(createElement(ProcessDetailsGroup, {
+      messageCount: 1, toolCallCount: 0, failureCount: 0, defaultExpanded,
+      t: (key) => key, renderDetails: () => "process details",
+    }));
+    const button = () => host.querySelector("button");
+    renderGroup(true);
+    assert.equal(button().getAttribute("aria-expanded"), "true");
+    assert.match(host.textContent, /process details/);
+    act(() => button().click());
+    renderGroup(false);
+    act(() => setExpansionPreference("process", "expanded"));
+    assert.equal(button().getAttribute("aria-expanded"), "false");
+    assert.doesNotMatch(host.textContent, /process details/);
+    act(() => button().click());
+    act(() => setExpansionPreference("process", "collapsed"));
+    assert.equal(button().getAttribute("aria-expanded"), "true");
+    assert.match(host.textContent, /process details/);
   });
-  const component = new Script(ts.transpileModule(`(${group.getText(source)})`, {
-    compilerOptions: { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.React },
-  }).outputText).runInContext(context);
-  let builds = 0;
-  const props = { messageCount: 1, toolCallCount: 0, failureCount: 0, t: (key) => key, renderDetails: () => ++builds };
-  const button = (defaultExpanded) => component({ ...props, defaultExpanded }).props.children[0];
-  assert.equal(button(true).props["aria-expanded"], true);
-  assert.equal(builds, 1);
-  button(true).props.onClick();
-  const before = builds;
-  assert.equal(button(false).props["aria-expanded"], false);
-  preference = "expanded";
-  assert.equal(button(false).props["aria-expanded"], false);
-  assert.equal(builds, before, "closed folds do not build their children");
-  button(false).props.onClick();
-  preference = "collapsed";
-  assert.equal(button(false).props["aria-expanded"], true);
 });
 
 test("collapsed process header reports failed calls and hides the count when open", () => {
   const messages = [user, work("failed work"), reply("answer")];
   const toolResultsMap = new Map([["failed work", { role: "toolResult", toolCallId: "failed work", isError: true, content: [] }]]);
-  const t = (key, params) => key === "chat.processFailures" ? `${params.count} failures` : key;
-  assert.ok(renderTranscript(messages, { toolResultsMap, t }).includes("1 failures"));
-  assert.ok(!renderTranscript(messages, { toolResultsMap, t, useExpansionPreference: () => "expanded" }).includes("1 failures"));
+  assert.ok(renderTranscript(messages, { toolResultsMap }).includes("1 failed"));
+  assert.ok(!renderTranscript(messages, { toolResultsMap, processPreference: "expanded" }).includes("1 failed"));
 });
 
 test("cache-miss markers show under their step while omp's display.cacheMissMarker is on", () => {
   const marker = (reprocessedTokens) => ({ transcriptNotices: [{ kind: "cache_miss", reprocessedTokens }] });
   const messages = [user, { ...work("step"), ...marker(1500) }, reply("answer", marker(25_400))];
-  const t = (key, params) => key.startsWith("transcriptNotice.fold") ? `${params.count} misses ${params.tokens}` : key;
 
-  const folded = renderTranscript(messages, { t, cacheMissMarker: true });
-  assert.match(folded, /1 misses 1\.5K/, "the folded header counts the step's miss, not the answer's");
+  const folded = renderTranscript(messages, { cacheMissMarker: true });
+  assert.match(folded, /cache miss 1\.5K tokens/, "the folded header counts the step's miss, not the answer's");
   assert.equal((folded.match(/Cache miss · 25K tokens/g) ?? []).length, 1);
   assert.doesNotMatch(folded, /Cache miss · 1\.5K tokens/);
 
-  const open = renderTranscript(messages, { t, cacheMissMarker: true, useExpansionPreference: () => "expanded" });
-  assert.doesNotMatch(open, /1 misses/);
+  const open = renderTranscript(messages, { cacheMissMarker: true, processPreference: "expanded" });
+  assert.doesNotMatch(open, /cache miss 1\.5K tokens/);
   assert.match(open, /Cache miss · 1\.5K tokens/);
   assert.equal((open.match(/Cache miss · 25K tokens/g) ?? []).length, 1);
 
-  const off = renderTranscript(messages, { t, cacheMissMarker: false, useExpansionPreference: () => "expanded" });
-  assert.doesNotMatch(off, /Cache miss|misses/);
+  const off = renderTranscript(messages, { cacheMissMarker: false, processPreference: "expanded" });
+  assert.doesNotMatch(off, /cache miss/i);
 });
 
 test("flow shows one set of counts when a reply's thinking and answer are split", () => {
   const usage = { input: 374, output: 120, cacheRead: 16, cacheWrite: 0, cost: { total: 0.125 } };
   const messages = [user, reply("answer", { usage, content: [{ type: "thinking", thinking: "review" }, { type: "text", text: "answer" }] })];
-  const options = { useExpansionPreference: () => "expanded" };
+  const options = { processPreference: "expanded" };
   const flow = renderTranscript(messages, { ...options, tokenDisplay: "flow" });
   assert.equal((flow.match(/New input: 374/g) ?? []).length, 1);
   assert.match(flow, /Cache Read: 16/);
@@ -269,7 +245,7 @@ test("tool results and appended steering are input boxes, not model output", () 
   const result = (toolCallId) => ({ role: "toolResult", toolCallId, content: [{ type: "text", text: "Observed result" }] });
   const messages = [user, batch, steering, result("first"), result("second"), reply("Summary", { usage })];
   const html = renderTranscript(messages, {
-    tokenDisplay: "flow", useExpansionPreference: () => "expanded",
+    tokenDisplay: "flow", processPreference: "expanded",
   });
   const sequence = Array.from(html.matchAll(/data-token-flow=""|data-token-handoff="([^"]+)"|data-transcript-block="([^"]+)"/g), (match) => match[1] ?? match[2] ?? "model")
     .filter((kind) => kind !== "process" && kind !== "process-end");
@@ -297,7 +273,7 @@ test("shows the request, compaction and user handoff times without a false user 
     ] }),
   ];
   for (const preference of ["expanded", "collapsed"]) {
-    const options = { tokenDisplay: "flow", useExpansionPreference: () => preference };
+    const options = { tokenDisplay: "flow", processPreference: preference };
     const html = renderTranscript(messages, options);
     // A time belongs to the row it sits in; the open process row has none.
     const rows = Array.from(html.matchAll(/data-token-(?:flow=""|handoff="([^"]+)")(?:(?!data-token-)[\s\S])*?class="token-flow-time">([^<]+)/g),
@@ -323,7 +299,7 @@ test("fold totals count every hidden request once, separate from visible request
   assert.match(folded, /data-transcript-port="fold"/);
   assert.match(folded, /token-flow-fold-toggle-slot-bottom[^>]*><button[^>]*aria-expanded="false"/);
   assert.doesNotMatch(folded, /New input: 12|New input: 24|hidden reasoning/);
-  const expanded = renderTranscript(messages, { tokenDisplay: "flow", useExpansionPreference: () => "expanded" });
+  const expanded = renderTranscript(messages, { tokenDisplay: "flow", processPreference: "expanded" });
   assert.doesNotMatch(expanded, /New input: 36/);
   assert.doesNotMatch(expanded, /data-transcript-port="fold"/);
   assert.match(expanded, /New input: 12.*New input: Not reported.*New input: 24/s);
@@ -341,36 +317,27 @@ test("mounts the entire split reply for a search hit outside the viewport", () =
   const options = { tokenDisplay: "flow", onlyPinnedRows: true };
   assert.doesNotMatch(renderTranscript(messages, options), /Answer 3</);
   const jumped = renderTranscript(messages, {
-    ...options, pendingSearchScroll: { entryId: "entry-7" }, searchBlock: messages[7].content[1],
+    ...options, searchEntryId: "entry-7", searchBlock: messages[7].content[1],
   });
   assert.match(jumped, /data-search-target="true"[^>]*>[\s\S]*?Answer 3</);
   assert.match(jumped, /Answer 23</);
 });
 
 test("renders one model row while awaiting the first assistant snapshot", () => {
-  const component = nodes.find((node) => ts.isFunctionExpression(node) && node.name?.text === "StreamingReply");
-  const code = ts.transpileModule(`(${component.getText(source)})`, {
-    compilerOptions: { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.React },
-  }).outputText;
-  let snapshot = null;
-  const StreamingReply = new Script(code).runInContext(createContext({
-    React, useMemo: React.useMemo, useLayoutEffect: React.useLayoutEffect, useSequencedReply,
-    useI18n, getModelDisplayName, MessageView, TokenFlow,
-  }));
-  const render = (waitingForModel) => renderToStaticMarkup(React.createElement(I18nProvider, null,
-    React.createElement(StreamingReply, {
-      store: { getState: () => ({ streamingMessage: snapshot }) },
-      onCommit: () => {},
+  withTranscriptDom(({ host, render }) => {
+    const store = createStreamingStore();
+    const renderReply = (waitingForModel) => render(createElement(StreamingReply, {
+      store, onCommit: () => {}, toolResults: new Map(),
       model: { provider: "test", modelId: "pending-model" }, modelNames: {}, tokenDisplay: "flow", waitingForModel,
-    }),
-  ));
-  assert.equal(render(false), "");
-  const pending = render(true);
-  assert.match(pending, /Token display: test\/pending-model/);
-  assert.match(pending, /New input: Not reported/);
-  snapshot = reply("first chunk", { model: "serving-model" });
-  const streaming = render(false);
-  assert.match(streaming, /Token display: test\/serving-model/);
-  assert.match(streaming, /first chunk/);
-  assert.equal((streaming.match(/data-token-flow=/g) ?? []).length, 1);
+    }));
+    renderReply(false);
+    assert.equal(host.innerHTML, "");
+    renderReply(true);
+    assert.match(host.innerHTML, /Token display: test\/pending-model/);
+    assert.match(host.innerHTML, /New input: Not reported/);
+    act(() => store.dispatch({ type: "snapshot", message: reply("first chunk", { model: "serving-model" }) }));
+    assert.match(host.innerHTML, /Token display: test\/serving-model/);
+    assert.match(host.textContent, /first chunk/);
+    assert.equal(host.querySelectorAll("[data-token-flow]").length, 1);
+  });
 });
