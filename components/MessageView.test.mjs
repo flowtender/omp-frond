@@ -847,6 +847,20 @@ test("browser open badges show explicit overrides without assuming the retained 
   assert.match(render({ action: "open", headed: null }), /class="tool-card-badge" title="headed: This flag takes true or false, not null\."/);
 });
 
+test("ast_grep, ast_edit, debug and browser put their subject in the header, not grep's flags", () => {
+  const title = (toolName, input) => textOf(renderMessage({ role: "assistant", content: [
+    { type: "toolCall", toolCallId: `title-${toolName}`, toolName, input },
+  ] }));
+  const astGrep = title("ast_grep", { pat: "getToolPreview($$$A)", path: "components" });
+  assert.match(astGrep, /getToolPreview\(\$\$\$A\)/);
+  const badges = renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: "ag", toolName: "ast_grep", input: { pat: "x" } }] }).match(/class="tool-card-badge"/g) ?? [];
+  assert.equal(badges.length, 1, "only the skip badge: no regex case or gitignore flags on a structural search");
+  assert.match(title("ast_edit", { ops: [{ pat: "foo($A)", out: "bar($A)" }, { pat: "baz" }], paths: ["lib"] }), /foo\(\$A\) · baz/);
+  assert.match(title("debug", { action: "set_breakpoint", file: "a.c", line: 12 }), /set_breakpoint · a\.c:12/);
+  assert.match(title("debug", { action: "launch", program: "/tmp/a.out" }), /launch · \/tmp\/a\.out/);
+  assert.match(title("browser", { action: "click", selector: "#go" }), /click · #go/);
+});
+
 test("shows an operation icon beside every standard tool label", () => {
   const cases = [
     ["read", "read", "var(--accent)"],
@@ -872,6 +886,7 @@ test("shows an operation icon beside every standard tool label", () => {
     ["wait", "wait", "var(--warning)"],
     ["ask", "ask", "var(--accent)"],
     ["github", "github", "var(--text-muted)"],
+    ["debug", "debug", "var(--accent-hover)"],
     ["unknown_tool", "generic", "var(--text-dim)"],
   ];
 

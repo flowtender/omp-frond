@@ -1868,7 +1868,7 @@ function ToolCard({ callId, toolName, label, mcpLabel, isError, hasFailure = isE
   );
 }
 type ToolIconKind = "read" | "write" | "glob" | "grep" | "edit" | "bash" | "todo" | "eval" | "task" | "browser" | "image"
-  | "lsp" | "retain" | "recall" | "reflect" | "memory_edit" | "mcp" | "gitnexus-impact" | "changes" | "runtests" | "typecheck" | "gitshow" | "upstream" | "wait" | "ask" | "github" | "generic";
+  | "lsp" | "retain" | "recall" | "reflect" | "memory_edit" | "mcp" | "gitnexus-impact" | "changes" | "runtests" | "typecheck" | "gitshow" | "upstream" | "wait" | "ask" | "github" | "debug" | "generic";
 
 const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   read: "var(--accent)",
@@ -1892,6 +1892,7 @@ const TOOL_ICON_COLORS: Record<ToolIconKind, string> = {
   changes: "var(--warning)",
   runtests: "var(--success)",
   typecheck: "var(--accent)",
+  debug: "var(--accent-hover)",
   gitshow: "var(--accent-hover)",
   upstream: "var(--accent-hover)",
   wait: "var(--warning)",
@@ -1925,6 +1926,7 @@ function getToolIconKind(toolName: string, mcpLabel?: McpToolLabel | null): Tool
     case "wait":
     case "ask":
     case "github":
+    case "debug":
       return normalized;
     // this project's own tools in .omp/tools; "impact" is the same blast-radius idea as GitNexus's
     case "impact":
@@ -3170,7 +3172,7 @@ function ToolFlagIcon({ kind, state }: { kind: ToolFlag | "skip"; state?: ToolFl
 
 function describeToolInput(tool: string, args: Record<string, unknown>, t: (key: string, params?: TranslationParams) => string): ToolInputView {
   const view: ToolInputView = { args };
-  const kind = isWriteToolName(tool) ? "write" : (["grep", "glob", "eval", "task", "browser", "recall", "lsp"] as const).find((name) => toolNameIs(tool, name));
+  const kind = isWriteToolName(tool) ? "write" : (["ast_grep", "ast_edit", "grep", "glob", "eval", "task", "browser", "recall", "lsp", "debug"] as const).find((name) => toolNameIs(tool, name));
   if (!kind) return view;
 
   const displayed = new Set<string>();
@@ -3188,23 +3190,33 @@ function describeToolInput(tool: string, args: Record<string, unknown>, t: (key:
     return <ToolHeaderBadge title={title} icon state={state === "invalid" ? undefined : state}><ToolFlagIcon kind={key} state={state} /></ToolHeaderBadge>;
   }
 
+  function skipBadge() {
+    const skip = args.skip;
+    const validSkip = skip == null || (typeof skip === "number" && Number.isFinite(skip) && skip >= 0);
+    if (validSkip) displayed.add("skip");
+    const count = validSkip ? Math.floor(skip ?? 0) : 0;
+    return validSkip && <ToolHeaderBadge
+      title={count > 0 ? t("chat.grep.skipFiles", { count }) : t("chat.grep.firstPage")}
+      icon state={skip === null ? undefined : count > 0 ? "on" : "off"}
+    ><ToolFlagIcon kind="skip" />{count}</ToolHeaderBadge>;
+  }
+
   if (kind === "grep") {
     view.target = headerText("pattern");
     view.targetLanguage = "regex";
     const caseBadge = flagBadge("case", true);
     const gitignoreBadge = flagBadge("gitignore", true);
-    const skip = args.skip;
-    const validSkip = skip == null || (typeof skip === "number" && Number.isFinite(skip) && skip >= 0);
-    if (validSkip) displayed.add("skip");
-    const count = validSkip ? Math.floor(skip ?? 0) : 0;
     view.badge = <span className="tool-card-badges">
       {caseBadge}
       {gitignoreBadge}
-      {validSkip && <ToolHeaderBadge
-        title={count > 0 ? t("chat.grep.skipFiles", { count }) : t("chat.grep.firstPage")}
-        icon state={skip === null ? undefined : count > 0 ? "on" : "off"}
-      ><ToolFlagIcon kind="skip" />{count}</ToolHeaderBadge>}
+      {skipBadge()}
     </span>;
+  } else if (kind === "ast_grep") {
+    view.target = headerText("pat");
+    view.badge = <span className="tool-card-badges">{skipBadge()}</span>;
+  } else if (kind === "ast_edit") {
+    const patterns = Array.isArray(args.ops) ? args.ops.flatMap((op) => isRecord(op) && typeof op.pat === "string" && op.pat ? [op.pat] : []) : [];
+    view.target = patterns.join(" · ") || undefined;
   } else if (kind === "glob") {
     view.target = [headerText("i"), headerText("path"), headerText("pattern")].filter(Boolean).join(" · ");
     const hiddenBadge = flagBadge("hidden", true);
@@ -3253,6 +3265,7 @@ function describeToolInput(tool: string, args: Record<string, unknown>, t: (key:
       view.badge = flagBadge("isolated", false);
     }
   } else if (kind === "browser") {
+    view.target = [headerText("action"), headerText("url") ?? headerText("selector") ?? headerText("name")].filter(Boolean).join(" · ") || undefined;
     if (args.action === "open") {
       const headed = flagBadge("headed");
       const persist = flagBadge("persist");
@@ -3269,11 +3282,12 @@ function describeToolInput(tool: string, args: Record<string, unknown>, t: (key:
     if (typeof args.i !== "string" || !args.i.trim()) view.target = headerText(pathKey);
   } else {
     const action = headerText("action");
+    const program = headerText("program");
     const file = headerText("file");
     const line = file && typeof args.line === "number" ? args.line : undefined;
     if (line !== undefined) displayed.add("line");
     const location = line === undefined ? file : `${file}:${line}`;
-    view.target = [action, location, headerText("symbol"), headerText("query")].filter(Boolean).join(" · ");
+    view.target = [action, program, location, headerText("symbol"), headerText("function"), headerText("query"), headerText("expression")].filter(Boolean).join(" · ");
   }
   if (displayed.size > 0) view.args = Object.fromEntries(Object.entries(args).filter(([key]) => !displayed.has(key)));
   return view;
