@@ -100,57 +100,44 @@ test("fork navigation selects the new session id from the RPC result", () => {
   assert.match(forkSource, /setForkingEntryId\(null\)/);
 });
 
-test("/handoff forwards the focus text verbatim and keeps the UI busy", () => {
-  const handoffCaseSource = source.slice(
-    source.indexOf('case "handoff":'),
-    source.indexOf("default: {", source.indexOf('case "handoff":')),
+test("/compact handoff keeps the UI busy and forwards the focus through the compact command", () => {
+  const handoffSource = source.slice(
+    source.indexOf("const runHandoff = useCallback"),
+    source.indexOf("const handleCompact = useCallback"),
   );
 
-  assert.match(source, /case "handoff": \{/);
-  // The text after /handoff is forwarded exactly as the handoff focus.
-  assert.match(handoffCaseSource, /type: "handoff"/);
-  assert.match(handoffCaseSource, /\.\.\.\(args \? \{ customInstructions: args \} : \{\}\)/);
   // The long oneshot generation keeps the composer busy through existing
   // agent-running state, with no new state machine.
-  assert.match(handoffCaseSource, /if \(agentRunningRef\.current \|\| bashRunningRef\.current\)/);
-  assert.match(handoffCaseSource, /Cannot hand off while the session is busy/);
-  assert.match(handoffCaseSource, /agentRunningRef\.current = true/);
-  assert.match(handoffCaseSource, /setAgentRunning\(true\)/);
-  assert.match(handoffCaseSource, /agentRunningRef\.current = false/);
-  assert.match(handoffCaseSource, /setAgentRunning\(false\)/);
-  // Cancellation resolves locally as an error; /handoff never falls through to
-  // the SDK command bridge or an LLM prompt.
-  assert.match(handoffCaseSource, /if \(!result \|\| result\.cancelled\)/);
-  assert.match(handoffCaseSource, /complete\(\{ handled: true, error: "Handoff cancelled" \}\)/);
-  assert.doesNotMatch(handoffCaseSource, /execute_slash_command/);
-  assert.doesNotMatch(handoffCaseSource, /type: "prompt"/);
-  const connectIndex = handoffCaseSource.indexOf("await ensureEventsConnected(sessionIdRef.current ?? sid)");
-  const dispatchIndex = handoffCaseSource.indexOf('type: "handoff"');
+  assert.match(handoffSource, /if \(agentRunningRef\.current \|\| bashRunningRef\.current\)/);
+  assert.match(handoffSource, /Cannot hand off while the session is busy/);
+  assert.match(handoffSource, /agentRunningRef\.current = true/);
+  assert.match(handoffSource, /setAgentRunning\(true\)/);
+  assert.match(handoffSource, /agentRunningRef\.current = false/);
+  assert.match(handoffSource, /setAgentRunning\(false\)/);
+  assert.match(handoffSource, /compactCommand\(\{ mode: "handoff", focus \}\)/);
+  assert.match(handoffSource, /if \(!result \|\| result\.cancelled\) return \{ error: "Handoff cancelled" \}/);
+  const connectIndex = handoffSource.indexOf("await ensureEventsConnected(sessionIdRef.current ?? sid)");
+  const dispatchIndex = handoffSource.indexOf("compactCommand(");
   assert.ok(connectIndex >= 0);
   assert.ok(dispatchIndex > connectIndex);
-  assert.match(handoffCaseSource, /scheduleEventStreamClose\(finalSid\)/);
+  assert.match(handoffSource, /scheduleEventStreamClose\(finalSid\)/);
+  // omp hands off in place: the session id never changes, so success reloads
+  // this transcript instead of navigating to a replacement session.
+  assert.doesNotMatch(handoffSource, /newSessionId/);
+  assert.doesNotMatch(handoffSource, /onSessionForked/);
+  assert.match(handoffSource, /loadSession\(sessionIdRef\.current \?\? currentSid, true\)/);
 });
 
-test("/handoff reloads the same session after an in-place compaction", () => {
-  const handoffCaseSource = source.slice(
-    source.indexOf('case "handoff":'),
-    source.indexOf("default: {", source.indexOf('case "handoff":')),
+test("/compact parses a mode prefix and routes handoff to the busy-locking path", () => {
+  const compactCaseSource = source.slice(
+    source.indexOf('case "compact": {'),
+    source.indexOf('case "reload": {'),
   );
-
-  assert.match(
-    handoffCaseSource,
-    /sendAgentCommand<\{ cancelled\?: boolean \}>[\s\S]*?type: "handoff"/,
-  );
-  // omp 18 hands off in place: the session id never changes, so success
-  // reloads this transcript instead of navigating to a replacement session.
-  assert.doesNotMatch(handoffCaseSource, /newSessionId/);
-  assert.doesNotMatch(handoffCaseSource, /onSessionForked/);
-  assert.match(handoffCaseSource, /loadSession\(sessionIdRef\.current \?\? currentSid, true\)/);
-  // Every branch returns handled so the command never reaches the SDK
-  // fallback — the busy state is torn down in a finally block and the case
-  // yields to the default bridge with a return.
-  assert.match(handoffCaseSource, /complete\(\{ handled: true, message: "Context handed off and compacted in place" \}\)/);
-  assert.match(source, /case "handoff":[\s\S]*?return complete\(\{ handled: true, message: "Context handed off and compacted in place" \}\);\s*\}\s*finally \{[\s\S]*?\}\s*\}\s*default: \{/);
+  assert.match(compactCaseSource, /splitCompactArgs\(args\)/);
+  assert.match(compactCaseSource, /request\.mode === "handoff"\) return complete\(\{ handled: true, \.\.\.await runHandoff\(sid, request\.focus\) \}\)/);
+  assert.match(compactCaseSource, /compactCommand\(request\)/);
+  // /handoff is gone from the composer: it is a mode of /compact.
+  assert.doesNotMatch(source, /case "handoff":/);
 });
 
 test("rehydrates handoff as busy without misreporting compaction", () => {

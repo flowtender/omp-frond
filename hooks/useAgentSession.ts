@@ -16,6 +16,7 @@ import type {
   UserMessage,
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
+import { compactCommand, splitCompactArgs, type CompactRequest } from "@/lib/compact-modes";
 import { normalizeStreamingToolCalls, normalizeToolCalls } from "@/lib/normalize";
 import { TRANSCRIPT_NOTICES_KEY, withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import { stripAnsi } from "@/lib/ansi";
@@ -2651,14 +2652,59 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, loadSession, modelRoles, sendAskingCacheLoss, setNewSessionModel]);
 
-  const handleCompact = useCallback(async () => {
+  /**
+   * Handoff compaction keeps the composer busy through the existing agent-running
+   * state: the summary is one long generation, and a prompt must not race the
+   * compaction entry it commits.
+   */
+  const runHandoff = useCallback(async (sid: string, focus?: string): Promise<{ error: string } | { message: string }> => {
+    if (agentRunningRef.current || bashRunningRef.current) {
+      return { error: "Cannot hand off while the session is busy" };
+    }
+    agentRunningRef.current = true;
+    setAgentRunning(true);
+    setAgentPhase({ kind: "running_command" });
+    try {
+      await ensureEventsConnected(sessionIdRef.current ?? sid);
+      const currentSid = sessionIdRef.current ?? sid;
+      const result = await sendAgentCommand<{ cancelled?: boolean }>(
+        currentSid,
+        compactCommand({ mode: "handoff", focus }),
+        runtimeIdRef,
+      );
+      if (!result || result.cancelled) return { error: "Handoff cancelled" };
+      // omp hands off in place, so the session keeps its id and gains a handoff
+      // compaction entry: reload this transcript rather than navigating away.
+      if (mountedRef.current && await loadSession(sessionIdRef.current ?? currentSid, true)) promoteNewSession();
+      return { message: "Context handed off and compacted in place" };
+    } finally {
+      if (mountedRef.current) {
+        agentRunningRef.current = false;
+        setAgentRunning(false);
+        setAgentPhase(null);
+        const finalSid = sessionIdRef.current;
+        if (finalSid) scheduleEventStreamClose(finalSid);
+      }
+    }
+  }, [ensureEventsConnected, loadSession, promoteNewSession, scheduleEventStreamClose]);
+
+  const handleCompact = useCallback(async (request: CompactRequest = {}) => {
     const sid = sessionIdRef.current;
     if (!sid || isCompacting) return;
+    if (request.mode === "handoff") {
+      try {
+        const outcome = await runHandoff(sid, request.focus);
+        addNotice("error" in outcome ? { type: "error", message: outcome.error } : { type: "success", message: outcome.message });
+      } catch (e) {
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
     setIsCompacting(true);
     setCompactError(null);
     setCompactResult(null);
     try {
-      const result = await sendAgentCommand<CompactCommandResult>(sid, { type: "compact" }, runtimeIdRef);
+      const result = await sendAgentCommand<CompactCommandResult>(sid, compactCommand(request), runtimeIdRef);
       setCompactResult(readCompactResult(result, "manual"));
       await loadSession(sid, true);
     } catch (e) {
@@ -2667,7 +2713,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       setIsCompacting(false);
     }
-  }, [isCompacting, loadSession]);
+  }, [addNotice, isCompacting, loadSession, runHandoff]);
 
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
@@ -2787,14 +2833,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       switch (commandName) {
         case "compact": {
+          const request = splitCompactArgs(args);
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
+          if (request.mode === "handoff") return complete({ handled: true, ...await runHandoff(sid, request.focus) });
           setIsCompacting(true);
           setCompactError(null);
           setCompactResult(null);
-          const result = await sendAgentCommand<CompactCommandResult>(sid, {
-            type: "compact",
-            ...(args ? { customInstructions: args } : {}),
-          }, runtimeIdRef);
+          const result = await sendAgentCommand<CompactCommandResult>(sid, compactCommand(request), runtimeIdRef);
           setCompactResult(readCompactResult(result, "manual"));
           if (await loadSession(sid, true)) promoteNewSession();
           return complete({ handled: true, message: "Compacted context" });
@@ -2882,43 +2927,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return complete({ handled: true, message: result?.message ?? "Command completed" });
         }
 
-        case "handoff": {
-          if (!sid) return complete({ handled: true, error: "No active session" });
-          if (agentRunningRef.current || bashRunningRef.current) {
-            return complete({ handled: true, error: "Cannot hand off while the session is busy" });
-          }
-          // Handoff generation is a long oneshot LLM call; keep the composer
-          // busy through it with the existing agent-running state so a prompt
-          // cannot race the compaction entry it commits.
-          agentRunningRef.current = true;
-          setAgentRunning(true);
-          setAgentPhase({ kind: "running_command" });
-          try {
-            await ensureEventsConnected(sessionIdRef.current ?? sid);
-            const currentSid = sessionIdRef.current ?? sid;
-            const result = await sendAgentCommand<{ cancelled?: boolean }>(currentSid, {
-              type: "handoff",
-              ...(args ? { customInstructions: args } : {}),
-            }, runtimeIdRef);
-            if (!result || result.cancelled) {
-              return complete({ handled: true, error: "Handoff cancelled" });
-            }
-            // omp 18 hands off in place, so the session keeps its id and gains
-            // a handoff compaction entry: reload this transcript rather than
-            // navigating to a replacement session.
-            if (mountedRef.current && await loadSession(sessionIdRef.current ?? currentSid, true)) promoteNewSession();
-            return complete({ handled: true, message: "Context handed off and compacted in place" });
-          } finally {
-            if (mountedRef.current) {
-              agentRunningRef.current = false;
-              setAgentRunning(false);
-              setAgentPhase(null);
-              const finalSid = sessionIdRef.current;
-              if (finalSid) scheduleEventStreamClose(finalSid);
-            }
-          }
-        }
-
         default: {
           if (!sid) return complete({ handled: true, error: "No active session" });
           const result = await sendAgentCommand<{
@@ -2942,7 +2950,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, appendCommandOutput, ensureEventsConnected, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, onOpenSettings, onSessionStatsPanelOpen, onToolsReport, promoteNewSession, resolveCommandSession, scheduleEventStreamClose, sendAskingCacheLoss, slashCommandsForMcp]);
+  }, [addNotice, appendCommandOutput, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, onOpenSettings, onSessionStatsPanelOpen, onToolsReport, promoteNewSession, resolveCommandSession, runHandoff, sendAskingCacheLoss, slashCommandsForMcp]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An

@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { resolveAgentDir } from "../bin/web-auth-store";
 import { getSetting } from "@/lib/omp-settings";
 import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-coding-agent/utils/render-utils";
+import { COMPACT_MODES, type CompactMode } from "@/lib/compact-modes";
 import { CompactionCancelledError } from "@oh-my-pi/pi-agent-core/compaction";
 import {
   applyResolvedSystemPromptInputs,
@@ -337,12 +338,17 @@ const BROWSER_NATIVE_DESCRIPTIONS: Partial<Record<(typeof BROWSER_NATIVE_SLASH_C
 };
 
 /**
+ * Shared SDK builtins the browser replaces with a mode of another command:
+ * /handoff is `/compact handoff` here, run through the compact controls.
+ */
+const SUPERSEDED_SDK_SLASH_COMMANDS: Record<string, true> = { handoff: true };
+
+/**
  * Keep the browser palette aligned with omp's own command registry and
  * discovery pipeline. Shared text/ACP builtins and every discovered
  * extension/custom/MCP/file/skill command come from the SDK discovery;
  * browser-native /fork is added explicitly from the canonical builtin registry
- * because it has no shared SDK handler yet. /handoff gained one in omp 18, so
- * it now arrives through discovery like every other shared builtin.
+ * because it has no shared SDK handler yet.
  */
 export async function getAvailableSlashCommands(session: AgentSessionLike): Promise<SlashCommandInfo[]> {
   const commands: SlashCommandInfo[] = [];
@@ -350,6 +356,7 @@ export async function getAvailableSlashCommands(session: AgentSessionLike): Prom
 
   const discovered = await buildAvailableSlashCommands(session as unknown as AvailableCommandsSession);
   for (const command of discovered) {
+    if (command.source === "builtin" && SUPERSEDED_SDK_SLASH_COMMANDS[command.name]) continue;
     appendSlashCommand(commands, seenNames, command);
   }
 
@@ -846,7 +853,7 @@ export class AgentSessionWrapper {
     return type === "prompt"
       || type === "steer"
       || type === "follow_up"
-      || type === "handoff"
+      || type === "compact"
       || type === "get_commands"
       || type === "get_state"
       || type === "execute_slash_command"
@@ -858,6 +865,32 @@ export class AgentSessionWrapper {
       return await operation();
     } finally {
       this.resetIdleTimer();
+      notifyRunningChange();
+    }
+  }
+
+  /**
+   * Handoff compaction: a long background summary that commits in place. It
+   * has its own running state, so state polls report it distinctly from a
+   * manual compaction and the session rejects other mutations meanwhile.
+   */
+  private async runHandoff(customInstructions: string | undefined): Promise<{ cancelled: boolean }> {
+    if (this.handoffRunning || this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
+      throw new Error("Cannot hand off while the session is busy");
+    }
+    this.handoffRunning = true;
+    notifyRunningChange();
+    try {
+      await this.inner.compact(customInstructions, { mode: "handoff" });
+      // The session id and file are unchanged, so only the cached listing
+      // (modified time, token counts) has gone stale.
+      invalidateSessionListCache();
+      return { cancelled: false };
+    } catch (error) {
+      if (error instanceof CompactionCancelledError) return { cancelled: true };
+      throw error;
+    } finally {
+      this.handoffRunning = false;
       notifyRunningChange();
     }
   }
@@ -1662,30 +1695,6 @@ export class AgentSessionWrapper {
         return { cancelled: false, newSessionId };
       }
 
-      case "handoff": {
-        // Keep the browser's blocking handoff contract while the SDK prepares
-        // and commits the summary through background compaction.
-        if (this.handoffRunning || this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
-          throw new Error("Cannot hand off while the session is busy");
-        }
-        const customInstructions = command.customInstructions as string | undefined;
-        this.handoffRunning = true;
-        notifyRunningChange();
-        try {
-          await this.inner.compact(customInstructions, { mode: "handoff" });
-          // The session id and file are unchanged, so only the cached listing
-          // (modified time, token counts) has gone stale.
-          invalidateSessionListCache();
-          return { cancelled: false };
-        } catch (error) {
-          if (error instanceof CompactionCancelledError) return { cancelled: true };
-          throw error;
-        } finally {
-          this.handoffRunning = false;
-          notifyRunningChange();
-        }
-      }
-
       case "navigate_tree": {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot navigate while a shell command is running");
@@ -1709,9 +1718,13 @@ export class AgentSessionWrapper {
       }
 
       case "compact": {
+        const mode = command.mode as CompactMode | undefined;
+        if (mode !== undefined && !COMPACT_MODES.includes(mode)) throw new Error(`Unknown compact mode: ${String(mode)}`);
+        const customInstructions = command.customInstructions as string | undefined;
+        if (mode === "handoff") return await this.runHandoff(customInstructions);
         try {
           return await this.withFinalRunningNotification(() =>
-            this.inner.compact(command.customInstructions as string | undefined)
+            this.inner.compact(customInstructions, mode ? { mode } : undefined)
           );
         } finally {
           invalidateSessionListCache();

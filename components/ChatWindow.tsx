@@ -396,6 +396,8 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
     deferInitialScroll: Boolean(pendingScrollRestore),
     confirmPromptCacheLoss: cacheLoss.confirm,
   });
+  // The truncation notice offers omp's configured compaction method, not a menu of them.
+  const compactWithConfiguredMethod = useCallback(() => { void handleCompact(); }, [handleCompact]);
   // Only whether a reply is streaming and has content yet: the chunks themselves
   // re-render StreamingReply alone.
   const isStreaming = useStreamingSelector(streamingStore, selectIsStreaming);
@@ -1347,7 +1349,7 @@ export function ChatWindow({ openingId, session, searchTarget, onSearchTargetHan
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={writtenFiles}
                     turnDurationMs={turnDurationMs}
-                    onCompact={part?.kind === "status" && idx === messages.length - 1 && !isStreaming ? handleCompact : undefined}
+                    onCompact={part?.kind === "status" && idx === messages.length - 1 && !isStreaming ? compactWithConfiguredMethod : undefined}
                     isCompacting={isCompacting}
                     compactError={compactError}
                     hideCost={hideCost}
