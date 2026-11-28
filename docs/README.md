@@ -70,6 +70,16 @@ provider credential configuration, independent of the user's host agent home.
 The launcher supervises Next and the local worker as siblings: on Unix,
 `SIGHUP` to the launcher replaces only Next, while quitting stops both.
 
+The launcher also listens on a loopback port behind a bearer token that only
+the web server's environment carries (`OMP_FROND_LAUNCHER_PORT`,
+`OMP_FROND_LAUNCHER_TOKEN`). The new-session bar's worker picker uses it
+through `/api/workers`: its restart button stops the local worker and starts
+it again on the same port and token, so changed tools or a rebuilt worker take
+effect without restarting Next. While a session on the worker is running,
+`POST /api/workers/local/restart` answers 409 `{ busy: true }` until the
+request repeats with `{ "force": true }`. A worker supplied through
+`OMP_FROND_WORKER_*` is not the launcher's to restart.
+
 For multi-worker routing, each conversation belongs to one worker, and a
 worker can host multiple conversations. A browser tab follows the worker of
 the conversation it opens; two tabs on the same conversation attach to the

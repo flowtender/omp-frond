@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import type { NewSessionContext, NewSessionTarget, ProjectChoice } from "@/lib/new-session-context";
 import { focusIfLost } from "@/lib/stacked-dialog";
 import { ProjectWorktreePicker, type ProjectWorktreeControl, type ProjectWorktreePickerHandle } from "./ProjectWorktreePicker";
+import { WorkerPicker } from "./WorkerPicker";
 
 /** The bar's two controls. A move names the one it came from, which takes focus in the bar that replaces this one. */
 export type NewSessionContextControl = ProjectWorktreeControl;
@@ -111,6 +112,7 @@ export function NewSessionContextBar({
         onRefreshWorktrees={onRefreshWorktrees}
         onCreateWorktree={onCreateWorktree}
       />
+      <WorkerPicker mobile={mobile} />
     </div>
   );
 }
